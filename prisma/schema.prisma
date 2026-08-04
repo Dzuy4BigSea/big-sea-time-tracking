@@ -1,0 +1,847 @@
+// Harvest clone — Prisma schema
+// Source of truth: specs/01-data-model.md (revised against the live account).
+// Conventions:
+//   - Money = integer minor units (cents). No floats. See INV-1.
+//   - Durations = integer minutes.
+//   - Every tenant-owned row has accountId (FK -> Account) and cascades on account delete. See INV-5.
+//   - Rates are effective-dated (PersonBillableRate / PersonCostRate). See specs/03 rate resolution.
+//
+// Two constraints Prisma cannot express declaratively — add via raw SQL migration:
+//   1. TimeEntry: partial unique index "at most one isRunning=true per user"
+//      -> CREATE UNIQUE INDEX one_running_timer ON "TimeEntry"("userId") WHERE "isRunning";
+//   2. Person rate tables: non-overlapping [startDate,endDate] ranges per user (exclusion constraint).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum WeekStart {
+  sunday
+  monday
+}
+
+enum DeadlineDay {
+  mon
+  tue
+  wed
+  thu
+  fri
+  sat
+  sun
+}
+
+enum TimeRounding {
+  none
+  nearest_1
+  nearest_5
+  nearest_6
+  nearest_10
+  nearest_15
+}
+
+enum TimeEntryNotesPolicy {
+  optional
+  required
+}
+
+enum TimeFormatClock {
+  h12
+  h24
+}
+
+enum TimeDisplay {
+  hh_mm
+  decimal
+}
+
+enum TimerMode {
+  duration
+  start_stop
+}
+
+enum ExpenseReimbursement {
+  disabled
+  allowed
+}
+
+enum PermissionProfile {
+  member
+  project_manager
+  people_admin
+  accounting
+  executive_manager
+  administrator
+}
+
+enum UserType {
+  employee
+  contractor
+}
+
+enum ProjectType {
+  time_and_materials
+  fixed_fee
+  non_billable
+}
+
+enum BillableRateMethod {
+  none
+  project
+  person
+  task
+}
+
+enum BudgetMethod {
+  none
+  hours_total
+  hours_per_task
+  hours_per_person
+  fee_total
+  cost_total
+}
+
+enum LockState {
+  open
+  approved
+  invoiced
+}
+
+enum TimesheetStatus {
+  unsubmitted
+  submitted
+  approved
+  reopened
+}
+
+enum InvoiceStatus {
+  draft
+  open
+  paid
+  written_off
+  closed
+}
+
+enum PaymentTerm {
+  due_on_receipt
+  net_15
+  net_30
+  net_45
+  net_60
+  custom
+}
+
+enum LineItemKind {
+  time
+  expense
+  free_form
+  flat
+}
+
+enum PaymentMethod {
+  cash
+  check
+  bank_transfer
+  card
+  other
+}
+
+enum EstimateStatus {
+  draft
+  sent
+  accepted
+  declined
+}
+
+enum MessageKind {
+  invoice
+  reminder
+  thank_you
+}
+
+enum RecurringFrequency {
+  weekly
+  monthly
+  quarterly
+  yearly
+  custom
+}
+
+enum RecurringStatus {
+  active
+  paused
+}
+
+enum RetainerStatus {
+  ongoing
+  archived
+}
+
+enum ExpenseLockState {
+  open
+  invoiced
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+  state_change
+}
+
+// ---------------------------------------------------------------------------
+// Account, modules, preferences
+// ---------------------------------------------------------------------------
+
+model Account {
+  id                 String  @id @default(cuid())
+  name               String
+  accountOwnerUserId String? @unique
+  accountOwner       User?   @relation("AccountOwner", fields: [accountOwnerUserId], references: [id], onDelete: SetNull)
+
+  // Preferences (specs/11)
+  baseCurrency          String               @default("USD")
+  currencyFormat        String               @default("$0.00")
+  numberFormat          String               @default("1,234.56")
+  timezone              String               @default("America/New_York")
+  fiscalYearStartMonth  Int                  @default(1)
+  weekStartsOn          WeekStart            @default(monday)
+  defaultCapacityHours  Decimal              @default(40) @db.Decimal(5, 2)
+  timesheetDeadlineDay  DeadlineDay?
+  timesheetDeadlineTime String?
+  timesheetReminderRule Json?
+  timeEntryNotes        TimeEntryNotesPolicy @default(optional)
+  timeRounding          TimeRounding         @default(none)
+  dateFormat            String               @default("MM/DD/YYYY")
+  timeFormatClock       TimeFormatClock      @default(h12)
+  timeDisplay           TimeDisplay          @default(hh_mm)
+  timerMode             TimerMode            @default(duration)
+  expenseReimbursement  ExpenseReimbursement @default(disabled)
+
+  // Monotonic document number sequences (INV-6)
+  invoiceNumberSeq  Int @default(1000)
+  estimateNumberSeq Int @default(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  module                   Module?
+  users                    User[]                    @relation("AccountMembers")
+  personBillableRates      PersonBillableRate[]
+  personCostRates          PersonCostRate[]
+  clients                  Client[]
+  clientContacts           ClientContact[]
+  tasks                    Task[]
+  itemTypes                ItemType[]
+  projects                 Project[]
+  projectTaskAssignments   ProjectTaskAssignment[]
+  projectUserAssignments   ProjectUserAssignment[]
+  timeEntries              TimeEntry[]
+  timesheets               Timesheet[]
+  invoices                 Invoice[]
+  invoiceLineItems         InvoiceLineItem[]
+  payments                 Payment[]
+  estimates                Estimate[]
+  estimateLineItems        EstimateLineItem[]
+  expenseCategories        ExpenseCategory[]
+  expenses                 Expense[]
+  recurringInvoiceProfiles RecurringInvoiceProfile[]
+  retainers                Retainer[]
+  invoiceMessageTemplates  InvoiceMessageTemplate[]
+  senderAddresses          SenderAddress[]
+  auditLogs                AuditLog[]
+}
+
+// Feature flags (specs/11). 1:1 with Account.
+model Module {
+  id        String  @id @default(cuid())
+  accountId String  @unique
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  timeTracking      Boolean @default(true)
+  expenseTracking   Boolean @default(true)
+  timesheetApproval Boolean @default(false)
+  team              Boolean @default(true)
+  invoices          Boolean @default(true)
+  estimates         Boolean @default(false)
+  clientDashboard   Boolean @default(true)
+  activityLog       Boolean @default(false)
+}
+
+// ---------------------------------------------------------------------------
+// People, permissions, rates
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation("AccountMembers", fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Credentials. NOTE: specs/02 describes a central "Harvest ID" identity that
+  // could be extracted to its own table; phase 1 keeps them here (1:1).
+  email        String
+  passwordHash String
+  firstName    String
+  lastName     String
+
+  employeeId           String?
+  type                 UserType          @default(employee)
+  permissionProfile    PermissionProfile @default(member)
+  permissionOverrides  Json?
+  roleTags             String[]          @default([])
+  departments          String[]          @default([])
+  capacityHoursPerWeek Decimal?          @db.Decimal(5, 2)
+  timezone             String?
+  isActive             Boolean           @default(true)
+  archivedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownedAccount       Account?                @relation("AccountOwner")
+  billableRates      PersonBillableRate[]
+  costRates          PersonCostRate[]
+  timeEntries        TimeEntry[]
+  timesheets         Timesheet[]
+  approvedTimesheets Timesheet[]             @relation("TimesheetApprover")
+  projectAssignments ProjectUserAssignment[]
+  expenses           Expense[]
+  auditLogs          AuditLog[]              @relation("AuditActor")
+
+  @@unique([accountId, email])
+  @@index([accountId])
+}
+
+// Effective-dated billable rate history. Admin + Accounting + Exec-Mgr visible.
+model PersonBillableRate {
+  id              String    @id @default(cuid())
+  accountId       String
+  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hourlyRateCents Int
+  startDate       DateTime? @db.Date // null = all prior
+  endDate         DateTime? @db.Date // null = all future
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+// Effective-dated internal cost rate history. Admin-only visibility.
+model PersonCostRate {
+  id              String    @id @default(cuid())
+  accountId       String
+  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hourlyRateCents Int
+  startDate       DateTime? @db.Date
+  endDate         DateTime? @db.Date
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Clients, projects, tasks, assignments
+// ---------------------------------------------------------------------------
+
+model Client {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name       String
+  currency   String    @default("USD")
+  address    String?
+  isActive   Boolean   @default(true)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  contacts                 ClientContact[]
+  projects                 Project[]
+  invoices                 Invoice[]
+  estimates                Estimate[]
+  retainers                Retainer[]
+  recurringInvoiceProfiles RecurringInvoiceProfile[]
+
+  @@index([accountId])
+}
+
+model ClientContact {
+  id                 String  @id @default(cuid())
+  accountId          String
+  account            Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId           String
+  client             Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  firstName          String
+  lastName           String
+  title              String?
+  email              String?
+  phoneOffice        String?
+  phoneMobile        String?
+  isInvoiceRecipient Boolean @default(false)
+
+  @@index([accountId])
+  @@index([clientId])
+}
+
+model Task {
+  id                     String    @id @default(cuid())
+  accountId              String
+  account                Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name                   String
+  defaultBillable        Boolean   @default(true)
+  defaultHourlyRateCents Int?
+  autoAddToNewProjects   Boolean   @default(false) // true = "Common task"
+  isActive               Boolean   @default(true)
+  archivedAt             DateTime?
+
+  taskAssignments ProjectTaskAssignment[]
+  timeEntries     TimeEntry[]
+
+  @@index([accountId])
+}
+
+model Project {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  code      String?
+
+  // Two-level billing model (specs/03)
+  projectType            ProjectType         @default(time_and_materials)
+  billableRateMethod     BillableRateMethod?
+  projectHourlyRateCents Int?
+  projectFeesCents       Int?
+  billingCurrency        String?
+
+  // Budget
+  budgetMethod        BudgetMethod @default(none)
+  budgetValue         Int? // minutes or cents depending on method
+  budgetResetsMonthly Boolean      @default(false)
+  budgetAlertPercent  Int?
+
+  isBillable Boolean   @default(true)
+  startsOn   DateTime? @db.Date
+  endsOn     DateTime? @db.Date
+  notes      String?
+  isActive   Boolean   @default(true)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  taskAssignments ProjectTaskAssignment[]
+  userAssignments ProjectUserAssignment[]
+  timeEntries     TimeEntry[]
+  lineItems       InvoiceLineItem[]       @relation("LineItemLinkedProject")
+  retainers       Retainer[]
+  Expense         Expense[]
+
+  @@index([accountId])
+  @@index([clientId])
+}
+
+model ProjectTaskAssignment {
+  id              String  @id @default(cuid())
+  accountId       String
+  account         Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId          String
+  task            Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  billable        Boolean @default(true)
+  hourlyRateCents Int? // per-project task-rate override
+  isActive        Boolean @default(true)
+
+  @@unique([projectId, taskId])
+  @@index([accountId])
+}
+
+model ProjectUserAssignment {
+  id               String  @id @default(cuid())
+  accountId        String
+  account          Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  projectId        String
+  project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hourlyRateCents  Int? // per-project person-rate override
+  isProjectManager Boolean @default(false)
+  isActive         Boolean @default(true)
+
+  @@unique([projectId, userId])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Time tracking
+// ---------------------------------------------------------------------------
+
+model TimeEntry {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  spentDate         DateTime @db.Date
+  minutes           Int      @default(0)
+  notes             String?
+  isBillable        Boolean  @default(true)
+  billableRateCents Int? // resolved via effective-dated rate on spentDate
+
+  timerStartedAt DateTime?
+  isRunning      Boolean   @default(false) // see partial unique index note at top
+  lockState      LockState @default(open)
+
+  invoiceLineItemId   String?
+  invoiceLineItem     InvoiceLineItem? @relation(fields: [invoiceLineItemId], references: [id], onDelete: SetNull)
+  approvedTimesheetId String?
+  approvedTimesheet   Timesheet?       @relation("TimesheetEntries", fields: [approvedTimesheetId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([userId, spentDate])
+  @@index([projectId])
+  @@index([invoiceLineItemId])
+}
+
+model Timesheet {
+  id               String          @id @default(cuid())
+  accountId        String
+  account          Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  periodStart      DateTime        @db.Date
+  periodEnd        DateTime        @db.Date
+  status           TimesheetStatus @default(unsubmitted)
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  approvedByUserId String?
+  approvedBy       User?           @relation("TimesheetApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  entries TimeEntry[] @relation("TimesheetEntries")
+
+  @@unique([userId, periodStart])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Invoicing
+// ---------------------------------------------------------------------------
+
+model ItemType {
+  id                String             @id @default(cuid())
+  accountId         String
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name              String
+  isSystemDefault   Boolean            @default(false) // Service / Product cannot be deleted
+  lineItems         InvoiceLineItem[]
+  estimateLineItems EstimateLineItem[]
+
+  @@index([accountId])
+}
+
+model Invoice {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  number      String? // null until sent (draft shows "Not sent yet")
+  status      InvoiceStatus @default(draft)
+  currency    String        @default("USD")
+  issueDate   DateTime?     @db.Date
+  dueDate     DateTime?     @db.Date
+  paymentTerm PaymentTerm   @default(net_30)
+  subject     String?
+  poNumber    String?
+  notes       String?
+  terms       String?
+
+  subtotalCents   Int      @default(0)
+  discountPercent Decimal? @db.Decimal(5, 2)
+  discountCents   Int      @default(0)
+  tax1Name        String?
+  tax1Percent     Decimal? @db.Decimal(6, 3)
+  tax2Name        String?
+  tax2Percent     Decimal? @db.Decimal(6, 3)
+  taxCents        Int      @default(0)
+  totalCents      Int      @default(0)
+  paidCents       Int      @default(0)
+
+  sentAt       DateTime?
+  lastViewedAt DateTime?
+  publicToken  String?   @unique
+
+  createdFromEstimateId String?   @unique
+  createdFromEstimate   Estimate? @relation("EstimateConversion", fields: [createdFromEstimateId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems InvoiceLineItem[]
+  payments  Payment[]
+
+  @@unique([accountId, number])
+  @@index([accountId])
+  @@index([clientId])
+}
+
+model InvoiceLineItem {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  kind            LineItemKind @default(free_form)
+  itemTypeId      String?
+  itemType        ItemType?    @relation(fields: [itemTypeId], references: [id], onDelete: SetNull)
+  linkedProjectId String?
+  linkedProject   Project?     @relation("LineItemLinkedProject", fields: [linkedProjectId], references: [id], onDelete: SetNull)
+
+  description    String
+  quantity       Decimal @db.Decimal(12, 2)
+  unitPriceCents Int
+  amountCents    Int
+  taxable        Boolean @default(true)
+  sortOrder      Int     @default(0)
+
+  timeEntries TimeEntry[]
+  expenses    Expense[]
+
+  @@index([accountId])
+  @@index([invoiceId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  accountId   String
+  account     Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invoiceId   String
+  invoice     Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amountCents Int
+  paidOn      DateTime      @db.Date
+  method      PaymentMethod @default(other)
+  note        String?
+  createdAt   DateTime      @default(now())
+
+  @@index([accountId])
+  @@index([invoiceId])
+}
+
+// ---------------------------------------------------------------------------
+// Estimates (module, off at Big Sea)
+// ---------------------------------------------------------------------------
+
+model Estimate {
+  id              String         @id @default(cuid())
+  accountId       String
+  account         Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  number          String? // null until sent
+  status          EstimateStatus @default(draft)
+  currency        String         @default("USD")
+  subject         String?
+  notes           String?
+  terms           String?
+  subtotalCents   Int            @default(0)
+  discountPercent Decimal?       @db.Decimal(5, 2)
+  discountCents   Int            @default(0)
+  tax1Name        String?
+  tax1Percent     Decimal?       @db.Decimal(6, 3)
+  tax2Name        String?
+  tax2Percent     Decimal?       @db.Decimal(6, 3)
+  taxCents        Int            @default(0)
+  totalCents      Int            @default(0)
+  sentAt          DateTime?
+  publicToken     String?        @unique
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lineItems        EstimateLineItem[]
+  convertedInvoice Invoice?           @relation("EstimateConversion")
+
+  @@unique([accountId, number])
+  @@index([accountId])
+  @@index([clientId])
+}
+
+model EstimateLineItem {
+  id             String    @id @default(cuid())
+  accountId      String
+  account        Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  estimateId     String
+  estimate       Estimate  @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  itemTypeId     String?
+  itemType       ItemType? @relation(fields: [itemTypeId], references: [id], onDelete: SetNull)
+  description    String
+  quantity       Decimal   @db.Decimal(12, 2)
+  unitPriceCents Int
+  amountCents    Int
+  taxable        Boolean   @default(true)
+  sortOrder      Int       @default(0)
+
+  @@index([accountId])
+  @@index([estimateId])
+}
+
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id             String    @id @default(cuid())
+  accountId      String
+  account        Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name           String
+  unitName       String?
+  unitPriceCents Int?
+  isActive       Boolean   @default(true)
+  expenses       Expense[]
+
+  @@index([accountId])
+}
+
+model Expense {
+  id         String          @id @default(cuid())
+  accountId  String
+  account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  spentDate         DateTime         @db.Date
+  totalCents        Int
+  markupPercent     Decimal?         @db.Decimal(5, 2)
+  notes             String?
+  isBillable        Boolean          @default(true)
+  receiptFileUrl    String?
+  lockState         ExpenseLockState @default(open)
+  invoiceLineItemId String?
+  invoiceLineItem   InvoiceLineItem? @relation(fields: [invoiceLineItemId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([projectId])
+  @@index([invoiceLineItemId])
+}
+
+// ---------------------------------------------------------------------------
+// Recurring invoices & retainers
+// ---------------------------------------------------------------------------
+
+model RecurringInvoiceProfile {
+  id                String             @id @default(cuid())
+  accountId         String
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId          String
+  client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject           String
+  frequency         RecurringFrequency @default(monthly)
+  intervalCount     Int                @default(1)
+  nextIssueDate     DateTime?          @db.Date
+  status            RecurringStatus    @default(active)
+  amountCents       Int                @default(0)
+  paymentTerm       PaymentTerm        @default(net_30)
+  notes             String?
+  templateLineItems Json
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([accountId])
+  @@index([clientId])
+}
+
+model Retainer {
+  id           String         @id @default(cuid())
+  accountId    String
+  account      Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId     String
+  client       Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  projectId    String? // null = "All projects"
+  project      Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  depositCents Int            @default(0)
+  balanceCents Int            @default(0)
+  drawnCents   Int            @default(0)
+  status       RetainerStatus @default(ongoing)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([accountId])
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// Invoice messaging & audit
+// ---------------------------------------------------------------------------
+
+model InvoiceMessageTemplate {
+  id        String      @id @default(cuid())
+  accountId String
+  account   Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  kind      MessageKind
+  subject   String
+  body      String
+
+  @@unique([accountId, kind])
+  @@index([accountId])
+}
+
+model SenderAddress {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  email     String
+  isDefault Boolean @default(false)
+
+  @@index([accountId])
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  actorUserId String?
+  actor       User?       @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  entityType  String
+  entityId    String
+  action      AuditAction
+  before      Json?
+  after       Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([accountId])
+  @@index([entityType, entityId])
+}

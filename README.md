@@ -24,6 +24,25 @@ The full specification lives in [`specs/`](specs/). Start with [specs/00-overvie
 | 12 | [ui-fidelity](specs/12-ui-fidelity.md) | Screen-by-screen layout catalogue |
 | 13 | [migration](specs/13-migration.md) | Data migration off Harvest (import, mappings, cutover) |
 
+## Getting started (data layer)
+
+The data model is scaffolded as a Prisma schema + deterministic seed — the concrete starting point for the build.
+
+```bash
+npm install
+cp .env.example .env          # point DATABASE_URL at your Postgres
+npm run prisma:migrate        # create tables from prisma/schema.prisma
+# then apply the two raw-SQL constraints Prisma can't express:
+#   psql "$DATABASE_URL" -f prisma/sql/constraints.sql
+npm run db:seed               # load deterministic demo data (2 accounts)
+```
+
+- `prisma/schema.prisma` — all entities/enums/relations from [specs/01-data-model.md](specs/01-data-model.md). Validated with `prisma validate`.
+- `prisma/seed.ts` — two accounts (Big Sea demo + an isolation-test tenant), users across the 6 permission profiles, projects covering every billing configuration, time entries with resolved rates, a sent invoice + partial payment, a draft invoice, expense, recurring profile, and retainer. Type-checks against the generated client. Demo login password: `password123`.
+- `prisma/sql/constraints.sql` — the one-running-timer index and non-overlapping-rate exclusion constraints ([specs/03](specs/03-clients-projects-tasks.md), [specs/04](specs/04-time-tracking.md)).
+
+Business rules (rate resolution, invoice state machine, locking) live in the service layer per the specs — **not** in Prisma.
+
 ## How the agentic loop uses this
 
 1. **Spec agent** owns `specs/*`. Any behavior change starts as an edit here (new/changed `AC-###`).
