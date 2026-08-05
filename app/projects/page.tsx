@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 
@@ -111,10 +112,10 @@ function ClientGroup({
         return (
           <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
             <td className="px-4 py-3">
-              <div className="font-medium text-gray-900">
+              <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
                 {p.code && <span className="text-gray-400">[{p.code}] </span>}
                 {p.name}
-              </div>
+              </Link>
             </td>
             <td className="px-4 py-3">
               <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
