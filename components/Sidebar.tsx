@@ -19,7 +19,7 @@ const NAV: Section[] = [
     heading: 'Organize',
     items: [
       { label: 'Team', href: '/team' },
-      { label: 'Clients', href: '/clients' },
+      { label: 'Clients', href: '/clients', ready: true },
       { label: 'Projects', href: '/projects', ready: true },
       { label: 'Tasks', href: '/tasks' },
     ],
