@@ -6,7 +6,7 @@ _Last updated: 2026-08-04._
 
 ## Current status
 
-**Phase:** App scaffolding. **Database live on Supabase**; **core logic layer complete** (tested). **Next.js app running** with its first real screen (Invoices) reading live seeded data end-to-end.
+**Phase:** App scaffolding. **Database live on Supabase**; **core logic layer complete** (tested). **Next.js app deployed to Vercel** — live at `big-sea-time-tracking.vercel.app`, Invoices screen rendering real Supabase data end-to-end. Every push to `main` auto-deploys; PRs get preview URLs (the human-review home).
 
 **Test suite:** 66 passing across 9 files. `next build` clean; unit tests + `tsc` clean.
 
@@ -47,7 +47,8 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 - **Stack:** Next.js + TypeScript + PostgreSQL + Prisma + Zod + Auth.js; Vitest (unit) + Playwright (E2E, later).
 - **Business rules live in the service layer** (`modules/*`), never in Prisma or components — pure functions, DB-free tests.
 - **Hosting / review:** app → **Vercel** (per-PR preview URLs = the human-review home); DB → **Supabase**.
-- **DB connection:** Supabase **Session pooler** (`aws-0-us-east-2.pooler.supabase.com:5432`, IPv4). The direct host (`db.*.supabase.co`) is **IPv6-only** and unreachable on IPv4 networks. Schema applied via **`prisma db push`** (not `migrate` — the `postgres` role can't create the shadow DB `migrate dev` needs). Constraints applied via `prisma db execute`.
+- **DB connection:** **local** = Supabase **Session pooler** (`…pooler.supabase.com:5432`, IPv4); **Vercel (serverless)** = Supabase **Transaction pooler** (`:6543`, `?pgbouncer=true&connection_limit=1`). The direct host (`db.*.supabase.co`) is **IPv6-only** and unreachable on IPv4 networks. Schema applied via **`prisma db push`** (not `migrate` — the `postgres` role can't create the shadow DB `migrate dev` needs). Constraints applied via `prisma db execute`.
+- **Deploy:** Vercel connected to the GitHub repo. Build works via `postinstall: prisma generate` + `binaryTargets ["native","rhel-openssl-3.0.x"]`. Live: `big-sea-time-tracking.vercel.app`.
 - **Modules on at Big Sea:** time, expenses, team, invoices, client dashboard. **Off:** timesheet approval, estimates, activity log — build these but deprioritize.
 - **Commit cadence:** auto commit+push each tested increment to `main`.
 
@@ -62,7 +63,7 @@ Issues deferred on purpose, with where to pick them up.
 - **[Seed] `InvoiceAppearance` / `InvoiceLabels` not seeded** — models exist; add demo rows when the invoice renderer needs them. → invoice UI phase.
 - **[UI] Multi-invoice client portal (client login) not captured** — needs a client account; single-invoice payment view is captured. → client-dashboard phase.
 - **[07] Activity log** — Premium, disabled at Big Sea; not modeled in detail. → reporting phase (internal audit log via `AuditLog` still needed).
-- **[Deploy] Vercel not set up yet** — connect the GitHub repo to Vercel for per-PR preview URLs; set `DATABASE_URL` env var there. On Vercel (serverless) use Supabase's **Transaction pooler** (port 6543) with `?pgbouncer=true&connection_limit=1`, not the session pooler we use locally. → next, for reviewable deploys.
+- **[Deploy] Deployment Protection** — production URL is currently public (fine for internal review). Before sharing anything client-facing, decide on Vercel Deployment Protection / password for preview URLs.
 - **[Deploy] Ops/backup section missing from spec** — add Vercel+Supabase deploy steps and mandatory DB backups. → before first review deploy.
 - **[UI] Pages currently `force-dynamic`** — fine now; revisit caching/streaming strategy per screen later.
 
