@@ -12,7 +12,9 @@
 //   2. Person rate tables: non-overlapping [startDate,endDate] ranges per user (exclusion constraint).
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev; "rhel-openssl-3.0.x" for the Vercel/AWS Lambda runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
