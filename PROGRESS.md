@@ -8,7 +8,7 @@ _Last updated: 2026-08-04._
 
 **Phase:** Foundation / core service logic. Data layer scaffolded; pure business-logic modules landing with tests. No app UI or running database yet.
 
-**Test suite:** 53 passing across 7 files. `tsc --noEmit` clean.
+**Test suite:** 59 passing across 8 files. `tsc --noEmit` clean.
 
 ## Build order checklist
 
@@ -22,7 +22,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry service (create/edit, snapshotting, one-running-timer) ⬜; timesheets ⬜ |
-| 05 | Invoicing | 🟡 | totals ✅, state machine ✅, uninvoiced pool ✅, payments logic ✅ (in state machine); line-item grouping from time ⬜; DB wiring/services ⬜ |
+| 05 | Invoicing | 🟡 | **logic layer complete**: totals ✅, state machine ✅, uninvoiced pool ✅, payments ✅, line-item grouping ✅. Remaining: DB wiring/services (repos, transactions) ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
 | 07 | Reporting | ⬜ | |
 | 08 | Non-functional | ⬜ | Tenant-isolation tests, authz, audit |
