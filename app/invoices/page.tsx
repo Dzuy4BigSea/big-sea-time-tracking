@@ -1,29 +1,11 @@
+import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
-import { displayBadge, type DisplayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
+import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 
 // Reads live data on every request (no build-time prerender).
 export const dynamic = 'force-dynamic'
-
-const BADGE_STYLES: Record<DisplayBadge, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  sent: 'bg-blue-100 text-blue-700',
-  pending: 'bg-teal-100 text-teal-700',
-  late: 'bg-red-100 text-red-700',
-  paid: 'bg-green-100 text-green-700',
-  written_off: 'bg-gray-100 text-gray-500',
-  closed: 'bg-gray-100 text-gray-500',
-}
-
-const BADGE_LABEL: Record<DisplayBadge, string> = {
-  draft: 'Draft',
-  sent: 'Sent',
-  pending: 'Pending',
-  late: 'Late',
-  paid: 'Paid',
-  written_off: 'Written off',
-  closed: 'Closed',
-}
 
 export default async function InvoicesPage() {
   const invoices = await prisma.invoice.findMany({
@@ -87,9 +69,15 @@ export default async function InvoicesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(inv.issueDate)}</td>
-                  <td className="px-4 py-3 text-gray-600">{inv.number ?? <span className="text-gray-400">—</span>}</td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{inv.client.name}</div>
+                    <Link href={`/invoices/${inv.id}`} className="text-gray-700 hover:text-brand-orange">
+                      {inv.number ?? <span className="text-gray-400">Draft</span>}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link href={`/invoices/${inv.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+                      {inv.client.name}
+                    </Link>
                     {inv.subject && <div className="text-xs text-gray-500">{inv.subject}</div>}
                   </td>
                   <td className="px-4 py-3 text-right font-medium">{formatCents(balance, inv.currency)}</td>
