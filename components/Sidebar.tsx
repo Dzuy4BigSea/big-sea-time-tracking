@@ -7,7 +7,7 @@ type Item = { label: string; href: string; ready?: boolean }
 type Section = { heading?: string; items: Item[] }
 
 const NAV: Section[] = [
-  { items: [{ label: 'Home', href: '/' }] },
+  { items: [{ label: 'Home', href: '/', ready: true }] },
   {
     heading: 'Track',
     items: [
