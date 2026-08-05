@@ -8,7 +8,7 @@ _Last updated: 2026-08-04._
 
 **Phase:** Foundation / core service logic. **Database live on Supabase** (schema pushed, constraints applied, seeded, verified). Pure business-logic modules landing with tests. No app UI yet.
 
-**Test suite:** 59 passing across 8 files. `tsc --noEmit` clean.
+**Test suite:** 66 passing across 9 files. `tsc --noEmit` clean.
 
 ## Build order checklist
 
@@ -21,7 +21,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 01 | Data model | ✅ | Schema mirrors spec |
 | 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
-| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry service (create/edit, snapshotting, one-running-timer) ⬜; timesheets ⬜ |
+| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer plan, edit/lock guards) ✅ + tests; DB service wiring ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | 🟡 | **logic layer complete**: totals ✅, state machine ✅, uninvoiced pool ✅, payments ✅, line-item grouping ✅. Remaining: DB wiring/services (repos, transactions) ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
 | 07 | Reporting | ⬜ | |
