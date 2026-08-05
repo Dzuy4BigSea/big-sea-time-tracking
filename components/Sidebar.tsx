@@ -12,16 +12,16 @@ const NAV: Section[] = [
     heading: 'Track',
     items: [
       { label: 'Timesheet', href: '/timesheet', ready: true },
-      { label: 'Expenses', href: '/expenses' },
+      { label: 'Expenses', href: '/expenses', ready: true },
     ],
   },
   {
     heading: 'Organize',
     items: [
-      { label: 'Team', href: '/team' },
+      { label: 'Team', href: '/team', ready: true },
       { label: 'Clients', href: '/clients', ready: true },
       { label: 'Projects', href: '/projects', ready: true },
-      { label: 'Tasks', href: '/tasks' },
+      { label: 'Tasks', href: '/tasks', ready: true },
     ],
   },
   { heading: 'Bill', items: [{ label: 'Invoices', href: '/invoices', ready: true }] },

@@ -29,7 +29,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Home dashboard**, **Invoices list + detail**, **Projects**, **Clients**, **Timesheet** (log-time + start/stop timer + delete) ✅. Tasks/Team/Expenses/Reports ⬜; inline edit ⬜ |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Home**, **Invoices list + detail**, **Projects**, **Clients**, **Tasks**, **Team**, **Expenses**, **Timesheet** (log-time + timer + delete) ✅. Reports ⬜; inline edit ⬜ |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 
