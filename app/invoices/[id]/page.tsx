@@ -6,7 +6,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
-import { sendInvoiceAction, markDraftAction } from '@/app/invoices/actions'
+import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,6 +69,14 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
             <input type="hidden" name="invoiceId" value={invoice.id} />
             <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
               Mark as draft
+            </button>
+          </form>
+        )}
+        {invoice.status === 'draft' && (
+          <form action={deleteInvoiceAction}>
+            <input type="hidden" name="invoiceId" value={invoice.id} />
+            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600">
+              Delete draft
             </button>
           </form>
         )}

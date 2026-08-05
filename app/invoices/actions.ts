@@ -6,7 +6,7 @@ import type { PaymentMethod } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { generateInvoice } from '@/modules/invoicing/generateInvoice'
-import { sendInvoice, markInvoiceDraft } from '@/modules/invoicing/invoiceLifecycle'
+import { sendInvoice, markInvoiceDraft, deleteInvoice } from '@/modules/invoicing/invoiceLifecycle'
 import { parseYmd } from '@/lib/week'
 
 // Scoped to the demo account until account context / auth lands.
@@ -72,4 +72,18 @@ export async function markDraftAction(formData: FormData): Promise<void> {
   }
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
+}
+
+export async function deleteInvoiceAction(formData: FormData): Promise<void> {
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId) return
+  let deleted = false
+  try {
+    await deleteInvoice(prisma, invoiceId)
+    deleted = true
+  } catch {
+    deleted = false
+  }
+  revalidatePath('/invoices')
+  if (deleted) redirect('/invoices')
 }

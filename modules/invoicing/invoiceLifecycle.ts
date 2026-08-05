@@ -85,6 +85,50 @@ export async function sendInvoice(prisma: PrismaClient, invoiceId: string, now: 
   })
 }
 
+/** Delete an invoice (draft or sent), releasing its reserved entries back to the pool. */
+export async function deleteInvoice(prisma: PrismaClient, invoiceId: string) {
+  const inv = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: {
+      status: true,
+      totalCents: true,
+      paidCents: true,
+      number: true,
+      sentAt: true,
+      _count: { select: { lineItems: true } },
+      lineItems: { select: { id: true } },
+    },
+  })
+
+  applyInvoiceAction(
+    {
+      status: inv.status as StoredStatus,
+      totalCents: inv.totalCents,
+      paidCents: inv.paidCents,
+      lineItemCount: inv._count.lineItems,
+      sentAt: inv.sentAt,
+      number: inv.number,
+    },
+    'delete',
+  )
+
+  const lineItemIds = inv.lineItems.map((li) => li.id)
+  await prisma.$transaction(async (tx) => {
+    if (lineItemIds.length > 0) {
+      // Release: unlink + unlock so entries return to the uninvoiced pool.
+      await tx.timeEntry.updateMany({
+        where: { invoiceLineItemId: { in: lineItemIds } },
+        data: { invoiceLineItemId: null, lockState: 'open' },
+      })
+      await tx.expense.updateMany({
+        where: { invoiceLineItemId: { in: lineItemIds } },
+        data: { invoiceLineItemId: null, lockState: 'open' },
+      })
+    }
+    await tx.invoice.delete({ where: { id: invoiceId } }) // cascades line items + payments
+  })
+}
+
 export async function markInvoiceDraft(prisma: PrismaClient, invoiceId: string) {
   const inv = await prisma.invoice.findUniqueOrThrow({
     where: { id: invoiceId },
