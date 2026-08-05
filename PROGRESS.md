@@ -29,7 +29,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen live + core loop wired**: Home, Timesheet (log/timer/delete), Expenses, Team, Clients, Projects (+ **detail**), Tasks, Invoices (list + detail + generate/send/pay/mark-draft/delete), Reports (Time/Profitability/Receivables) ✅. Remaining: auth, inline edit, public /i/[token], CSV export |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen live + core loop + auth**. **Entity CRUD (new):** New Client form ✅ (permission-gated via `can(manage_clients)` — first capability enforcement in an action). Remaining CRUD: New Project (rich), New Task, invite Person, edit forms, expense entry, inline time edit; plus public /i/[token], CSV export |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 

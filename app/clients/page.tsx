@@ -1,10 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { NewClientForm } from '@/components/NewClientForm'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')
   const clients = await prisma.client.findMany({
     where: { accountId },
     include: {
@@ -20,6 +23,8 @@ export default async function ClientsPage() {
       <p className="mb-6 text-sm text-gray-500">
         Live from Supabase · {clients.length} client{clients.length === 1 ? '' : 's'}
       </p>
+
+      {canManage && <NewClientForm />}
 
       <div className="space-y-3">
         {clients.map((c) => (
