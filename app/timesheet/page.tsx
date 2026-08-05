@@ -3,6 +3,10 @@ import { prisma } from '@/lib/prisma'
 import { formatMinutes } from '@/modules/shared/duration'
 import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
 import { LogTimeForm } from '@/components/LogTimeForm'
+import { stopTimerAction } from '@/app/timesheet/actions'
+
+const timeFmt = (d: Date) =>
+  new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +58,12 @@ export default async function TimesheetPage({
     tasks: a.project.taskAssignments.map((ta) => ta.task),
   }))
 
+  // Any running timer for this user (shown regardless of the viewed week).
+  const running = await prisma.timeEntry.findFirst({
+    where: { userId, isRunning: true },
+    include: { project: { select: { name: true, code: true } }, task: { select: { name: true } } },
+  })
+
   // Group into rows keyed by project+task; each row holds minutes per weekday.
   type Row = { key: string; projectLabel: string; taskName: string; perDay: number[]; total: number }
   const rows = new Map<string, Row>()
@@ -100,6 +110,27 @@ export default async function TimesheetPage({
         </span>
         <NavLink href={`/timesheet?week=${nextWeek}&user=${userId}`}>Next →</NavLink>
       </div>
+
+      {running && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-brand-orange bg-orange-50 px-4 py-3">
+          <div className="text-sm">
+            <span className="font-medium text-brand-orange">▶ Timer running</span>
+            <span className="ml-2 text-gray-700">
+              {running.project.code ? `[${running.project.code}] ` : ''}
+              {running.project.name} · {running.task.name}
+            </span>
+            {running.timerStartedAt && (
+              <span className="ml-2 text-xs text-gray-500">since {timeFmt(running.timerStartedAt)} UTC</span>
+            )}
+          </div>
+          <form action={stopTimerAction}>
+            <input type="hidden" name="userId" value={userId} />
+            <button className="rounded bg-brand-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90">
+              ■ Stop
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="mb-4">
         <LogTimeForm projects={projectOptions} userId={userId} defaultDate={ymd(monday)} />

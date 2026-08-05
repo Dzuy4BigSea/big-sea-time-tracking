@@ -17,36 +17,42 @@ export interface LogTimeInput {
   notes?: string
 }
 
-export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
-  if (!Number.isInteger(input.minutes) || input.minutes <= 0) {
-    throw new Error('minutes must be a positive integer')
-  }
+export interface ResolvedEntryRate {
+  accountId: string
+  isBillable: boolean
+  billableRateCents: number | null
+}
 
+/** Fetch rate context and resolve billable/rate for a would-be entry. Shared by logTime + timer. */
+export async function resolveEntryRate(
+  prisma: PrismaClient,
+  ctx: { userId: string; projectId: string; taskId: string; spentDate: Date },
+): Promise<ResolvedEntryRate> {
   const [project, task, taskAssignment, userAssignment, personBillableRates] = await Promise.all([
     prisma.project.findUniqueOrThrow({
-      where: { id: input.projectId },
+      where: { id: ctx.projectId },
       select: { accountId: true, projectType: true, billableRateMethod: true, projectHourlyRateCents: true },
     }),
     prisma.task.findUniqueOrThrow({
-      where: { id: input.taskId },
+      where: { id: ctx.taskId },
       select: { defaultBillable: true, defaultHourlyRateCents: true },
     }),
     prisma.projectTaskAssignment.findUnique({
-      where: { projectId_taskId: { projectId: input.projectId, taskId: input.taskId } },
+      where: { projectId_taskId: { projectId: ctx.projectId, taskId: ctx.taskId } },
       select: { billable: true, hourlyRateCents: true },
     }),
     prisma.projectUserAssignment.findUnique({
-      where: { projectId_userId: { projectId: input.projectId, userId: input.userId } },
+      where: { projectId_userId: { projectId: ctx.projectId, userId: ctx.userId } },
       select: { hourlyRateCents: true },
     }),
     prisma.personBillableRate.findMany({
-      where: { userId: input.userId },
+      where: { userId: ctx.userId },
       select: { hourlyRateCents: true, startDate: true, endDate: true },
     }),
   ])
 
   const rate = resolveRate({
-    spentDate: input.spentDate,
+    spentDate: ctx.spentDate,
     project: {
       projectType: project.projectType,
       billableRateMethod: project.billableRateMethod,
@@ -58,17 +64,32 @@ export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
     personBillableRates,
   })
 
+  return { accountId: project.accountId, isBillable: rate.isBillable, billableRateCents: rate.billableRateCents }
+}
+
+export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
+  if (!Number.isInteger(input.minutes) || input.minutes <= 0) {
+    throw new Error('minutes must be a positive integer')
+  }
+
+  const { accountId, isBillable, billableRateCents } = await resolveEntryRate(prisma, {
+    userId: input.userId,
+    projectId: input.projectId,
+    taskId: input.taskId,
+    spentDate: input.spentDate,
+  })
+
   return prisma.timeEntry.create({
     data: {
-      accountId: project.accountId,
+      accountId,
       userId: input.userId,
       projectId: input.projectId,
       taskId: input.taskId,
       spentDate: input.spentDate,
       minutes: input.minutes,
       notes: input.notes,
-      isBillable: rate.isBillable,
-      billableRateCents: rate.billableRateCents,
+      isBillable,
+      billableRateCents,
     },
   })
 }

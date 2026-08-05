@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
-import { logTimeAction, type LogTimeState } from '@/app/timesheet/actions'
+import { logTimeAction, startTimerAction, type LogTimeState } from '@/app/timesheet/actions'
 
 type ProjectOption = { id: string; name: string; tasks: { id: string; name: string }[] }
 
@@ -82,6 +82,14 @@ export function LogTimeForm({
       </Field>
 
       <SubmitButton />
+
+      <button
+        type="submit"
+        formAction={startTimerAction}
+        className="rounded border border-brand-orange px-4 py-1.5 text-sm font-medium text-brand-orange hover:bg-orange-50"
+      >
+        ▶ Start timer
+      </button>
 
       {state.error && <p className="w-full text-sm text-red-600">{state.error}</p>}
       {state.ok && <p className="w-full text-sm text-brand-green">Logged ✓</p>}

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { logTime } from '@/modules/time/logTime'
+import { startTimer, stopTimer } from '@/modules/time/timer'
 import { parseDurationToMinutes } from '@/modules/shared/duration'
 import { parseYmd } from '@/lib/week'
 
@@ -28,4 +29,20 @@ export async function logTimeAction(_prev: LogTimeState, formData: FormData): Pr
 
   revalidatePath('/timesheet')
   return { ok: true }
+}
+
+export async function startTimerAction(formData: FormData): Promise<void> {
+  const userId = String(formData.get('userId') ?? '')
+  const projectId = String(formData.get('projectId') ?? '')
+  const taskId = String(formData.get('taskId') ?? '')
+  if (!userId || !projectId || !taskId) return
+  await startTimer(prisma, { userId, projectId, taskId, now: new Date() })
+  revalidatePath('/timesheet')
+}
+
+export async function stopTimerAction(formData: FormData): Promise<void> {
+  const userId = String(formData.get('userId') ?? '')
+  if (!userId) return
+  await stopTimer(prisma, { userId, now: new Date() })
+  revalidatePath('/timesheet')
 }
