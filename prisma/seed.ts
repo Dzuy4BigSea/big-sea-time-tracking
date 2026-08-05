@@ -93,9 +93,13 @@ async function seedAccountA() {
       | 'people_admin'
       | 'member'
     type?: 'employee' | 'contractor'
+    email?: string
     billable?: number
     cost?: number
   }> = [
+    // Real Big Sea login. Password defaults to the shared demo password unless
+    // SEED_DZUY_PASSWORD is set (see override after this loop) — no plaintext in the repo.
+    { id: 'usr_dzuy', firstName: 'Dzuy', lastName: 'Nguyen', profile: 'administrator', email: 'dzuy@bigsea.co', billable: 195, cost: 95 },
     { id: 'usr_alice', firstName: 'Alice', lastName: 'Admin', profile: 'administrator', billable: 195, cost: 95 },
     { id: 'usr_bob', firstName: 'Bob', lastName: 'Exec', profile: 'executive_manager', billable: 175, cost: 90 },
     { id: 'usr_carol', firstName: 'Carol', lastName: 'Pm', profile: 'project_manager', billable: 150, cost: 80 },
@@ -110,7 +114,7 @@ async function seedAccountA() {
       data: {
         id: u.id,
         accountId: ACCOUNT_A,
-        email: `${u.firstName.toLowerCase()}@bigsea.demo`,
+        email: u.email ?? `${u.firstName.toLowerCase()}@bigsea.demo`,
         passwordHash,
         firstName: u.firstName,
         lastName: u.lastName,
@@ -131,6 +135,15 @@ async function seedAccountA() {
         data: { accountId: ACCOUNT_A, userId: u.id, hourlyRateCents: USD(u.cost), startDate: d('2026-01-01') },
       })
     }
+  }
+
+  // Optional: set Dzuy's real password from an env var (never committed to the repo).
+  // Run: `SEED_DZUY_PASSWORD='…' npm run db:seed`. Otherwise defaults to the demo password.
+  if (process.env.SEED_DZUY_PASSWORD) {
+    await prisma.user.update({
+      where: { id: 'usr_dzuy' },
+      data: { passwordHash: bcrypt.hashSync(process.env.SEED_DZUY_PASSWORD, 10) },
+    })
   }
 
   // A historical billable rate for Alice, to exercise effective-dated resolution.
