@@ -24,12 +24,12 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | 🟡 | logic layer complete; **recordPayment service** (state machine wired to Prisma) ✅ + DB integration-tested (partial→open, overpayment rejected, full→paid); **record-payment form** on invoice detail ✅. Send / mark-as-draft / generate-from-time UI ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
-| 07 | Reporting | ⬜ | |
+| 07 | Reporting | 🟡 | **Time report** (by client: hours, billable, uninvoiced) ✅ live, reuses isUninvoiced. Profitability/A-R/exports ⬜ |
 | 08 | Non-functional | ⬜ | Tenant-isolation tests, authz, audit |
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Home**, **Invoices list + detail**, **Projects**, **Clients**, **Tasks**, **Team**, **Expenses**, **Timesheet** (log-time + timer + delete) ✅. Reports ⬜; inline edit ⬜ |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen is live**: Home, Timesheet (log-time + timer + delete), Expenses, Team, Clients, Projects, Tasks, Invoices (list + detail + record-payment), Reports ✅. Remaining: generate-invoice-from-time, send/mark-draft, inline edit, auth |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 

@@ -25,7 +25,7 @@ const NAV: Section[] = [
     ],
   },
   { heading: 'Bill', items: [{ label: 'Invoices', href: '/invoices', ready: true }] },
-  { heading: 'Review', items: [{ label: 'Reports', href: '/reports' }] },
+  { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
 export function Sidebar() {
