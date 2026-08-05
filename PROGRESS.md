@@ -57,7 +57,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 
 Issues deferred on purpose, with where to pick them up.
 
-- **[DB] No migration history** — schema is applied via `prisma db push` (no `prisma/migrations/`). Before production, adopt real migrations (baseline the current schema; configure a shadow DB or use `db push` only for dev). Constraints in `prisma/sql/constraints.sql` must be re-applied whenever the schema is recreated (they are applied via `prisma db execute`, ✅ done on the current Supabase DB).
+- **[DB] Migrations adopted** ✅ — `prisma/migrations/0_init` captures the full schema + the raw-SQL constraints; the live DB is baselined (`migrate resolve --applied 0_init`, no DDL run). **Workflow (Supabase blocks the shadow DB, so no `migrate dev`):** edit `schema.prisma` → `npm run migrate:new > prisma/migrations/<ts>_name/migration.sql` → review → `npm run migrate:deploy`. Migrations run manually against the **session pooler** (5432), not during the Vercel build (which uses the transaction pooler).
 - **[05] `discountBeforeTax` is a param (default true), not persisted** — decide whether it's an Account setting or per-invoice; add to schema. → invoicing phase.
 - **[03] Effective-dated *task* billable rates not modeled** — task rate currently = per-project assignment override ?? task default (no date ranges). Person rates ARE effective-dated. Confirm whether Harvest date-ranges task/project rates too. → rate phase.
 - **[05] Money columns are 32-bit `Int` cents** (~$21M/row ceiling) — fine for invoices; revisit `BigInt` if any single stored amount could exceed that. → before production.
