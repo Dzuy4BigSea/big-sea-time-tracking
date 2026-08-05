@@ -21,7 +21,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 01 | Data model | ✅ | Schema mirrors spec |
 | 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
-| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** (resolveRate/startTimerPlan/computeTimerMinutes wired to Prisma) ✅ + DB integration-tested (start auto-stops the prior timer → exactly one runs; stop finalizes minutes); **log-time form, start/stop timer UI** ✅. Edit/delete entries ⬜; timesheets/approval (module off) ⬜ |
+| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | 🟡 | **logic layer complete**: totals ✅, state machine ✅, uninvoiced pool ✅, payments ✅, line-item grouping ✅. Remaining: DB wiring/services (repos, transactions) ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
 | 07 | Reporting | ⬜ | |

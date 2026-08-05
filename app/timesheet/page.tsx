@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { formatMinutes } from '@/modules/shared/duration'
 import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
 import { LogTimeForm } from '@/components/LogTimeForm'
-import { stopTimerAction } from '@/app/timesheet/actions'
+import { stopTimerAction, deleteTimeEntryAction } from '@/app/timesheet/actions'
 
 const timeFmt = (d: Date) =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
@@ -186,6 +186,50 @@ export default async function TimesheetPage({
           </tfoot>
         </table>
       </div>
+
+      {/* Individual entries this week, with lock-guarded delete */}
+      {entries.length > 0 && (
+        <div className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">Entries this week</h2>
+          <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white text-sm">
+            {entries
+              .slice()
+              .sort((a, b) => a.spentDate.getTime() - b.spentDate.getTime())
+              .map((e) => (
+                <li key={e.id} className="flex items-center gap-3 px-4 py-2">
+                  <span className="w-12 shrink-0 text-gray-400">
+                    {e.spentDate.getUTCMonth() + 1}/{e.spentDate.getUTCDate()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium text-gray-900">
+                      {e.project.code ? `[${e.project.code}] ` : ''}
+                      {e.project.name}
+                    </span>
+                    <span className="text-gray-500"> · {e.task.name}</span>
+                    {e.notes && <span className="text-gray-400"> — {e.notes}</span>}
+                  </span>
+                  {!e.isBillable && <span className="shrink-0 text-xs text-gray-400">non-billable</span>}
+                  <span className="w-14 shrink-0 text-right tabular-nums">
+                    {e.isRunning ? <span className="text-brand-orange">▶ running</span> : formatMinutes(e.minutes)}
+                  </span>
+                  {e.lockState === 'open' ? (
+                    <form action={deleteTimeEntryAction}>
+                      <input type="hidden" name="entryId" value={e.id} />
+                      <input type="hidden" name="userId" value={userId} />
+                      <button className="shrink-0 rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600">
+                        Delete
+                      </button>
+                    </form>
+                  ) : (
+                    <span className="w-12 shrink-0 text-right text-xs text-gray-300" title={`Locked: ${e.lockState}`}>
+                      🔒
+                    </span>
+                  )}
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

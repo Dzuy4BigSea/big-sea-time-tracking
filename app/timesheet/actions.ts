@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { logTime } from '@/modules/time/logTime'
 import { startTimer, stopTimer } from '@/modules/time/timer'
+import { assertDeletable, type LockState } from '@/modules/time/timeEntry'
 import { parseDurationToMinutes } from '@/modules/shared/duration'
 import { parseYmd } from '@/lib/week'
 
@@ -44,5 +45,20 @@ export async function stopTimerAction(formData: FormData): Promise<void> {
   const userId = String(formData.get('userId') ?? '')
   if (!userId) return
   await stopTimer(prisma, { userId, now: new Date() })
+  revalidatePath('/timesheet')
+}
+
+export async function deleteTimeEntryAction(formData: FormData): Promise<void> {
+  const id = String(formData.get('entryId') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  if (!id || !userId) return
+  const entry = await prisma.timeEntry.findUnique({ where: { id }, select: { userId: true, lockState: true } })
+  if (!entry || entry.userId !== userId) return // ownership check (until auth)
+  try {
+    assertDeletable(entry.lockState as LockState) // approved/invoiced are immutable (INV-3)
+  } catch {
+    return
+  }
+  await prisma.timeEntry.delete({ where: { id } })
   revalidatePath('/timesheet')
 }
