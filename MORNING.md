@@ -18,7 +18,7 @@ The **entire Harvest core loop is now built, tested, and live**: track time → 
 
 ## What I built overnight (commits on `main`)
 
-**Screens (all live):** Home dashboard, Timesheet (week grid + log + start/stop timer + delete), Expenses, Team, Clients, Projects, Tasks, Invoices (list + rendered detail), Reports (time by client).
+**Screens (all live):** Home dashboard · Timesheet (week grid + log + start/stop timer + delete) · Expenses · Team · Clients · Projects (list **+ detail** with stats/team/recent time) · Tasks · Invoices (list + rendered detail) · Reports with **three tabs** (Time · Profitability (revenue vs cost margin) · Receivables (A/R aging)).
 
 **Write actions (each integration-tested against Supabase, DB re-seeded clean after):**
 - Log time — resolves the billable rate via the tested `resolveRate`, then persists.
