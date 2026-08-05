@@ -3,15 +3,22 @@ import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
+import { generateInvoiceAction } from '@/app/invoices/actions'
 
 // Reads live data on every request (no build-time prerender).
 export const dynamic = 'force-dynamic'
 
-export default async function InvoicesPage() {
-  const invoices = await prisma.invoice.findMany({
-    include: { client: true },
-    orderBy: [{ issueDate: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
-  })
+const ACCOUNT_ID = 'acc_demo'
+
+export default async function InvoicesPage({ searchParams }: { searchParams: { nothing?: string } }) {
+  const [invoices, clients] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { accountId: ACCOUNT_ID },
+      include: { client: true },
+      orderBy: [{ issueDate: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+    }),
+    prisma.client.findMany({ where: { accountId: ACCOUNT_ID }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+  ])
 
   const today = new Date()
   const totalOpen = invoices
@@ -25,6 +32,23 @@ export default async function InvoicesPage() {
       <p className="mb-6 text-sm text-gray-500">
         Reading live from Supabase · {invoices.length} invoice{invoices.length === 1 ? '' : 's'}
       </p>
+
+      <form action={generateInvoiceAction} className="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs uppercase tracking-wide text-gray-400">New invoice from tracked time</span>
+          <select name="clientId" className="min-w-56 rounded border border-gray-300 px-2 py-1.5 text-sm">
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
+          Generate draft
+        </button>
+        {searchParams.nothing && <span className="text-sm text-gray-500">No uninvoiced time for that client.</span>}
+      </form>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
         <div className="rounded-lg border border-gray-200 bg-white p-4">

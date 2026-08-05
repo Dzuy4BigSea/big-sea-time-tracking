@@ -1,10 +1,15 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import type { PaymentMethod } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
+import { generateInvoice } from '@/modules/invoicing/generateInvoice'
 import { parseYmd } from '@/lib/week'
+
+// Scoped to the demo account until account context / auth lands.
+const ACCOUNT_ID = 'acc_demo'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -33,4 +38,13 @@ export async function recordPaymentAction(_prev: PaymentState, formData: FormDat
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   return { ok: true }
+}
+
+export async function generateInvoiceAction(formData: FormData): Promise<void> {
+  const clientId = String(formData.get('clientId') ?? '')
+  if (!clientId) return
+  const invoice = await generateInvoice(prisma, { accountId: ACCOUNT_ID, clientId })
+  revalidatePath('/invoices')
+  // redirect() throws NEXT_REDIRECT — keep it outside any try/catch.
+  redirect(invoice ? `/invoices/${invoice.id}` : '/invoices?nothing=1')
 }
