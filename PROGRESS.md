@@ -19,7 +19,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | — | Spec set (findings + 00–13) | ✅ | Revised against live account |
 | — | Prisma schema + seed | ✅ | `prisma validate` clean; seed type-checks |
 | 01 | Data model | ✅ | Schema mirrors spec |
-| 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
+| 02 | Auth / permissions | 🟡 | **NextAuth v5** (credentials + JWT session carrying userId/accountId/profile) ✅, login page + middleware route protection ✅, **session-scoped tenancy across every page + action** (INV-5) ✅, `can()` capability layer ✅ + tests. Remaining: password reset, 2FA, invite/admin UI, capability enforcement in actions |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | ✅ | **core loop complete & live**: generateInvoice (pool→draft), sendInvoice (number/lock/token/seq-bump), recordPayment (partial/full/overpayment-guard), markInvoiceDraft (unlock) — all DB integration-tested + wired to UI (generate control, send/mark-draft buttons, payment form). Remaining polish: delete-draft, public /i/[token] view, taxes/discount UI |
@@ -49,7 +49,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 - **Hosting / review:** app → **Vercel** (per-PR preview URLs = the human-review home); DB → **Supabase**.
 - **DB connection:** **local** = Supabase **Session pooler** (`…pooler.supabase.com:5432`, IPv4); **Vercel (serverless)** = Supabase **Transaction pooler** (`:6543`, `?pgbouncer=true&connection_limit=1`). The direct host (`db.*.supabase.co`) is **IPv6-only** and unreachable on IPv4 networks. Schema applied via **`prisma db push`** (not `migrate` — the `postgres` role can't create the shadow DB `migrate dev` needs). Constraints applied via `prisma db execute`.
 - **Deploy:** Vercel connected to the GitHub repo. Build works via `postinstall: prisma generate` + `binaryTargets ["native","rhel-openssl-3.0.x"]`. Live: `big-sea-time-tracking.vercel.app`; preview alias `track2.bigseabridge.com`.
-- **Auth not built yet:** editable screens are scoped to a fixed demo user (`usr_frank`, override with `?user=`) until Auth.js lands. → auth phase.
+- **Auth:** ✅ built (NextAuth v5, credentials against seeded users, session-scoped tenancy). Requires `AUTH_SECRET` env var in every environment (local `.env` + Vercel). Demo logins: `alice@bigsea.demo` (admin) / `frank@bigsea.demo` (member) / `zoe@globex.demo` (other tenant), password `password123`.
 - **Modules on at Big Sea:** time, expenses, team, invoices, client dashboard. **Off:** timesheet approval, estimates, activity log — build these but deprioritize.
 - **Commit cadence:** auto commit+push each tested increment to `main`.
 

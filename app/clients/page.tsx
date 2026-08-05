@@ -1,9 +1,12 @@
 import { prisma } from '@/lib/prisma'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
+  const { accountId } = await requireUser()
   const clients = await prisma.client.findMany({
+    where: { accountId },
     include: {
       contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
       _count: { select: { projects: true } },

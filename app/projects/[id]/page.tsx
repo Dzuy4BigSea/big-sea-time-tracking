@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { formatMinutes } from '@/modules/shared/duration'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,8 +14,9 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
-  const project = await prisma.project.findUnique({
-    where: { id: params.id },
+  const { accountId } = await requireUser()
+  const project = await prisma.project.findFirst({
+    where: { id: params.id, accountId },
     include: {
       client: true,
       userAssignments: { include: { user: { select: { firstName: true, lastName: true } } } },

@@ -1,13 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
-
 export default async function ExpensesPage() {
+  const { accountId } = await requireUser()
   const expenses = await prisma.expense.findMany({
-    where: { accountId: ACCOUNT_ID },
+    where: { accountId },
     include: {
       project: { select: { name: true, code: true } },
       category: { select: { name: true } },

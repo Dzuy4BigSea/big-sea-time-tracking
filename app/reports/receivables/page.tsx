@@ -1,18 +1,19 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
 const dayMs = 24 * 60 * 60 * 1000
 
 type Buckets = { current: number; d1_30: number; d31_60: number; d60plus: number; total: number }
 const emptyBuckets = (): Buckets => ({ current: 0, d1_30: 0, d31_60: 0, d60plus: 0, total: 0 })
 
 export default async function ReceivablesPage() {
+  const { accountId } = await requireUser()
   const invoices = await prisma.invoice.findMany({
-    where: { accountId: ACCOUNT_ID, status: 'open' },
+    where: { accountId, status: 'open' },
     select: { totalCents: true, paidCents: true, dueDate: true, client: { select: { name: true } } },
   })
 

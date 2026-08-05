@@ -1,13 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
-
 export default async function TasksPage() {
+  const { accountId } = await requireUser()
   const tasks = await prisma.task.findMany({
-    where: { accountId: ACCOUNT_ID, archivedAt: null },
+    where: { accountId, archivedAt: null },
     orderBy: { name: 'asc' },
   })
   const common = tasks.filter((t) => t.autoAddToNewProjects)

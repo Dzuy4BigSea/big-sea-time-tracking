@@ -2,15 +2,15 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { effectiveRate, type EffectiveRate } from '@/modules/projects/resolveRate'
 import { ReportsTabs } from '@/components/ReportsTabs'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
-
 export default async function ProfitabilityPage() {
+  const { accountId } = await requireUser()
   const [entries, costRates] = await Promise.all([
     prisma.timeEntry.findMany({
-      where: { accountId: ACCOUNT_ID },
+      where: { accountId },
       select: {
         userId: true,
         minutes: true,
@@ -21,7 +21,7 @@ export default async function ProfitabilityPage() {
       },
     }),
     prisma.personCostRate.findMany({
-      where: { accountId: ACCOUNT_ID },
+      where: { accountId },
       select: { userId: true, hourlyRateCents: true, startDate: true, endDate: true },
     }),
   ])

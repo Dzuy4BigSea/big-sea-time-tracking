@@ -7,14 +7,16 @@ import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } f
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
 import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 const BRAND = '#004348' // Big Sea teal (until per-account InvoiceAppearance is wired)
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: params.id },
+  const { accountId } = await requireUser()
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: params.id, accountId },
     include: {
       client: true,
       account: true,

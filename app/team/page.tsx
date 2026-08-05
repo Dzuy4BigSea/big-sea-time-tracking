@@ -1,9 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
-
-const ACCOUNT_ID = 'acc_demo'
 
 const PROFILE_LABEL: Record<string, string> = {
   member: 'Member',
@@ -17,8 +16,9 @@ const PROFILE_LABEL: Record<string, string> = {
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function TeamPage() {
+  const { accountId } = await requireUser()
   const users = await prisma.user.findMany({
-    where: { accountId: ACCOUNT_ID, archivedAt: null },
+    where: { accountId, archivedAt: null },
     select: {
       id: true,
       firstName: true,

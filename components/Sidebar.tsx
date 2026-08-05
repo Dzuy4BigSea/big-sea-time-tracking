@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 
 type Item = { label: string; href: string; ready?: boolean }
 type Section = { heading?: string; items: Item[] }
@@ -28,15 +29,15 @@ const NAV: Section[] = [
   { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
-export function Sidebar() {
+export function Sidebar({ userName }: { userName?: string }) {
   const pathname = usePathname()
   return (
-    <aside className="w-56 shrink-0 border-r border-gray-200 bg-white px-3 py-4">
+    <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-4">
       <div className="mb-6 flex items-center gap-2 px-2">
         <span className="inline-block h-5 w-5 rounded bg-brand-orange" />
         <span className="text-lg font-semibold tracking-tight">Track2</span>
       </div>
-      <nav className="space-y-5">
+      <nav className="flex-1 space-y-5">
         {NAV.map((section, i) => (
           <div key={i}>
             {section.heading && (
@@ -64,6 +65,18 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      {userName && (
+        <div className="mt-4 border-t border-gray-100 pt-3">
+          <div className="px-2 text-sm font-medium text-gray-800">{userName}</div>
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="mt-1 px-2 text-xs text-gray-400 hover:text-brand-orange"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

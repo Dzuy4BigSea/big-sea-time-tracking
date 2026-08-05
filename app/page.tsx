@@ -2,25 +2,24 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { startOfWeekMonday, addDays } from '@/lib/week'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
-
-// Scoped to the primary demo account until account context / auth lands.
-const ACCOUNT_ID = 'acc_demo'
 
 const utcMidnight = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 const startOfMonth = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
 const hrs = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-async function sumHours(gte: Date, lte: Date): Promise<number> {
+async function sumHours(accountId: string, gte: Date, lte: Date): Promise<number> {
   const r = await prisma.timeEntry.aggregate({
-    where: { accountId: ACCOUNT_ID, spentDate: { gte, lte } },
+    where: { accountId, spentDate: { gte, lte } },
     _sum: { minutes: true },
   })
   return r._sum.minutes ?? 0
 }
 
 export default async function HomePage() {
+  const { accountId } = await requireUser()
   const now = new Date()
   const today = utcMidnight(now)
   const weekStart = startOfWeekMonday(now)
@@ -30,16 +29,16 @@ export default async function HomePage() {
   const farFuture = new Date(Date.UTC(9999, 0, 1))
 
   const [minToday, minWeek, minMonth, minLastMonth, invoices, projects] = await Promise.all([
-    sumHours(today, today),
-    sumHours(weekStart, farFuture),
-    sumHours(monthStart, farFuture),
-    sumHours(lastMonthStart, lastMonthEnd),
+    sumHours(accountId, today, today),
+    sumHours(accountId, weekStart, farFuture),
+    sumHours(accountId, monthStart, farFuture),
+    sumHours(accountId, lastMonthStart, lastMonthEnd),
     prisma.invoice.findMany({
-      where: { accountId: ACCOUNT_ID },
+      where: { accountId },
       select: { status: true, totalCents: true, paidCents: true, issueDate: true },
     }),
     prisma.project.findMany({
-      where: { accountId: ACCOUNT_ID },
+      where: { accountId },
       select: {
         id: true,
         name: true,

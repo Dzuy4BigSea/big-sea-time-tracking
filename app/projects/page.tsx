@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +29,9 @@ function budgetLabel(method: string, value: number | null): string {
 const hours = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function ProjectsPage() {
+  const { accountId } = await requireUser()
   const projects = await prisma.project.findMany({
+    where: { accountId },
     include: {
       client: true,
       timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },

@@ -2,15 +2,16 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { ReportsTabs } from '@/components/ReportsTabs'
+import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function ReportsPage() {
+  const { accountId } = await requireUser()
   const entries = await prisma.timeEntry.findMany({
-    where: { accountId: ACCOUNT_ID },
+    where: { accountId },
     select: {
       minutes: true,
       isBillable: true,

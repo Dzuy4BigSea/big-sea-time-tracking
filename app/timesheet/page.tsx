@@ -4,23 +4,21 @@ import { formatMinutes } from '@/modules/shared/duration'
 import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
 import { LogTimeForm } from '@/components/LogTimeForm'
 import { stopTimerAction, deleteTimeEntryAction } from '@/app/timesheet/actions'
+import { requireUser } from '@/lib/session'
 
 const timeFmt = (d: Date) =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
 
 export const dynamic = 'force-dynamic'
 
-// Until auth exists, the timesheet is scoped to a fixed demo user (?user= to switch).
-const DEFAULT_USER = 'usr_frank'
-
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export default async function TimesheetPage({
   searchParams,
 }: {
-  searchParams: { week?: string; user?: string }
+  searchParams: { week?: string }
 }) {
-  const userId = searchParams.user ?? DEFAULT_USER
+  const { userId } = await requireUser()
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
 
   // Default to the week containing the user's most recent entry, so there's data to see.

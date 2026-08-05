@@ -4,20 +4,20 @@ import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceStat
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 import { generateInvoiceAction } from '@/app/invoices/actions'
+import { requireUser } from '@/lib/session'
 
 // Reads live data on every request (no build-time prerender).
 export const dynamic = 'force-dynamic'
 
-const ACCOUNT_ID = 'acc_demo'
-
 export default async function InvoicesPage({ searchParams }: { searchParams: { nothing?: string } }) {
+  const { accountId } = await requireUser()
   const [invoices, clients] = await Promise.all([
     prisma.invoice.findMany({
-      where: { accountId: ACCOUNT_ID },
+      where: { accountId },
       include: { client: true },
       orderBy: [{ issueDate: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
     }),
-    prisma.client.findMany({ where: { accountId: ACCOUNT_ID }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    prisma.client.findMany({ where: { accountId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ])
 
   const today = new Date()
