@@ -8,7 +8,7 @@ _Last updated: 2026-08-04._
 
 **Phase:** Foundation / core service logic. Data layer scaffolded; pure business-logic modules landing with tests. No app UI or running database yet.
 
-**Test suite:** 46 passing across 6 files. `tsc --noEmit` clean.
+**Test suite:** 53 passing across 7 files. `tsc --noEmit` clean.
 
 ## Build order checklist
 
@@ -19,7 +19,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | — | Spec set (findings + 00–13) | ✅ | Revised against live account |
 | — | Prisma schema + seed | ✅ | `prisma validate` clean; seed type-checks |
 | 01 | Data model | ✅ | Schema mirrors spec |
-| 02 | Auth / permissions | ⬜ | 6-profile `can()` predicate layer |
+| 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry service (create/edit, snapshotting, one-running-timer) ⬜; timesheets ⬜ |
 | 05 | Invoicing | 🟡 | totals ✅, state machine ✅, uninvoiced pool ✅, payments logic ✅ (in state machine); line-item grouping from time ⬜; DB wiring/services ⬜ |
