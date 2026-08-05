@@ -29,7 +29,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **Invoices list + detail ✅**, **Projects ✅**, **Clients ✅** (all live from Supabase, verified). Timesheet/Team/Tasks/Expenses/Home ⬜ |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Invoices list + detail**, **Projects**, **Clients**, **Timesheet (read-only week view)** ✅. Timesheet **write actions** (timer/log) next; Team/Tasks/Expenses/Home ⬜ |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 
@@ -48,7 +48,8 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 - **Business rules live in the service layer** (`modules/*`), never in Prisma or components — pure functions, DB-free tests.
 - **Hosting / review:** app → **Vercel** (per-PR preview URLs = the human-review home); DB → **Supabase**.
 - **DB connection:** **local** = Supabase **Session pooler** (`…pooler.supabase.com:5432`, IPv4); **Vercel (serverless)** = Supabase **Transaction pooler** (`:6543`, `?pgbouncer=true&connection_limit=1`). The direct host (`db.*.supabase.co`) is **IPv6-only** and unreachable on IPv4 networks. Schema applied via **`prisma db push`** (not `migrate` — the `postgres` role can't create the shadow DB `migrate dev` needs). Constraints applied via `prisma db execute`.
-- **Deploy:** Vercel connected to the GitHub repo. Build works via `postinstall: prisma generate` + `binaryTargets ["native","rhel-openssl-3.0.x"]`. Live: `big-sea-time-tracking.vercel.app`.
+- **Deploy:** Vercel connected to the GitHub repo. Build works via `postinstall: prisma generate` + `binaryTargets ["native","rhel-openssl-3.0.x"]`. Live: `big-sea-time-tracking.vercel.app`; preview alias `track2.bigseabridge.com`.
+- **Auth not built yet:** editable screens are scoped to a fixed demo user (`usr_frank`, override with `?user=`) until Auth.js lands. → auth phase.
 - **Modules on at Big Sea:** time, expenses, team, invoices, client dashboard. **Off:** timesheet approval, estimates, activity log — build these but deprioritize.
 - **Commit cadence:** auto commit+push each tested increment to `main`.
 

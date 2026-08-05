@@ -11,7 +11,7 @@ const NAV: Section[] = [
   {
     heading: 'Track',
     items: [
-      { label: 'Timesheet', href: '/timesheet' },
+      { label: 'Timesheet', href: '/timesheet', ready: true },
       { label: 'Expenses', href: '/expenses' },
     ],
   },
