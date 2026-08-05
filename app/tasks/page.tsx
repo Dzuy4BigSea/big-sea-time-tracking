@@ -1,11 +1,14 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { NewTaskForm } from '@/components/NewTaskForm'
 
 export const dynamic = 'force-dynamic'
 
 export default async function TasksPage() {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')
   const tasks = await prisma.task.findMany({
     where: { accountId, archivedAt: null },
     orderBy: { name: 'asc' },
@@ -17,6 +20,8 @@ export default async function TasksPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Tasks</h1>
       <p className="mb-6 text-sm text-gray-500">Live from Supabase · {tasks.length} tasks</p>
+
+      {canManage && <NewTaskForm />}
 
       <Section
         title="Common tasks"
