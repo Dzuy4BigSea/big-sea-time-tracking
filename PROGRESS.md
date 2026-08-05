@@ -22,7 +22,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
-| 05 | Invoicing | 🟡 | **logic layer complete**: totals ✅, state machine ✅, uninvoiced pool ✅, payments ✅, line-item grouping ✅. Remaining: DB wiring/services (repos, transactions) ⬜ |
+| 05 | Invoicing | 🟡 | logic layer complete; **recordPayment service** (state machine wired to Prisma) ✅ + DB integration-tested (partial→open, overpayment rejected, full→paid); **record-payment form** on invoice detail ✅. Send / mark-as-draft / generate-from-time UI ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
 | 07 | Reporting | ⬜ | |
 | 08 | Non-functional | ⬜ | Tenant-isolation tests, authz, audit |

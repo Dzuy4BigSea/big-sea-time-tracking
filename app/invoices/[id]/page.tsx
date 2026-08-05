@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
+import { ymd } from '@/lib/week'
+import { RecordPaymentForm } from '@/components/RecordPaymentForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -137,6 +139,11 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
       {/* Payments */}
       <div className="mt-6">
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Payments</h2>
+        {invoice.status === 'open' && (
+          <div className="mb-3">
+            <RecordPaymentForm invoiceId={invoice.id} defaultDate={ymd(new Date())} dueLabel={formatCents(due, cur)} />
+          </div>
+        )}
         {invoice.payments.length === 0 ? (
           <p className="text-sm text-gray-400">No payments recorded.</p>
         ) : (
