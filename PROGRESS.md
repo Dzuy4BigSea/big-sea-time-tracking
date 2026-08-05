@@ -21,7 +21,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 01 | Data model | ✅ | Schema mirrors spec |
 | 02 | Auth / permissions | 🟡 | `can()` capability layer ✅ + tests; auth flows (login/session/2FA), tenant-isolation enforcement ⬜ |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
-| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer plan, edit/lock guards) ✅ + tests; DB service wiring ⬜; timesheets/approval (module off) ⬜ |
+| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime service** (resolveRate wired to Prisma) ✅ + DB integration-tested; **log-time form + server action** ✅. Timer start/stop UI, edit/delete ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | 🟡 | **logic layer complete**: totals ✅, state machine ✅, uninvoiced pool ✅, payments ✅, line-item grouping ✅. Remaining: DB wiring/services (repos, transactions) ⬜ |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
 | 07 | Reporting | ⬜ | |
@@ -29,7 +29,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Invoices list + detail**, **Projects**, **Clients**, **Timesheet (read-only week view)** ✅. Timesheet **write actions** (timer/log) next; Team/Tasks/Expenses/Home ⬜ |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; live screens: **Invoices list + detail**, **Projects**, **Clients**, **Timesheet** (week view **+ log-time write action**) ✅ — first mutation via server action. Timer UI, Team/Tasks/Expenses/Home ⬜ |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 

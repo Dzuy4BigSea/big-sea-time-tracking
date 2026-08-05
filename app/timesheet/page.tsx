@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatMinutes } from '@/modules/shared/duration'
 import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
+import { LogTimeForm } from '@/components/LogTimeForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,26 @@ export default async function TimesheetPage({
     where: { userId, spentDate: { gte: monday, lte: sunday } },
     include: { project: { select: { name: true, code: true } }, task: { select: { name: true } } },
   })
+
+  // Projects (with their tasks) this user may log against, to populate the log-time form.
+  const assignments = await prisma.projectUserAssignment.findMany({
+    where: { userId, isActive: true },
+    select: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          taskAssignments: { where: { isActive: true }, select: { task: { select: { id: true, name: true } } } },
+        },
+      },
+    },
+    orderBy: { project: { name: 'asc' } },
+  })
+  const projectOptions = assignments.map((a) => ({
+    id: a.project.id,
+    name: a.project.name,
+    tasks: a.project.taskAssignments.map((ta) => ta.task),
+  }))
 
   // Group into rows keyed by project+task; each row holds minutes per weekday.
   type Row = { key: string; projectLabel: string; taskName: string; perDay: number[]; total: number }
@@ -78,6 +99,10 @@ export default async function TimesheetPage({
           {formatRange(monday, sunday)}
         </span>
         <NavLink href={`/timesheet?week=${nextWeek}&user=${userId}`}>Next →</NavLink>
+      </div>
+
+      <div className="mb-4">
+        <LogTimeForm projects={projectOptions} userId={userId} defaultDate={ymd(monday)} />
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
