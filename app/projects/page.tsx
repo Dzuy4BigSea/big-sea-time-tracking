@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { NewProjectForm } from '@/components/NewProjectForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,15 +31,19 @@ function budgetLabel(method: string, value: number | null): string {
 const hours = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function ProjectsPage() {
-  const { accountId } = await requireUser()
-  const projects = await prisma.project.findMany({
-    where: { accountId },
-    include: {
-      client: true,
-      timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },
-    },
-    orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
-  })
+  const { accountId, permissionProfile } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')
+  const [projects, clients] = await Promise.all([
+    prisma.project.findMany({
+      where: { accountId },
+      include: {
+        client: true,
+        timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },
+      },
+      orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
+    }),
+    prisma.client.findMany({ where: { accountId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+  ])
 
   // Group by client name for a Harvest-style grouped table.
   const byClient = new Map<string, typeof projects>()
@@ -53,6 +59,8 @@ export default async function ProjectsPage() {
       <p className="mb-6 text-sm text-gray-500">
         Live from Supabase · {projects.length} project{projects.length === 1 ? '' : 's'}
       </p>
+
+      {canManage && <NewProjectForm clients={clients} />}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
