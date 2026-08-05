@@ -6,6 +6,7 @@ import type { PaymentMethod } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { generateInvoice } from '@/modules/invoicing/generateInvoice'
+import { sendInvoice, markInvoiceDraft } from '@/modules/invoicing/invoiceLifecycle'
 import { parseYmd } from '@/lib/week'
 
 // Scoped to the demo account until account context / auth lands.
@@ -47,4 +48,28 @@ export async function generateInvoiceAction(formData: FormData): Promise<void> {
   revalidatePath('/invoices')
   // redirect() throws NEXT_REDIRECT — keep it outside any try/catch.
   redirect(invoice ? `/invoices/${invoice.id}` : '/invoices?nothing=1')
+}
+
+export async function sendInvoiceAction(formData: FormData): Promise<void> {
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId) return
+  try {
+    await sendInvoice(prisma, invoiceId)
+  } catch {
+    return
+  }
+  revalidatePath(`/invoices/${invoiceId}`)
+  revalidatePath('/invoices')
+}
+
+export async function markDraftAction(formData: FormData): Promise<void> {
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId) return
+  try {
+    await markInvoiceDraft(prisma, invoiceId)
+  } catch {
+    return
+  }
+  revalidatePath(`/invoices/${invoiceId}`)
+  revalidatePath('/invoices')
 }

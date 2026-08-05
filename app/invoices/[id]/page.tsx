@@ -6,6 +6,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
+import { sendInvoiceAction, markDraftAction } from '@/app/invoices/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +52,26 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
           <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
         </div>
+      </div>
+
+      {/* Action bar */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {invoice.status === 'draft' && (
+          <form action={sendInvoiceAction}>
+            <input type="hidden" name="invoiceId" value={invoice.id} />
+            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
+              Send invoice
+            </button>
+          </form>
+        )}
+        {invoice.status === 'open' && (
+          <form action={markDraftAction}>
+            <input type="hidden" name="invoiceId" value={invoice.id} />
+            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Mark as draft
+            </button>
+          </form>
+        )}
       </div>
 
       {/* Rendered invoice document */}
