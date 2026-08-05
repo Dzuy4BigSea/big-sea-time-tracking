@@ -80,9 +80,13 @@ Goal: a **spitting image** of Harvest for a low-friction migration. This documen
 ### Invoice Configure sub-pages (`/invoices/configure/*`) — [05](05-invoicing.md), [11](11-settings-modules-preferences.md)
 - **Company information:** Name · Address · E-invoicing (UBL export).
 - **Default values:** Time rounding · Show total hours · Payments due · Invoice subject · Invoice notes · Online payments (ACH/Credit Card) · pass-through fees.
-- **Appearance:** invoice colors, banner/logo (not screenshotted — generic).
+- **Appearance:** **Logo** (top-left, ≥1500px, JPG/GIF/PNG ≤5MB, Change/Remove) · **Look & feel** (Use Harvest branding / **Use my company branding**) → **Brand color** (Big Sea `#004348`) + **Background** (`#FFFFFF`) with a live invoice preview · **Banner** (bottom of invoices/emails, upload) · **Document title** toggle + text (`INVOICE`) · **Snail-mail friendly** (client address left, for envelope windows) · **Show invoice columns** (Item type / Description / Quantity / Unit price checkboxes) · preview links "Send a test email" and "See how clients will view invoices". Big Sea: teal brand, logo set, no banner.
 - **Messages:** **Send messages as** (multiple sender addresses, Make default/Delete, + Add custom email) · **Edit invoice content** with variables and three tabs: **Invoice message / Reminder message / Thank you message** (Subject + Body, e.g. `%invoice_client%`, `%invoice_url%`).
-- **Field labels:** rename invoice field labels (generic).
+- **Field labels** (`/invoices/translations`): a form renaming **every** invoice label — Document title, From, For, Invoice ID, PO number, Issue/Due date, "upon receipt", "Net [days]", Tax, Tax2, Discount, Subject, Item type, Description, Quantity, Unit price, Amount, Subtotal, Amount due, Total hours, Notes, PDF page numbering (`Page [page] of [toPage]`), File attachments. → the clone needs a configurable **label map** used when rendering invoices/PDFs.
+
+### Client-facing invoice view / payment portal (`/invoices/demo_portal?...` preview; live at `/i/:publicToken`)
+- Clean white document driven entirely by Appearance settings (the preview URL exposes them as params: `main_color`, `background_color`, `show_document_title`, `snail_mail_friendly`, `show_type_column`, `show_description_column`, `show_quantity_column`, `show_unit_price_column`, `show_amount_column`, `logo_id`, `banner_id`).
+- Layout: logo top-left · **document title** in brand color · From block · Invoice For (client) · Invoice ID / Issue / Due · Subject · line-item table (only the enabled columns) · **Amount Due** in brand color · Notes/banner. No app chrome — this is what clients receive/pay against.
 - **Item types:** list of configurable revenue categories with Edit/Delete; **+ New item type**; `Service` (default for billable hours/fees) and `Product` (default for expenses) are undeletable system defaults.
 
 ### Integrations (`/company/settings/integrations`)
@@ -98,10 +102,9 @@ Goal: a **spitting image** of Harvest for a low-friction migration. This documen
 
 ## Not yet captured (minor — for final pixel polish)
 
-- **Client dashboard** (client-login portal) — needs a client account to view; specced from the public-link invoice document for now.
+- **Client dashboard** — the *multi-invoice* client login portal (list of all a client's invoices + pay). The single-invoice payment view is captured above; the authenticated multi-invoice list needs a client account to see.
 - **Activity log** report detail — Premium & disabled at Big Sea.
-- **Appearance** and **Field labels** config sub-pages — described generically above; screenshot before pixel-matching invoice branding.
-- **Create** forms (New project/client/task/person) — inferred from the corresponding edit forms, which are captured.
+- **Create** forms (New project/client/task/person) — inferred from the corresponding edit forms, which are captured (create ≈ edit, minus pre-filled values).
 - **Import/Export** and **Bulk actions** settings detail — see [13-migration.md](13-migration.md).
 
 ## Fidelity acceptance criteria

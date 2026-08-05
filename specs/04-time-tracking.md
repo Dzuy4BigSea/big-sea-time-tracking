@@ -53,7 +53,7 @@ Entry mode (live start/stop timer vs typed duration) follows the account **`time
 - **AC-TIME-001** — *Given* no running timer, *when* a user starts one on Project A/Task Design, *then* an entry exists with `isRunning=true`, `timerStartedAt` set, `minutes=0`.
 - **AC-TIME-002** — *Given* a running timer on A, *when* the user starts a new timer on B, *then* the A timer is stopped (minutes finalized) and only the B timer runs. Exactly one `isRunning` row exists for the user.
 - **AC-TIME-003** — *Given* a running timer started 1h30m ago and rounding `none`, *when* stopped, *then* `minutes=90`.
-- **AC-TIME-004** — *Given* rounding `nearest_15`, *when* a 52-minute timer stops, *then* `minutes=60`; a 7-minute timer → 0? No — ties/near round to nearest 15: 7 → 0, 8 → 15.
+- **AC-TIME-004** — *Given* rounding `nearest_15` (applied at the summary/invoice layer, not to stored minutes), *when* rounding is applied, *then* it rounds to the nearest quarter-hour, ties up: 53 → 60, 52 → 45, 8 → 15, 7 → 0.
 - **AC-TIME-005** — *Given* the duration input, *when* a user types `1:30`, `1.5`, or `90m`, *then* all persist as `minutes=90`.
 - **AC-TIME-006** — *Given* an entry with `lockState='approved'`, *when* its owner edits it, *then* the edit is rejected.
 - **AC-TIME-007** — *Given* an entry with `lockState='invoiced'`, *when* anyone edits or deletes it, *then* it is rejected (**INV-3**).

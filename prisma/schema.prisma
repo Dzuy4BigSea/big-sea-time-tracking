@@ -257,6 +257,8 @@ model Account {
   retainers                Retainer[]
   invoiceMessageTemplates  InvoiceMessageTemplate[]
   senderAddresses          SenderAddress[]
+  invoiceAppearance        InvoiceAppearance?
+  invoiceLabels            InvoiceLabels?
   auditLogs                AuditLog[]
 }
 
@@ -827,6 +829,34 @@ model SenderAddress {
   isDefault Boolean @default(false)
 
   @@index([accountId])
+}
+
+// Invoice branding (Configure -> Appearance). 1:1 with Account. Drives PDF + client view.
+model InvoiceAppearance {
+  id                 String  @id @default(cuid())
+  accountId          String  @unique
+  account            Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  logoFileUrl        String?
+  bannerFileUrl      String?
+  useCompanyBranding Boolean @default(true)
+  brandColor         String  @default("#004348")
+  backgroundColor    String  @default("#FFFFFF")
+  showDocumentTitle  Boolean @default(true)
+  documentTitle      String  @default("INVOICE")
+  snailMailFriendly  Boolean @default(true)
+  showItemTypeCol    Boolean @default(false)
+  showDescriptionCol Boolean @default(true)
+  showQuantityCol    Boolean @default(false)
+  showUnitPriceCol   Boolean @default(false)
+  showAmountCol      Boolean @default(true)
+}
+
+// Customizable/localizable invoice field labels (Configure -> Field labels). 1:1 with Account.
+model InvoiceLabels {
+  id        String  @id @default(cuid())
+  accountId String  @unique
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  labels    Json // { documentTitle, from, for, invoiceId, ... } — defaults applied by the renderer
 }
 
 model AuditLog {

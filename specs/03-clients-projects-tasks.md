@@ -44,9 +44,9 @@ projectType == 'time_and_materials':
     switch project.billableRateMethod:
       'none':    rate = null            # "No billable rate" — valid; amount unknown
       'project': rate = project.projectHourlyRateCents
-      'person':  rate = effectiveRate(PersonBillableRate,  userId,  entry.spentDate)
-                        ?? projectUserAssignment.hourlyRateCents   # per-project override
-      'task':    rate = effectiveRate(TaskBillableRate/assignment, taskId, entry.spentDate)
+      'person':  rate = projectUserAssignment.hourlyRateCents        # per-project override WINS
+                        ?? effectiveRate(PersonBillableRate, userId, entry.spentDate)
+      'task':    rate = taskAssignment.hourlyRateCents               # per-project override WINS
                         ?? task.defaultHourlyRateCents
 ```
 

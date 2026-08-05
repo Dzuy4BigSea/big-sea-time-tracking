@@ -251,6 +251,24 @@ Configurable "send messages as" addresses (e.g. `invoices@bigseadesign.com`).
 | name / email | string | |
 | isDefault | bool | |
 
+### InvoiceAppearance
+Account-level invoice branding (Configure → Appearance). 1:1 with Account. Drives both the PDF and the client-facing view.
+| Field | Type | Notes |
+|---|---|---|
+| id / accountId | | 1:1 |
+| logoFileUrl | string? | Top-left logo |
+| bannerFileUrl | string? | Bottom banner |
+| useCompanyBranding | bool | vs Harvest-style default |
+| brandColor | string | hex (Big Sea `#004348`) |
+| backgroundColor | string | hex |
+| showDocumentTitle | bool | |
+| documentTitle | string | e.g. "INVOICE" |
+| snailMailFriendly | bool | client address left, for envelope windows |
+| showItemTypeCol / showDescriptionCol / showQuantityCol / showUnitPriceCol / showAmountCol | bool | which columns render |
+
+### InvoiceLabels
+Customizable/localizable label map for invoice rendering (Configure → Field labels). Store as JSON (or key/value rows) keyed by field: `documentTitle, from, for, invoiceId, poNumber, issueDate, dueDate, uponReceipt, netDays, tax, tax2, discount, subject, itemType, description, quantity, unitPrice, amount, subtotal, amountDue, totalHours, notes, pdfPageNumbering, fileAttachments`. Defaults provided; renderer reads from here.
+
 ### Payment
 | Field | Type | Notes |
 |---|---|---|
