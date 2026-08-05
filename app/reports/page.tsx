@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
+import { ReportsTabs } from '@/components/ReportsTabs'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,7 +50,8 @@ export default async function ReportsPage() {
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Reports</h1>
-      <p className="mb-6 text-sm text-gray-500">Time report · grouped by client · live from Supabase</p>
+      <p className="mb-4 text-sm text-gray-500">Time report · grouped by client · live from Supabase</p>
+      <ReportsTabs active="Time" />
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">

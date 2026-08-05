@@ -24,7 +24,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | ✅ | **core loop complete & live**: generateInvoice (pool→draft), sendInvoice (number/lock/token/seq-bump), recordPayment (partial/full/overpayment-guard), markInvoiceDraft (unlock) — all DB integration-tested + wired to UI (generate control, send/mark-draft buttons, payment form). Remaining polish: delete-draft, public /i/[token] view, taxes/discount UI |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
-| 07 | Reporting | 🟡 | **Time report** (by client: hours, billable, uninvoiced) ✅ live, reuses isUninvoiced. Profitability/A-R/exports ⬜ |
+| 07 | Reporting | 🟡 | **Time report** (by client: hours, billable, uninvoiced) + **Receivables A/R** (aging buckets) ✅ live, tabbed. Profitability/exports ⬜ |
 | 08 | Non-functional | ⬜ | Tenant-isolation tests, authz, audit |
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
