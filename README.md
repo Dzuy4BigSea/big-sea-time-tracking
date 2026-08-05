@@ -1,6 +1,6 @@
-# Harvest Clone
+# Track2
 
-A time-tracking + invoicing app modeled on Harvest, built with a **spec → validation → QA** agentic workflow.
+**Track2** is a time-tracking + invoicing app for Big Sea, modeled on Harvest, built with a **spec → validation → QA** agentic workflow. (References to "Harvest" throughout the specs describe the product Track2 is modeled on.)
 
 ## The spec
 

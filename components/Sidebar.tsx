@@ -34,7 +34,7 @@ export function Sidebar() {
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-white px-3 py-4">
       <div className="mb-6 flex items-center gap-2 px-2">
         <span className="inline-block h-5 w-5 rounded bg-brand-orange" />
-        <span className="text-lg font-semibold tracking-tight">harvest</span>
+        <span className="text-lg font-semibold tracking-tight">Track2</span>
       </div>
       <nav className="space-y-5">
         {NAV.map((section, i) => (

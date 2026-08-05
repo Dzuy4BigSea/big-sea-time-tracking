@@ -3,8 +3,8 @@ import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
 
 export const metadata: Metadata = {
-  title: 'Big Sea — Time Tracking',
-  description: 'Harvest clone (time tracking + invoicing)',
+  title: 'Track2',
+  description: 'Track2 — time tracking + invoicing',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

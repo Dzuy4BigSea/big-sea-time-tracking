@@ -1,4 +1,6 @@
-# Harvest Clone — Product & Technical Overview
+# Track2 — Product & Technical Overview
+
+> **Track2** is Big Sea's time-tracking + invoicing app, modeled on Harvest. Throughout these specs, "Harvest" refers to the existing product Track2 is modeled on (and migrating off of).
 
 > **Spec set version:** 0.2 (revised against the live Big Sea account — see [findings.md](findings.md))
 > **Scope:** A **high-fidelity replica** of Harvest for migration off the product. Time tracking, Expenses, Team/permissions, Clients/Projects/Tasks, Invoicing (incl. **Recurring** & **Retainers**), Reporting, and a Client dashboard. Estimates and Timesheet approval are built as **modules, off by default** (Big Sea doesn't use them). Integrations (Xero/Stripe/Google/Forecast) and native mobile/desktop apps are out of scope this phase.

@@ -1,5 +1,5 @@
 /**
- * Deterministic seed for the Harvest clone.
+ * Deterministic seed for Track2.
  *
  * Per specs/00-overview.md §5: two accounts (for tenant-isolation tests),
  * users across the 6 permission profiles, item types, tasks, clients + contacts,

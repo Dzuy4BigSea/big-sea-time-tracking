@@ -1,6 +1,6 @@
 # Build Progress
 
-Running status of the Harvest clone build. Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
+Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
 _Last updated: 2026-08-04._
 

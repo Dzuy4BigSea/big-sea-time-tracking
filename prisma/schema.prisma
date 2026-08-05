@@ -1,4 +1,4 @@
-// Harvest clone — Prisma schema
+// Track2 — Prisma schema
 // Source of truth: specs/01-data-model.md (revised against the live account).
 // Conventions:
 //   - Money = integer minor units (cents). No floats. See INV-1.

@@ -2,7 +2,7 @@
   "name": "big-sea-time-tracking",
   "version": "0.1.0",
   "private": true,
-  "description": "Harvest clone (time tracking + invoicing) — spec/validation/QA build",
+  "description": "Track2 — time tracking + invoicing (spec/validation/QA build)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
