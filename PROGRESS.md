@@ -6,9 +6,9 @@ _Last updated: 2026-08-04._
 
 ## Current status
 
-**Phase:** Foundation / core service logic. **Database live on Supabase** (schema pushed, constraints applied, seeded, verified). Pure business-logic modules landing with tests. No app UI yet.
+**Phase:** App scaffolding. **Database live on Supabase**; **core logic layer complete** (tested). **Next.js app running** with its first real screen (Invoices) reading live seeded data end-to-end.
 
-**Test suite:** 66 passing across 9 files. `tsc --noEmit` clean.
+**Test suite:** 66 passing across 9 files. `next build` clean; unit tests + `tsc` clean.
 
 ## Build order checklist
 
@@ -29,7 +29,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | ⬜ | Not scaffolded yet |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **Invoices screen ✅** (live from Supabase, badges via displayBadge). Other screens ⬜ |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 
@@ -62,7 +62,9 @@ Issues deferred on purpose, with where to pick them up.
 - **[Seed] `InvoiceAppearance` / `InvoiceLabels` not seeded** — models exist; add demo rows when the invoice renderer needs them. → invoice UI phase.
 - **[UI] Multi-invoice client portal (client login) not captured** — needs a client account; single-invoice payment view is captured. → client-dashboard phase.
 - **[07] Activity log** — Premium, disabled at Big Sea; not modeled in detail. → reporting phase (internal audit log via `AuditLog` still needed).
+- **[Deploy] Vercel not set up yet** — connect the GitHub repo to Vercel for per-PR preview URLs; set `DATABASE_URL` env var there. On Vercel (serverless) use Supabase's **Transaction pooler** (port 6543) with `?pgbouncer=true&connection_limit=1`, not the session pooler we use locally. → next, for reviewable deploys.
 - **[Deploy] Ops/backup section missing from spec** — add Vercel+Supabase deploy steps and mandatory DB backups. → before first review deploy.
+- **[UI] Pages currently `force-dynamic`** — fine now; revisit caching/streaming strategy per screen later.
 
 ## Resolved (spec bugs caught while building)
 
