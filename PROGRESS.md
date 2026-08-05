@@ -2,13 +2,28 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-08-04._
+_Last updated: 2026-08-05._
+
+## ▶ Resume here (next session)
+
+**Track2 is a working, deployed, authenticated app.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` (admin), or the demo users `alice@bigsea.demo` / `frank@bigsea.demo` / `zoe@globex.demo` (password `password123`). Everything is committed + pushed to `main`; working tree clean.
+
+**Done:** core loop (track → invoice → send → pay), every sidebar screen, auth + per-account tenancy, real migrations, and entity **create** forms for Client / Task / Project (permission-gated).
+
+**Next up (in order) — continue the CRUD block:**
+1. **Invite / edit Person** (Team) — create real logins for teammates; ties to auth.
+2. **Edit** forms for Client / Project / Task (create exists; edit doesn't).
+3. **Expense entry** form (+ categories).
+4. **Inline time-entry edit** on the timesheet.
+5. Then: public invoice page `/i/[token]` (needs a small layout refactor), CSV exports, and a **UI-fidelity pass** (top bar, sidebar polish) toward the Harvest look.
+
+**Ops follow-ups (your call, dashboard settings):** provision a separate **production Supabase** (Pro, with backups) before real client data; optional Vercel preview-URL protection. See parking lot.
 
 ## Current status
 
-**Phase:** App scaffolding. **Database live on Supabase**; **core logic layer complete** (tested). **Next.js app deployed to Vercel** — live at `big-sea-time-tracking.vercel.app`, Invoices screen rendering real Supabase data end-to-end. Every push to `main` auto-deploys; PRs get preview URLs (the human-review home).
+**Phase:** Feature build — entity CRUD. DB live on Supabase (migrations adopted); core logic tested; app deployed on Vercel with auth + multi-tenant scoping. Create forms landing for the core entities.
 
-**Test suite:** 66 passing across 9 files. `next build` clean; unit tests + `tsc` clean.
+**Test suite:** 66 unit tests passing across 9 files; `next build` + `tsc` clean. Write paths (time, timer, invoicing lifecycle, CRUD creates) integration-verified against the DB.
 
 ## Build order checklist
 
