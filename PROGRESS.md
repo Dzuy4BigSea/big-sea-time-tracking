@@ -6,7 +6,7 @@ _Last updated: 2026-08-04._
 
 ## Current status
 
-**Phase:** Foundation / core service logic. Data layer scaffolded; pure business-logic modules landing with tests. No app UI or running database yet.
+**Phase:** Foundation / core service logic. **Database live on Supabase** (schema pushed, constraints applied, seeded, verified). Pure business-logic modules landing with tests. No app UI yet.
 
 **Test suite:** 59 passing across 8 files. `tsc --noEmit` clean.
 
@@ -46,7 +46,8 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 
 - **Stack:** Next.js + TypeScript + PostgreSQL + Prisma + Zod + Auth.js; Vitest (unit) + Playwright (E2E, later).
 - **Business rules live in the service layer** (`modules/*`), never in Prisma or components — pure functions, DB-free tests.
-- **Hosting / review:** app → **Vercel** (per-PR preview URLs = the human-review home); DB → **Supabase**. Wire up once screens exist; user will supply the Supabase connection string.
+- **Hosting / review:** app → **Vercel** (per-PR preview URLs = the human-review home); DB → **Supabase**.
+- **DB connection:** Supabase **Session pooler** (`aws-0-us-east-2.pooler.supabase.com:5432`, IPv4). The direct host (`db.*.supabase.co`) is **IPv6-only** and unreachable on IPv4 networks. Schema applied via **`prisma db push`** (not `migrate` — the `postgres` role can't create the shadow DB `migrate dev` needs). Constraints applied via `prisma db execute`.
 - **Modules on at Big Sea:** time, expenses, team, invoices, client dashboard. **Off:** timesheet approval, estimates, activity log — build these but deprioritize.
 - **Commit cadence:** auto commit+push each tested increment to `main`.
 
@@ -54,8 +55,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 
 Issues deferred on purpose, with where to pick them up.
 
-- **[DB] Raw-SQL constraints not yet in a migration** — `prisma/sql/constraints.sql` (one-running-timer partial index; non-overlapping rate exclusion) must be applied after the first `prisma migrate`. → do when the DB is stood up.
-- **[DB] No database yet** — need the Supabase connection string to run `migrate` + `seed` + Prisma Studio. → blocks any visual/data preview.
+- **[DB] No migration history** — schema is applied via `prisma db push` (no `prisma/migrations/`). Before production, adopt real migrations (baseline the current schema; configure a shadow DB or use `db push` only for dev). Constraints in `prisma/sql/constraints.sql` must be re-applied whenever the schema is recreated (they are applied via `prisma db execute`, ✅ done on the current Supabase DB).
 - **[05] `discountBeforeTax` is a param (default true), not persisted** — decide whether it's an Account setting or per-invoice; add to schema. → invoicing phase.
 - **[03] Effective-dated *task* billable rates not modeled** — task rate currently = per-project assignment override ?? task default (no date ranges). Person rates ARE effective-dated. Confirm whether Harvest date-ranges task/project rates too. → rate phase.
 - **[05] Money columns are 32-bit `Int` cents** (~$21M/row ceiling) — fine for invoices; revisit `BigInt` if any single stored amount could exceed that. → before production.
