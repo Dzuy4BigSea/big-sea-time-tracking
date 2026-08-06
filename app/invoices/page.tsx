@@ -35,7 +35,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
 
       <form action={generateInvoiceAction} className="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4">
         <label className="flex flex-col gap-1">
-          <span className="text-xs uppercase tracking-wide text-gray-400">New invoice from tracked time</span>
+          <span className="text-xs uppercase tracking-wide text-gray-400">New invoice from tracked time &amp; expenses</span>
           <select name="clientId" className="min-w-56 rounded border border-gray-300 px-2 py-1.5 text-sm">
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
@@ -47,7 +47,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
         <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
           Generate draft
         </button>
-        {searchParams.nothing && <span className="text-sm text-gray-500">No uninvoiced time for that client.</span>}
+        {searchParams.nothing && <span className="text-sm text-gray-500">No uninvoiced time or expenses for that client.</span>}
       </form>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
