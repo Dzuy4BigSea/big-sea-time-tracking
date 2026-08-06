@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -31,8 +32,15 @@ export default async function ClientsPage() {
           <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex items-baseline justify-between">
               <h2 className="font-semibold text-gray-900">{c.name}</h2>
-              <div className="text-xs text-gray-400">
-                {c.currency} · {c._count.projects} project{c._count.projects === 1 ? '' : 's'}
+              <div className="flex items-baseline gap-3 text-xs text-gray-400">
+                <span>
+                  {c.currency} · {c._count.projects} project{c._count.projects === 1 ? '' : 's'}
+                </span>
+                {canManage && (
+                  <Link href={`/clients/${c.id}/edit`} className="text-gray-500 hover:text-brand-orange">
+                    Edit
+                  </Link>
+                )}
               </div>
             </div>
             {c.address && <div className="mt-1 whitespace-pre-line text-xs text-gray-500">{c.address}</div>}

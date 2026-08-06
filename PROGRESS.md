@@ -12,7 +12,7 @@ _Last updated: 2026-08-05._
 
 **Next up (in order) — continue the CRUD block:**
 1. ✅ **Invite Person** (Team) — create real logins (bcrypt, permission-gated, unique-email). _Edit-person still to do._
-2. **Edit** forms for Client / Project / Task (create exists; edit doesn't).
+2. **Edit** forms — **Client edit ✅** (`/clients/[id]/edit`, currency locked once invoiced). Task edit + Project edit still to do.
 3. **Expense entry** form (+ categories).
 4. **Inline time-entry edit** on the timesheet.
 5. Then: public invoice page `/i/[token]` (needs a small layout refactor), CSV exports, and a **UI-fidelity pass** (top bar, sidebar polish) toward the Harvest look.
