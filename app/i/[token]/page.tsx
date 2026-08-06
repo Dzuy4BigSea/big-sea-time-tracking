@@ -107,7 +107,7 @@ export default async function PublicInvoicePage({
         {/* Brand header band */}
         <div className="flex items-center justify-between px-8 py-6 text-white" style={{ background: BRAND }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logotype-white.png" alt={invoice.account.name} className="h-8 w-auto" />
+          <img src="/brand/logotype-white.svg" alt={invoice.account.name} className="h-8 w-auto" />
           {appearance.showDocumentTitle && (
             <div className="text-xl font-bold uppercase tracking-[0.14em]">{appearance.documentTitle}</div>
           )}
