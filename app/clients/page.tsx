@@ -31,7 +31,11 @@ export default async function ClientsPage() {
         {clients.map((c) => (
           <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold text-gray-900">{c.name}</h2>
+              <h2 className="font-semibold text-gray-900">
+                <Link href={`/clients/${c.id}`} className="hover:text-brand-orange">
+                  {c.name}
+                </Link>
+              </h2>
               <div className="flex items-baseline gap-3 text-xs text-gray-400">
                 <span>
                   {c.currency} · {c._count.projects} project{c._count.projects === 1 ? '' : 's'}

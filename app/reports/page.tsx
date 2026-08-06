@@ -1,15 +1,18 @@
+import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export const dynamic = 'force-dynamic'
 
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function ReportsPage() {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile } = await requireUser()
+  const canExport = can({ permissionProfile: permissionProfile as PermissionProfile }, 'run_account_reports')
   const entries = await prisma.timeEntry.findMany({
     where: { accountId },
     select: {
@@ -50,7 +53,18 @@ export default async function ReportsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-semibold">Reports</h1>
+      <div className="mb-1 flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold">Reports</h1>
+        {canExport && (
+          <Link
+            href="/reports/export"
+            prefetch={false}
+            className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Export CSV
+          </Link>
+        )}
+      </div>
       <p className="mb-4 text-sm text-gray-500">Time report · grouped by client · live from Supabase</p>
       <ReportsTabs active="Time" />
 
