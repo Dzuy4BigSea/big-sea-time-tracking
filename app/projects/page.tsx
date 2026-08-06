@@ -45,12 +45,12 @@ export default async function ProjectsPage() {
     prisma.client.findMany({ where: { accountId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ])
 
-  // Group by client name for a Harvest-style grouped table.
-  const byClient = new Map<string, typeof projects>()
+  // Group by client for a Harvest-style grouped table (client header links to the client).
+  const byClient = new Map<string, { id: string; name: string; projects: typeof projects }>()
   for (const p of projects) {
-    const list = byClient.get(p.client.name) ?? []
-    list.push(p)
-    byClient.set(p.client.name, list)
+    const g = byClient.get(p.client.id) ?? { id: p.client.id, name: p.client.name, projects: [] }
+    g.projects.push(p)
+    byClient.set(p.client.id, g)
   }
 
   return (
@@ -74,8 +74,8 @@ export default async function ProjectsPage() {
             </tr>
           </thead>
           <tbody>
-            {[...byClient.entries()].map(([clientName, list]) => (
-              <ClientGroup key={clientName} clientName={clientName} projects={list} />
+            {[...byClient.values()].map((g) => (
+              <ClientGroup key={g.id} clientId={g.id} clientName={g.name} projects={g.projects} />
             ))}
             {projects.length === 0 && (
               <tr>
@@ -92,9 +92,11 @@ export default async function ProjectsPage() {
 }
 
 function ClientGroup({
+  clientId,
   clientName,
   projects,
 }: {
+  clientId: string
   clientName: string
   projects: {
     id: string
@@ -110,7 +112,9 @@ function ClientGroup({
     <>
       <tr className="bg-gray-50">
         <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-          {clientName}
+          <Link href={`/clients/${clientId}`} className="hover:text-brand-orange">
+            {clientName}
+          </Link>
         </td>
       </tr>
       {projects.map((p) => {
