@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import Link from 'next/link'
 import { NewTaskForm } from '@/components/NewTaskForm'
 
 export const dynamic = 'force-dynamic'
@@ -27,9 +28,10 @@ export default async function TasksPage() {
         title="Common tasks"
         subtitle="Automatically added to all new projects."
         tasks={common}
+        canManage={canManage}
       />
       <div className="h-6" />
-      <Section title="Other tasks" subtitle="Must be added to projects manually." tasks={other} />
+      <Section title="Other tasks" subtitle="Must be added to projects manually." tasks={other} canManage={canManage} />
     </div>
   )
 }
@@ -38,10 +40,12 @@ function Section({
   title,
   subtitle,
   tasks,
+  canManage,
 }: {
   title: string
   subtitle: string
   tasks: { id: string; name: string; defaultBillable: boolean; defaultHourlyRateCents: number | null }[]
+  canManage: boolean
 }) {
   return (
     <div>
@@ -56,6 +60,7 @@ function Section({
               <th className="px-4 py-3 font-medium">Task</th>
               <th className="px-4 py-3 font-medium">Billable</th>
               <th className="px-4 py-3 text-right font-medium">Default rate</th>
+              {canManage && <th className="px-4 py-3 text-right font-medium">Edit</th>}
             </tr>
           </thead>
           <tbody>
@@ -72,11 +77,18 @@ function Section({
                 <td className="px-4 py-3 text-right tabular-nums text-gray-700">
                   {t.defaultHourlyRateCents ? formatCents(t.defaultHourlyRateCents) : '—'}
                 </td>
+                {canManage && (
+                  <td className="px-4 py-3 text-right">
+                    <Link href={`/tasks/${t.id}/edit`} className="text-gray-500 hover:text-brand-orange">
+                      Edit
+                    </Link>
+                  </td>
+                )}
               </tr>
             ))}
             {tasks.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={canManage ? 4 : 3} className="px-4 py-6 text-center text-gray-400">
                   None.
                 </td>
               </tr>

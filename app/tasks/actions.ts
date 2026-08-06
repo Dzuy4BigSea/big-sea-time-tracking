@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export type NewTaskState = { error?: string; ok?: boolean }
+export type EditTaskState = { error?: string; ok?: boolean }
 
 export async function createTaskAction(_prev: NewTaskState, formData: FormData): Promise<NewTaskState> {
   const { accountId, permissionProfile } = await requireUser()
@@ -28,6 +29,38 @@ export async function createTaskAction(_prev: NewTaskState, formData: FormData):
     })
   } catch {
     return { error: 'Could not create the task.' }
+  }
+
+  revalidatePath('/tasks')
+  return { ok: true }
+}
+
+export async function updateTaskAction(_prev: EditTaskState, formData: FormData): Promise<EditTaskState> {
+  const { accountId, permissionProfile } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')) {
+    return { error: 'You do not have permission to edit tasks.' }
+  }
+
+  const id = String(formData.get('id') ?? '')
+  const name = String(formData.get('name') ?? '').trim()
+  const defaultBillable = formData.get('defaultBillable') === 'on'
+  const autoAddToNewProjects = formData.get('autoAdd') === 'on'
+  const rateStr = String(formData.get('rate') ?? '').replace(/[$,\s]/g, '')
+  const rate = rateStr ? Number(rateStr) : NaN
+  const defaultHourlyRateCents = Number.isFinite(rate) && rate > 0 ? Math.round(rate * 100) : null
+
+  if (!name) return { error: 'Task name is required.' }
+
+  const task = await prisma.task.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!task) return { error: 'Task not found.' }
+
+  try {
+    await prisma.task.update({
+      where: { id },
+      data: { name, defaultBillable, defaultHourlyRateCents, autoAddToNewProjects },
+    })
+  } catch {
+    return { error: 'Could not save the task.' }
   }
 
   revalidatePath('/tasks')
