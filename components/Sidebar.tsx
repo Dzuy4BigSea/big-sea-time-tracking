@@ -25,7 +25,13 @@ const NAV: Section[] = [
       { label: 'Tasks', href: '/tasks', ready: true },
     ],
   },
-  { heading: 'Bill', items: [{ label: 'Invoices', href: '/invoices', ready: true }] },
+  {
+    heading: 'Bill',
+    items: [
+      { label: 'Invoices', href: '/invoices', ready: true },
+      { label: 'Retainers', href: '/retainers', ready: true },
+    ],
+  },
   { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
