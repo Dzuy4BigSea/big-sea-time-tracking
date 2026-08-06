@@ -37,15 +37,19 @@ export async function startTimerAction(formData: FormData): Promise<void> {
   const { userId } = await requireUser()
   const projectId = String(formData.get('projectId') ?? '')
   const taskId = String(formData.get('taskId') ?? '')
+  const notes = String(formData.get('notes') ?? '').trim() || null
   if (!projectId || !taskId) return
-  await startTimer(prisma, { userId, projectId, taskId, now: new Date() })
+  const entry = await startTimer(prisma, { userId, projectId, taskId, now: new Date() })
+  if (notes && entry) await prisma.timeEntry.update({ where: { id: entry.id }, data: { notes } })
   revalidatePath('/timesheet')
+  revalidatePath('/', 'layout') // refresh the global top-bar timer state
 }
 
 export async function stopTimerAction(): Promise<void> {
   const { userId } = await requireUser()
   await stopTimer(prisma, { userId, now: new Date() })
   revalidatePath('/timesheet')
+  revalidatePath('/', 'layout') // refresh the global top-bar timer state
 }
 
 export type EditTimeState = { error?: string; ok?: boolean }
