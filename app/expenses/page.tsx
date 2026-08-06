@@ -1,20 +1,41 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { NewExpenseForm } from '@/components/NewExpenseForm'
+import { NewCategoryForm } from '@/components/NewCategoryForm'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ExpensesPage() {
-  const { accountId } = await requireUser()
-  const expenses = await prisma.expense.findMany({
-    where: { accountId },
-    include: {
-      project: { select: { name: true, code: true } },
-      category: { select: { name: true } },
-      user: { select: { firstName: true, lastName: true } },
-    },
-    orderBy: { spentDate: 'desc' },
-  })
+  const { accountId, permissionProfile } = await requireUser()
+  const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')
+
+  const [expenses, projects, categories] = await Promise.all([
+    prisma.expense.findMany({
+      where: { accountId },
+      include: {
+        project: { select: { name: true, code: true } },
+        category: { select: { name: true } },
+        user: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { spentDate: 'desc' },
+    }),
+    prisma.project.findMany({
+      where: { accountId, isActive: true },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.expenseCategory.findMany({
+      where: { accountId, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+  ])
+
+  const today = new Date().toISOString().slice(0, 10)
+  const projectOptions = projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name }))
+  const categoryOptions = categories.map((c) => ({ id: c.id, label: c.name }))
 
   const withMarkup = (e: (typeof expenses)[number]) => {
     const pct = e.markupPercent ? Number(e.markupPercent) : 0
@@ -25,6 +46,9 @@ export default async function ExpensesPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Expenses</h1>
       <p className="mb-6 text-sm text-gray-500">Live from Supabase · {expenses.length} expense{expenses.length === 1 ? '' : 's'}</p>
+
+      <NewExpenseForm projects={projectOptions} categories={categoryOptions} today={today} />
+      {canManageSettings && <NewCategoryForm />}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
