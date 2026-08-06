@@ -53,6 +53,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 11 | Settings / modules | ✅ | **Settings** screen: preferences, **module toggles** (with nav/route gating, AC-MOD), expense categories, **invoice appearance** editor. Import/export ⬜ |
 | 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **global sticky top bar** (section title + "+ New" quick-create) ✅; **every sidebar screen live + core loop + auth**. **Full entity CRUD** (create + edit) for **Client / Task / Project / Person** ✅ — all permission-gated via `can()` in the action. **Expense entry** ✅. **Inline time-entry edit** ✅. **Client detail** (`/clients/[id]`) ✅. **Public invoice** (`/i/[token]`) ✅. **CSV export** ✅. Remaining: Settings screen, invoice-appearance theming, receipts upload |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
+| 14 | Integrations (Asana / Stripe / Xero) | 🟡 | **Spec written** ([specs/14](specs/14-integrations.md)), grounded against Big Sea's live connected integrations: shared connection model, Stripe inbound payments, Xero outbound accounting sync, Asana import, + the Stripe→app→Xero money path. **Not built** — needs OAuth app credentials + a token secret-store decision |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 
 ## Completed modules
