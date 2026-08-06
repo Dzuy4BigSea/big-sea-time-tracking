@@ -48,6 +48,30 @@ export async function stopTimerAction(): Promise<void> {
   revalidatePath('/timesheet')
 }
 
+export type EditTimeState = { error?: string; ok?: boolean }
+
+export async function updateTimeEntryAction(_prev: EditTimeState, formData: FormData): Promise<EditTimeState> {
+  const { userId } = await requireUser()
+  const id = String(formData.get('entryId') ?? '')
+  if (!id) return { error: 'Missing entry.' }
+
+  const entry = await prisma.timeEntry.findUnique({
+    where: { id },
+    select: { userId: true, lockState: true, isRunning: true },
+  })
+  if (!entry || entry.userId !== userId) return { error: 'Entry not found.' } // ownership check
+  if (entry.isRunning) return { error: 'Stop the timer before editing this entry.' }
+  if (entry.lockState !== 'open') return { error: 'This entry is locked and can’t be edited.' } // INV-3
+
+  const minutes = parseDurationToMinutes(String(formData.get('duration') ?? ''))
+  if (!minutes || minutes <= 0) return { error: 'Enter a duration like 1:30, 1.5, or 90m.' }
+  const notes = String(formData.get('notes') ?? '').trim() || null
+
+  await prisma.timeEntry.update({ where: { id }, data: { minutes, notes } })
+  revalidatePath('/timesheet')
+  return { ok: true }
+}
+
 export async function deleteTimeEntryAction(formData: FormData): Promise<void> {
   const { userId } = await requireUser()
   const id = String(formData.get('entryId') ?? '')
