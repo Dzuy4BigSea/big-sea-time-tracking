@@ -32,7 +32,7 @@ export const IMPORT_RESOURCES = [
   'projects', 'time_entries', 'expenses', 'invoices', 'estimates',
 ] as const
 
-export type ImportCursor = { stageIndex: number; offset: number }
+export type ImportCursor = { stageIndex: number; partIndex: number; offset: number }
 export type EntityTally = { created: number; updated: number; skipped: number; errors: number }
 export type ImportBatchResult = {
   ok: boolean
@@ -149,15 +149,19 @@ async function recordMap(maps: Maps, entity: string, harvestId: string, localId:
 }
 
 // ---- snapshot loading ------------------------------------------------------
-async function loadResource(snapshotId: string, resource: string): Promise<HRow[]> {
-  const parts = await prisma.migrationSnapshotPart.findMany({
+// Load ONE part at a time (keyed by the resumable cursor) so a resource with hundreds of thousands
+// of rows across many year-chunks never has to be held in memory all at once. A single Big Sea year
+// of time entries can be 50k+ rows; loading the whole resource per batch would exhaust the function.
+async function listParts(snapshotId: string, resource: string): Promise<{ id: string; rowCount: number }[]> {
+  return prisma.migrationSnapshotPart.findMany({
     where: { snapshotId, resource },
-    select: { data: true, chunk: true },
+    select: { id: true, rowCount: true },
     orderBy: { chunk: 'asc' },
   })
-  const out: HRow[] = []
-  for (const p of parts) if (Array.isArray(p.data)) out.push(...(p.data as HRow[]))
-  return out
+}
+async function loadPartData(partId: string): Promise<HRow[]> {
+  const part = await prisma.migrationSnapshotPart.findUnique({ where: { id: partId }, select: { data: true } })
+  return Array.isArray(part?.data) ? (part!.data as HRow[]) : []
 }
 
 // ---- stage definitions -----------------------------------------------------
@@ -534,6 +538,7 @@ export async function runImportBatch(
   const maps = await loadMaps(accountId)
   const dryRun = opts.dryRun
   let stageIndex = opts.cursor?.stageIndex ?? 0
+  let partIndex = opts.cursor?.partIndex ?? 0
   let offset = opts.cursor?.offset ?? 0
 
   const batch: Record<string, EntityTally> = {}
@@ -549,22 +554,27 @@ export async function runImportBatch(
   while (stageIndex < STAGES.length) {
     const stage = STAGES[stageIndex]
     stageLabel = stage.label
-    const rows = await loadResource(snapshotId, stage.resource)
-    for (; offset < rows.length; offset++) {
-      if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) {
-        return { ok: true, dryRun, done: false, cursor: { stageIndex, offset }, batch, processedThisBatch, totalRows, stageLabel, notes }
+    const parts = await listParts(snapshotId, stage.resource)
+    while (partIndex < parts.length) {
+      const rows = await loadPartData(parts[partIndex].id) // one bounded part at a time
+      for (; offset < rows.length; offset++) {
+        if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) {
+          return { ok: true, dryRun, done: false, cursor: { stageIndex, partIndex, offset }, batch, processedThisBatch, totalRows, stageLabel, notes }
+        }
+        try {
+          const outcome = await stage.importRow(rows[offset], { accountId, maps, dryRun })
+          tally(stage.entity, outcome)
+        } catch (e) {
+          tally(stage.entity, 'errors')
+          if (notes.length < 12) notes.push(`${stage.entity} #${rows[offset]?.id}: ${(e as Error).message?.slice(0, 140)}`)
+        }
+        processedThisBatch++
       }
-      try {
-        const outcome = await stage.importRow(rows[offset], { accountId, maps, dryRun })
-        tally(stage.entity, outcome)
-      } catch (e) {
-        tally(stage.entity, 'errors')
-        if (notes.length < 12) notes.push(`${stage.entity} #${rows[offset]?.id}: ${(e as Error).message?.slice(0, 140)}`)
-      }
-      processedThisBatch++
+      partIndex++
+      offset = 0
     }
     stageIndex++
-    offset = 0
+    partIndex = 0
   }
 
   // Done — bump document-number sequences past the highest imported number so new docs don't collide.
