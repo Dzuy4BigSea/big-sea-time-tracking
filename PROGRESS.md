@@ -2,22 +2,25 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-08-05._
+_Last updated: 2026-08-06._
 
 ## ▶ Resume here (next session)
 
-**Track2 is a working, deployed, authenticated app.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` (admin), or the demo users `alice@bigsea.demo` / `frank@bigsea.demo` / `zoe@globex.demo` (password `password123`). Everything is committed + pushed to `main`; working tree clean.
+**Track2 is a working, deployed, authenticated app.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` (admin), or the demo users `alice@bigsea.demo` / `frank@bigsea.demo` / `zoe@globex.demo` (password `password123`). Everything is committed + pushed to `main`; working tree clean. 66 unit tests + `next build` green.
 
-**Done:** core loop (track → invoice → send → pay), every sidebar screen, auth + per-account tenancy, real migrations, and entity **create** forms for Client / Task / Project (permission-gated).
+**Done:** core loop (track → invoice → send → pay), every sidebar screen, auth + per-account tenancy, real migrations. **Full entity CRUD** (create + edit) for Client / Task / Project / Person, all permission-gated. **Expense entry** (+ admin category management). **Inline time-entry edit** on the timesheet (lock-guarded). **Public client-facing invoice** at `/i/[token]` (no-auth, bare layout). **CSV export** on Reports. **Client detail page** (`/clients/[id]`). **Global top bar** with quick-create menu.
 
-**Next up (in order) — continue the CRUD block:**
-1. ✅ **Invite Person** (Team) — create real logins (bcrypt, permission-gated, unique-email). _Edit-person still to do._
-2. ✅ **Edit** forms — Client, Task, **Project** (rich, pre-filled) all done (`/[entity]/[id]/edit`, permission-gated). _Edit-person still to do._
-3. **Expense entry** form (+ categories).
-4. **Inline time-entry edit** on the timesheet.
-5. Then: public invoice page `/i/[token]` (needs a small layout refactor), CSV exports, and a **UI-fidelity pass** (top bar, sidebar polish) toward the Harvest look.
+**The autonomous task block (48–53) is finished.** Suggested next directions (pick per priority):
+1. **Estimates** module (specs/06) — off at Big Sea, low priority, but completes the invoicing story.
+2. **Recurring invoices / retainers** (specs/10) — Big Sea uses retainers; higher value.
+3. **Migration importer** (specs/13) — needed before real client data; requires Harvest CSV/API export.
+4. **Invoice composer polish** — taxes/discount UI on generate, delete-draft confirmations, per-account `InvoiceAppearance` (brand color/logo) wired into both invoice views (currently hardcoded Big Sea teal `#004348`).
+5. **Settings screen** (specs/11) — account settings, module toggles, expense categories UI (category create currently lives inline on /expenses).
+6. **Record-payment on the public invoice** — currently read-only; Harvest lets clients pay online (needs a payment provider — out of scope until chosen).
 
 **Ops follow-ups (your call, dashboard settings):** provision a separate **production Supabase** (Pro, with backups) before real client data; optional Vercel preview-URL protection. See parking lot.
+
+**Heads-up for whoever picks this up:** the `/i/[token]` layout uses a middleware-injected `x-pathname` header + a `bare` branch in `app/layout.tsx` to drop the app chrome — no route folders were moved. If you add more public routes, add their prefix to `PUBLIC_PREFIXES` in [middleware.ts](middleware.ts) **and** `BARE_PREFIXES` in [app/layout.tsx](app/layout.tsx).
 
 ## Current status
 
@@ -36,15 +39,15 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 01 | Data model | ✅ | Schema mirrors spec |
 | 02 | Auth / permissions | 🟡 | **NextAuth v5** (credentials + JWT session carrying userId/accountId/profile) ✅, login page + middleware route protection ✅, **session-scoped tenancy across every page + action** (INV-5) ✅, `can()` capability layer ✅ + tests. Remaining: password reset, 2FA, invite/admin UI, capability enforcement in actions |
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
-| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅. Inline edit ⬜; timesheets/approval (module off) ⬜ |
-| 05 | Invoicing | ✅ | **core loop complete & live**: generateInvoice (pool→draft), sendInvoice (number/lock/token/seq-bump), recordPayment (partial/full/overpayment-guard), markInvoiceDraft (unlock) — all DB integration-tested + wired to UI (generate control, send/mark-draft buttons, payment form). Remaining polish: delete-draft, public /i/[token] view, taxes/discount UI |
+| 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅; **inline entry edit (duration + notes, lock-guarded)** ✅. Timesheets/approval (module off) ⬜ |
+| 05 | Invoicing | ✅ | **core loop complete & live**: generateInvoice (pool→draft), sendInvoice (number/lock/token/seq-bump), recordPayment (partial/full/overpayment-guard), markInvoiceDraft (unlock) — all DB integration-tested + wired to UI. **Public client-facing view `/i/[token]`** ✅ (no-auth, bare layout, noindex; "View client link" on the internal detail). Remaining polish: taxes/discount UI on generate, per-account `InvoiceAppearance` (brand/logo), online payment |
 | 06 | Estimates | ⬜ | Module off at Big Sea — low priority |
-| 07 | Reporting | 🟡 | **Time**, **Profitability** (revenue vs effective-dated cost → margin), **Receivables** (A/R aging) ✅ live, tabbed. CSV exports ⬜ |
+| 07 | Reporting | ✅ | **Time**, **Profitability** (revenue vs effective-dated cost → margin), **Receivables** (A/R aging) ✅ live, tabbed. **CSV export** (detailed time entries, permission-gated) ✅ |
 | 08 | Non-functional | ⬜ | Tenant-isolation tests, authz, audit |
-| 09 | Expenses | ⬜ | |
+| 09 | Expenses | 🟡 | **Expense entry** ✅ (self-service; project/category/date/amount/markup/billable/notes, tenant-scoped) + **admin category management** ✅ (inline on /expenses). Receipts upload ⬜; expense→invoice line items ⬜ |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen live + core loop + auth**. **Entity CRUD:** New **Client** ✅, New **Task** ✅, New **Project** ✅ (rich), **Invite Person** ✅ (bcrypt login, unique-email) — all permission-gated via `can()` in the action. **Edit** forms: Client ✅, Task ✅, Project ✅ (permission-gated). Remaining CRUD: edit-person, expense entry, inline time edit; plus public /i/[token], CSV export |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **global sticky top bar** (section title + "+ New" quick-create) ✅; **every sidebar screen live + core loop + auth**. **Full entity CRUD** (create + edit) for **Client / Task / Project / Person** ✅ — all permission-gated via `can()` in the action. **Expense entry** ✅. **Inline time-entry edit** ✅. **Client detail** (`/clients/[id]`) ✅. **Public invoice** (`/i/[token]`) ✅. **CSV export** ✅. Remaining: Settings screen, invoice-appearance theming, receipts upload |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 
