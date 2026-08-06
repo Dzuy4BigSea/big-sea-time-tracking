@@ -199,6 +199,18 @@ enum AuditAction {
   state_change
 }
 
+enum IntegrationProvider {
+  asana
+  stripe
+  xero
+}
+
+enum IntegrationStatus {
+  connected
+  disconnected
+  error
+}
+
 // ---------------------------------------------------------------------------
 // Account, modules, preferences
 // ---------------------------------------------------------------------------
@@ -262,6 +274,8 @@ model Account {
   invoiceAppearance        InvoiceAppearance?
   invoiceLabels            InvoiceLabels?
   auditLogs                AuditLog[]
+  integrationConnections   IntegrationConnection[]
+  integrationSyncLogs      IntegrationSyncLog[]
 }
 
 // Feature flags (specs/11). 1:1 with Account.
@@ -297,6 +311,7 @@ model User {
   lastName     String
 
   employeeId           String?
+  asanaUserGid         String? // integration mapping (specs/14)
   type                 UserType          @default(employee)
   permissionProfile    PermissionProfile @default(member)
   permissionOverrides  Json?
@@ -371,6 +386,7 @@ model Client {
   address    String?
   isActive   Boolean   @default(true)
   archivedAt DateTime?
+  xeroContactId String? // integration mapping (specs/14)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -427,6 +443,7 @@ model Project {
   client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name      String
   code      String?
+  asanaProjectGid String? // integration mapping (specs/14)
 
   // Two-level billing model (specs/03)
   projectType            ProjectType         @default(time_and_materials)
@@ -601,6 +618,10 @@ model Invoice {
   lastViewedAt DateTime?
   publicToken  String?   @unique
 
+  // Integration mapping ids (specs/14)
+  xeroInvoiceId         String? @unique
+  stripePaymentIntentId String? @unique
+
   createdFromEstimateId String?   @unique
   createdFromEstimate   Estimate? @relation("EstimateConversion", fields: [createdFromEstimateId], references: [id], onDelete: SetNull)
 
@@ -652,7 +673,12 @@ model Payment {
   paidOn      DateTime      @db.Date
   method      PaymentMethod @default(other)
   note        String?
+  source      String        @default("manual") // "manual" | "stripe"
   createdAt   DateTime      @default(now())
+
+  // Integration mapping ids (specs/14)
+  stripeChargeId String? @unique
+  xeroPaymentId  String? @unique
 
   @@index([accountId])
   @@index([invoiceId])
@@ -875,5 +901,54 @@ model AuditLog {
   createdAt   DateTime    @default(now())
 
   @@index([accountId])
+  @@index([entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Integrations (specs/14) — Asana / Stripe / Xero
+// ---------------------------------------------------------------------------
+
+model IntegrationConnection {
+  id       String              @id @default(cuid())
+  accountId String
+  account  Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  provider IntegrationProvider
+  status   IntegrationStatus   @default(disconnected)
+
+  // Secret material — AES-256-GCM encrypted at rest (lib/crypto). Never returned to the client.
+  accessTokenEnc  String?
+  refreshTokenEnc String?
+  // Additional provider secrets (API/secret keys, webhook signing secret), each encrypted.
+  secretsEnc      Json?
+  expiresAt       DateTime?
+
+  externalOrgId     String? // Stripe account id / Xero tenant id / Asana workspace gid
+  externalOrgName   String? // shown in settings ("Connected to … Big Sea")
+  connectedByUserId String?
+
+  config       Json? // provider-specific non-secret settings (see specs/14)
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, provider])
+  @@index([accountId])
+}
+
+model IntegrationSyncLog {
+  id         String              @id @default(cuid())
+  accountId  String
+  account    Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  provider   IntegrationProvider
+  direction  String // "inbound" | "outbound"
+  entityType String // "invoice" | "payment" | "contact" | "project" | "person"
+  entityId   String?
+  externalId String?
+  ok         Boolean
+  message    String?
+  createdAt  DateTime @default(now())
+
+  @@index([accountId, provider])
   @@index([entityType, entityId])
 }
