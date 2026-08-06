@@ -63,11 +63,42 @@ export async function saveHarvestCredsAction(_prev: MigrateState, formData: Form
   return { ok: true }
 }
 
+const BACKUP_START_YEAR = 2008
+const BATCH_BUDGET_MS = 45_000 // stay well under the serverless execution cap per invocation
+
+interface WorkItem {
+  resource: string
+  chunk: string | null
+  from?: string
+  to?: string
+  updatedSince?: string
+}
+
+/** The full ordered work list for a backup of the given mode. */
+function backupWorkList(mode: string, updatedSince?: string): WorkItem[] {
+  const items: WorkItem[] = []
+  for (const resource of LIGHT_RESOURCES) items.push({ resource, chunk: null, updatedSince })
+  const endYear = new Date().getUTCFullYear()
+  for (const resource of HEAVY_RESOURCES) {
+    if (mode === 'incremental') {
+      items.push({ resource, chunk: null, updatedSince })
+    } else {
+      for (let y = BACKUP_START_YEAR; y <= endYear; y++) {
+        items.push({ resource, chunk: String(y), from: `${y}-01-01`, to: `${y}-12-31` })
+      }
+    }
+  }
+  return items
+}
+
+const workKey = (w: { resource: string; chunk: string | null }) => `${w.resource}|${w.chunk ?? ''}`
+
 /**
- * Pull the raw Harvest dataset and store it as an immutable backup snapshot (BEFORE any ETL).
- * `mode=incremental` pulls only records changed since the last successful pull (delta), to cut
- * compute and risk on repeat runs before cutover. Resilient to partial failures (timeout/
- * disconnect): a partial run is recorded and the delta high-water mark only advances on a clean run.
+ * Resumable raw backup (BEFORE any ETL). Each invocation processes a time-bounded batch of the
+ * work list, skipping items already captured for this snapshot, then either finishes (status
+ * "complete") or leaves it "running" for the next "Continue" press. This is how a multi-year
+ * dataset that can't be pulled in a single serverless request gets captured safely and idempotently.
+ * `mode=incremental` pulls only records changed since the last clean pull (delta).
  */
 export async function createBackupSnapshotAction(formData: FormData): Promise<void> {
   const actor = await requireMigrateAdmin()
@@ -77,92 +108,99 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
   const harvestAccountId = String(conn?.config.harvestAccountId ?? '')
   if (!conn || conn.status !== 'connected' || !token || !harvestAccountId) return
 
-  const mode = String(formData.get('mode') ?? 'full') === 'incremental' ? 'incremental' : 'full'
-  const lastPulledAt = (conn.config.lastPulledAt as string | undefined) ?? undefined
-  const updatedSince = mode === 'incremental' ? lastPulledAt : undefined
-  // High-water for the NEXT delta = the moment we START (so records changed during the pull
-  // are re-captured next time rather than missed). Slight overlap is safe (idempotent upserts).
-  const startedAt = new Date().toISOString()
-  const startYear = 2008 // safe lower bound; empty years are one cheap request each
-  const endYear = new Date().getUTCFullYear()
+  const resumeId = String(formData.get('snapshotId') ?? '')
 
-  // Parent snapshot first (status "running") so parts can attach and a crash leaves a visible,
-  // partially-populated snapshot rather than nothing.
-  const snapshot = await prisma.migrationSnapshot.create({
-    data: { accountId: actor.accountId, source: 'harvest', status: 'running', mode, createdByUserId: actor.userId },
-  })
-
-  const counts: Record<string, number> = {}
-  const errors: Record<string, string> = {}
-
-  // Write one bounded, checksummed part, then let the rows go out of scope (memory freed).
-  const writePart = async (resource: string, chunk: string | null, rows: unknown[]) => {
-    const json = JSON.stringify(rows)
-    const checksum = createHash('sha256').update(json).digest('hex')
-    await prisma.migrationSnapshotPart.create({
+  // Resume an existing running snapshot, or start a new one.
+  let snapshot = resumeId
+    ? await prisma.migrationSnapshot.findFirst({ where: { id: resumeId, accountId: actor.accountId, status: 'running' } })
+    : null
+  if (!snapshot) {
+    const mode = String(formData.get('mode') ?? 'full') === 'incremental' ? 'incremental' : 'full'
+    const updatedSince = mode === 'incremental' ? ((conn.config.lastPulledAt as string | undefined) ?? undefined) : undefined
+    snapshot = await prisma.migrationSnapshot.create({
       data: {
-        snapshotId: snapshot.id,
         accountId: actor.accountId,
-        resource,
-        chunk,
-        rowCount: rows.length,
-        checksum,
-        data: rows as Prisma.InputJsonValue,
+        source: 'harvest',
+        status: 'running',
+        mode,
+        // startedAt captured now = the delta high-water mark to use once this snapshot completes.
+        meta: { startedAt: new Date().toISOString(), updatedSince: updatedSince ?? null, errors: {} } as Prisma.InputJsonValue,
+        createdByUserId: actor.userId,
       },
     })
-    counts[resource] = (counts[resource] ?? 0) + rows.length
   }
 
-  // Light resources — one part each.
-  for (const resource of LIGHT_RESOURCES) {
+  const meta = (snapshot.meta as { startedAt?: string; updatedSince?: string | null; errors?: Record<string, string> } | null) ?? {}
+  const updatedSince = meta.updatedSince ?? undefined
+  const errors: Record<string, string> = { ...(meta.errors ?? {}) }
+
+  // What's already captured for this snapshot (resume skips these).
+  const existing = await prisma.migrationSnapshotPart.findMany({ where: { snapshotId: snapshot.id }, select: { resource: true, chunk: true } })
+  const done = new Set(existing.map((p) => workKey(p)))
+
+  const work = backupWorkList(snapshot.mode, updatedSince)
+  const start = Date.now()
+  let processedThisBatch = 0
+
+  for (const item of work) {
+    if (done.has(workKey(item))) continue
+    if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) break // time budget — resume next press
     try {
-      const rows = await pullAll(token, harvestAccountId, resource, { updatedSince })
-      await writePart(resource, null, rows)
+      const rows = await pullAll(token, harvestAccountId, item.resource, {
+        updatedSince: item.updatedSince,
+        from: item.from,
+        to: item.to,
+      })
+      // Always write a part (even empty) so "done" tracking is exact and resume never re-pulls it.
+      const json = JSON.stringify(rows)
+      const checksum = createHash('sha256').update(json).digest('hex')
+      await prisma.migrationSnapshotPart.create({
+        data: {
+          snapshotId: snapshot.id,
+          accountId: actor.accountId,
+          resource: item.resource,
+          chunk: item.chunk,
+          rowCount: rows.length,
+          checksum,
+          data: rows as Prisma.InputJsonValue,
+        },
+      })
+      done.add(workKey(item))
     } catch (e) {
-      errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
+      errors[workKey(item)] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
+      done.add(workKey(item)) // don't get stuck retrying the same failing item forever
     }
+    processedThisBatch++
   }
 
-  // Heavy resources — year-chunked in a full pull; single delta part when incremental.
-  for (const resource of HEAVY_RESOURCES) {
-    if (mode === 'incremental') {
-      try {
-        const rows = await pullAll(token, harvestAccountId, resource, { updatedSince })
-        await writePart(resource, null, rows)
-      } catch (e) {
-        errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
-      }
-      continue
-    }
-    counts[resource] = counts[resource] ?? 0
-    for (let year = startYear; year <= endYear; year++) {
-      try {
-        const rows = await pullAll(token, harvestAccountId, resource, { from: `${year}-01-01`, to: `${year}-12-31` })
-        if (rows.length > 0) await writePart(resource, String(year), rows)
-      } catch (e) {
-        errors[`${resource}:${year}`] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
-      }
-    }
-  }
-
+  const remaining = work.filter((w) => !done.has(workKey(w))).length
   const errorKeys = Object.keys(errors)
-  const status = errorKeys.length === 0 ? 'complete' : 'partial'
+  const finished = remaining === 0
+  const status = !finished ? 'running' : errorKeys.length ? 'partial' : 'complete'
+
+  // Recompute counts from the parts actually stored.
+  const grouped = await prisma.migrationSnapshotPart.groupBy({
+    by: ['resource'],
+    where: { snapshotId: snapshot.id },
+    _sum: { rowCount: true },
+  })
+  const counts: Record<string, number> = {}
+  for (const g of grouped) counts[g.resource] = g._sum.rowCount ?? 0
 
   await prisma.migrationSnapshot.update({
     where: { id: snapshot.id },
     data: {
       status,
       entityCounts: counts as Prisma.InputJsonValue,
-      meta: { mode, updatedSince: updatedSince ?? null, startedAt, errors } as Prisma.InputJsonValue,
-      errorMessage: errorKeys.length ? `Failed: ${errorKeys.join(', ')}` : null,
+      meta: { ...meta, errors, remaining } as Prisma.InputJsonValue,
+      errorMessage: errorKeys.length ? `Issues: ${errorKeys.join(', ')}` : null,
     },
   })
 
-  // Advance the delta high-water mark only on a fully clean run.
-  if (status === 'complete') {
+  if (finished && status === 'complete' && meta.startedAt) {
     await prisma.integrationConnection.update({
       where: { accountId_provider: { accountId: actor.accountId, provider: 'harvest' } },
-      data: { config: { harvestAccountId, lastPulledAt: startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },
+      data: { config: { harvestAccountId, lastPulledAt: meta.startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },
     })
   }
   revalidatePath('/settings/migrate')

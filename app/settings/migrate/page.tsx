@@ -29,6 +29,8 @@ export default async function MigratePage() {
   const encOk = isEncryptionConfigured()
   const lastPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
   const hasCompleteBackup = snapshots.some((s) => s.status === 'complete')
+  const running = snapshots.find((s) => s.status === 'running') ?? null
+  const runningRemaining = running ? Number((running.meta as { remaining?: number } | null)?.remaining ?? 0) : 0
 
   return (
     <div>
@@ -60,37 +62,53 @@ export default async function MigratePage() {
         <p className="mb-3 text-sm text-gray-600">
           Pulls every Harvest record (clients, contacts, projects, tasks, people, time, expenses, invoices, estimates)
           and stores an immutable JSON snapshot you can download and keep. Run this first — it does not change anything.
-          Each resource is pulled independently, so a timeout or disconnect leaves a <em>partial</em> snapshot you can
-          simply re-run rather than starting over.
+          It works in <strong>resumable batches</strong>: for large multi-year accounts a single run may not finish, so
+          press <strong>Continue</strong> until it reports <em>complete</em>. Already-captured data is never re-pulled.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <form action={createBackupSnapshotAction}>
-            <input type="hidden" name="mode" value="full" />
-            <button
-              disabled={!connected}
-              className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Full backup
-            </button>
-          </form>
-          <form action={createBackupSnapshotAction}>
-            <input type="hidden" name="mode" value="incremental" />
-            <button
-              disabled={!connected || !hasCompleteBackup}
-              title={!hasCompleteBackup ? 'Run a full backup first' : ''}
-              className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Incremental (delta since last)
-            </button>
-          </form>
-          {!connected ? (
-            <span className="text-xs text-gray-400">Connect Harvest first.</span>
-          ) : lastPulledAt ? (
-            <span className="text-xs text-gray-400">Last clean pull: {new Date(lastPulledAt).toLocaleString()}</span>
-          ) : (
-            <span className="text-xs text-gray-400">No clean pull yet — start with a full backup.</span>
-          )}
-        </div>
+
+        {running ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <span className="text-sm text-amber-800">
+              Backup in progress{runningRemaining > 0 ? ` — ${runningRemaining} chunk${runningRemaining === 1 ? '' : 's'} left` : ''}.
+              Press Continue to pull the next batch (repeat until it reports complete).
+            </span>
+            <form action={createBackupSnapshotAction}>
+              <input type="hidden" name="snapshotId" value={running.id} />
+              <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
+                Continue backup
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <form action={createBackupSnapshotAction}>
+              <input type="hidden" name="mode" value="full" />
+              <button
+                disabled={!connected}
+                className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Full backup
+              </button>
+            </form>
+            <form action={createBackupSnapshotAction}>
+              <input type="hidden" name="mode" value="incremental" />
+              <button
+                disabled={!connected || !hasCompleteBackup}
+                title={!hasCompleteBackup ? 'Run a full backup first' : ''}
+                className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Incremental (delta since last)
+              </button>
+            </form>
+            {!connected ? (
+              <span className="text-xs text-gray-400">Connect Harvest first.</span>
+            ) : lastPulledAt ? (
+              <span className="text-xs text-gray-400">Last clean pull: {new Date(lastPulledAt).toLocaleString()}</span>
+            ) : (
+              <span className="text-xs text-gray-400">No clean pull yet — start with a full backup.</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mb-8 overflow-hidden rounded-lg border border-gray-200 bg-white">
