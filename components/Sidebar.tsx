@@ -29,7 +29,7 @@ const NAV: Section[] = [
   { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
-export function Sidebar({ userName }: { userName?: string }) {
+export function Sidebar({ userName, showSettings }: { userName?: string; showSettings?: boolean }) {
   const pathname = usePathname()
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-4">
@@ -65,6 +65,17 @@ export function Sidebar({ userName }: { userName?: string }) {
           </div>
         ))}
       </nav>
+
+      {showSettings && (
+        <Link
+          href="/settings"
+          className={`mt-4 block rounded px-2 py-1.5 text-sm ${
+            pathname.startsWith('/settings') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          ⚙ Settings
+        </Link>
+      )}
 
       {userName && (
         <div className="mt-4 border-t border-gray-100 pt-3">

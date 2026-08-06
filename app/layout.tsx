@@ -39,7 +39,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body>
         <div className="flex min-h-screen bg-gray-50">
-          <Sidebar userName={session?.user?.name ?? undefined} />
+          <Sidebar
+            userName={session?.user?.name ?? undefined}
+            showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
+          />
           <main className="flex-1 overflow-x-auto">
             <TopBar
               projects={topBar.projects}
