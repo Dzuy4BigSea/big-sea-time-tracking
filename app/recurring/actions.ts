@@ -2,11 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import type { PrismaClient, RecurringFrequency as DbFreq, PaymentTerm } from '@prisma/client'
+import type { RecurringFrequency as DbFreq } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { advanceIssueDate, isDue } from '@/modules/invoicing/recurring'
+import { advanceIssueDate } from '@/modules/invoicing/recurring'
+import { generateDueRecurring } from '@/modules/invoicing/generateRecurring'
 import { parseYmd } from '@/lib/week'
 
 export type RecurringState = { error?: string; ok?: boolean }
@@ -109,57 +110,6 @@ export async function createRecurringFromInvoiceAction(formData: FormData): Prom
   })
   revalidatePath('/recurring')
   redirect('/recurring')
-}
-
-/** Generate a draft invoice for every due active profile, then advance its date. Idempotent per date. */
-export async function generateDueRecurring(db: PrismaClient, accountId: string, asOf: Date): Promise<number> {
-  const profiles = await db.recurringInvoiceProfile.findMany({ where: { accountId, status: 'active' } })
-  let created = 0
-  for (const p of profiles) {
-    if (!isDue(p.nextIssueDate, asOf, 'active')) continue
-    const client = await db.client.findUnique({ where: { id: p.clientId }, select: { currency: true } })
-    const lines = (p.templateLineItems as unknown as TemplateLine[]) ?? []
-    const subtotal = lines.reduce((s, li) => s + li.amountCents, 0)
-    const nextDate = advanceIssueDate(p.nextIssueDate!, p.frequency, p.intervalCount)
-
-    await db.$transaction(async (tx) => {
-      // Re-check inside the txn so a retry for the same date can't double-generate (AC-REC-003).
-      const fresh = await tx.recurringInvoiceProfile.findUnique({ where: { id: p.id }, select: { nextIssueDate: true, status: true } })
-      if (!fresh || !isDue(fresh.nextIssueDate, asOf, fresh.status as 'active' | 'paused')) return
-      const invoice = await tx.invoice.create({
-        data: {
-          accountId,
-          clientId: p.clientId,
-          status: 'draft',
-          currency: client?.currency ?? 'USD',
-          paymentTerm: p.paymentTerm as PaymentTerm,
-          subject: p.subject,
-          notes: p.notes,
-          subtotalCents: subtotal,
-          totalCents: subtotal,
-        },
-      })
-      let sortOrder = 0
-      for (const li of lines) {
-        await tx.invoiceLineItem.create({
-          data: {
-            accountId,
-            invoiceId: invoice.id,
-            kind: 'free_form',
-            description: li.description,
-            quantity: li.quantity,
-            unitPriceCents: li.unitPriceCents,
-            amountCents: li.amountCents,
-            taxable: false,
-            sortOrder: sortOrder++,
-          },
-        })
-      }
-      await tx.recurringInvoiceProfile.update({ where: { id: p.id }, data: { nextIssueDate: nextDate } })
-      created++
-    })
-  }
-  return created
 }
 
 export async function generateDueAction(): Promise<void> {
