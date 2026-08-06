@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatMinutes } from '@/modules/shared/duration'
 import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
-import { LogTimeForm } from '@/components/LogTimeForm'
+import { TimeEntryButton } from '@/components/TimeEntryButton'
 import { EntryRow } from '@/components/EntryRow'
 import { stopTimerAction } from '@/app/timesheet/actions'
 import { requireUser } from '@/lib/session'
@@ -134,7 +134,7 @@ export default async function TimesheetPage({
       )}
 
       <div className="mb-4">
-        <LogTimeForm projects={projectOptions} userId={userId} defaultDate={ymd(monday)} />
+        <TimeEntryButton projects={projectOptions} defaultDate={ymd(monday)} />
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">

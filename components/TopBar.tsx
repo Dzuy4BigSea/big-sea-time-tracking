@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { useFormState, useFormStatus } from 'react-dom'
-import { logTimeAction, startTimerAction, stopTimerAction, type LogTimeState } from '@/app/timesheet/actions'
+import { startTimerAction, stopTimerAction } from '@/app/timesheet/actions'
 import type { TopBarProject, TopBarRunning } from '@/lib/topbar'
+import { TimeEntryModal } from '@/components/TimeEntryModal'
 
 // Route prefix → section title shown on the left of the bar.
 const TITLES: { prefix: string; title: string }[] = [
@@ -86,19 +86,6 @@ function ProjectTaskSelects({ projects }: { projects: TopBarProject[] }) {
   )
 }
 
-function PrimaryButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
-  const { pending } = useFormStatus()
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-    >
-      {pending ? pendingLabel : label}
-    </button>
-  )
-}
-
 /* ---------- running-timer pill (live elapsed + stop) ---------- */
 function RunningPill({ running }: { running: TopBarRunning }) {
   const [now, setNow] = useState(() => Date.now())
@@ -147,14 +134,10 @@ export function TopBar({
 }) {
   const pathname = usePathname()
   const [panel, setPanel] = useState<Panel>(null)
-  const [trackState, trackAction] = useFormState<LogTimeState, FormData>(logTimeAction, {})
   const ref = useRef<HTMLDivElement>(null)
 
-  // Close panels on route change and on a successful "track time" submit.
+  // Close panels on route change.
   useEffect(() => setPanel(null), [pathname])
-  useEffect(() => {
-    if (trackState.ok) setPanel(null)
-  }, [trackState])
   // Outside-click closes the anchored popovers (not the modal, which has its own backdrop).
   useEffect(() => {
     if (panel !== 'timer' && panel !== 'more') return
@@ -250,45 +233,8 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Track time modal */}
-      {panel === 'track' && (
-        <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 p-4 pt-24" onMouseDown={() => setPanel(null)}>
-          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-gray-800">New time entry</h3>
-              <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600">
-                ✕
-              </button>
-            </div>
-            {noProjects ? (
-              <p className="text-sm text-gray-400">No projects assigned to you yet.</p>
-            ) : (
-              <form action={trackAction} className="space-y-3">
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs uppercase tracking-wide text-gray-400">Date</span>
-                  <input type="date" name="spentDate" defaultValue={today} className={inputCls} />
-                </label>
-                <ProjectTaskSelects projects={projects} />
-                <div className="flex gap-2">
-                  <input name="notes" placeholder="Notes (optional)" className={`${inputCls} flex-1`} />
-                  <input name="duration" placeholder="0:00" className={`${inputCls} w-20 text-right`} />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <PrimaryButton label="Log time" pendingLabel="Saving…" />
-                  <button
-                    type="submit"
-                    formAction={startTimerAction}
-                    className="rounded border border-brand-orange px-4 py-1.5 text-sm font-medium text-brand-orange hover:bg-orange-50"
-                  >
-                    Start timer
-                  </button>
-                  {trackState.error && <span className="text-sm text-red-600">{trackState.error}</span>}
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Shared "New time entry" dialog (the clock button) — distinct from the Timer popover above */}
+      <TimeEntryModal open={panel === 'track'} onClose={() => setPanel(null)} projects={projects} defaultDate={today} />
     </div>
   )
 }
