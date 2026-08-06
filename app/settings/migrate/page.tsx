@@ -10,6 +10,7 @@ import { createBackupSnapshotAction } from '@/app/settings/migrate/actions'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // allow long pulls; partial-failure handling covers plan caps
 
 export default async function MigratePage() {
   const { accountId, permissionProfile } = await requireUser()
@@ -21,6 +22,8 @@ export default async function MigratePage() {
   ])
   const connected = conn?.status === 'connected'
   const encOk = isEncryptionConfigured()
+  const lastPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
+  const hasCompleteBackup = snapshots.some((s) => s.status === 'complete')
 
   return (
     <div>
@@ -52,16 +55,37 @@ export default async function MigratePage() {
         <p className="mb-3 text-sm text-gray-600">
           Pulls every Harvest record (clients, contacts, projects, tasks, people, time, expenses, invoices, estimates)
           and stores an immutable JSON snapshot you can download and keep. Run this first — it does not change anything.
+          Each resource is pulled independently, so a timeout or disconnect leaves a <em>partial</em> snapshot you can
+          simply re-run rather than starting over.
         </p>
-        <form action={createBackupSnapshotAction}>
-          <button
-            disabled={!connected}
-            className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Create backup snapshot
-          </button>
-          {!connected && <span className="ml-3 text-xs text-gray-400">Connect Harvest first.</span>}
-        </form>
+        <div className="flex flex-wrap items-center gap-3">
+          <form action={createBackupSnapshotAction}>
+            <input type="hidden" name="mode" value="full" />
+            <button
+              disabled={!connected}
+              className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Full backup
+            </button>
+          </form>
+          <form action={createBackupSnapshotAction}>
+            <input type="hidden" name="mode" value="incremental" />
+            <button
+              disabled={!connected || !hasCompleteBackup}
+              title={!hasCompleteBackup ? 'Run a full backup first' : ''}
+              className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Incremental (delta since last)
+            </button>
+          </form>
+          {!connected ? (
+            <span className="text-xs text-gray-400">Connect Harvest first.</span>
+          ) : lastPulledAt ? (
+            <span className="text-xs text-gray-400">Last clean pull: {new Date(lastPulledAt).toLocaleString()}</span>
+          ) : (
+            <span className="text-xs text-gray-400">No clean pull yet — start with a full backup.</span>
+          )}
+        </div>
       </div>
 
       <div className="mb-8 overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -69,6 +93,7 @@ export default async function MigratePage() {
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
               <th className="px-4 py-2 font-medium">Captured</th>
+              <th className="px-4 py-2 font-medium">Mode</th>
               <th className="px-4 py-2 font-medium">Status</th>
               <th className="px-4 py-2 font-medium">Records</th>
               <th className="px-4 py-2 font-medium" />
@@ -78,12 +103,16 @@ export default async function MigratePage() {
             {snapshots.map((s) => {
               const counts = (s.entityCounts as Record<string, number> | null) ?? {}
               const total = Object.values(counts).reduce((a, b) => a + b, 0)
+              const meta = ((s.data as Record<string, unknown> | null)?._meta ?? {}) as { mode?: string }
               return (
                 <tr key={s.id} className="border-b border-gray-100 last:border-0">
                   <td className="px-4 py-2 text-gray-600">{formatDate(s.createdAt)}</td>
+                  <td className="px-4 py-2 capitalize text-gray-500">{meta.mode ?? 'full'}</td>
                   <td className="px-4 py-2">
                     {s.status === 'complete' ? (
                       <span className="text-brand-green">complete</span>
+                    ) : s.status === 'partial' ? (
+                      <span className="text-amber-600" title={s.errorMessage ?? ''}>partial</span>
                     ) : (
                       <span className="text-red-600" title={s.errorMessage ?? ''}>error</span>
                     )}
@@ -103,7 +132,7 @@ export default async function MigratePage() {
             })}
             {snapshots.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-gray-400">No backups yet.</td>
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-400">No backups yet.</td>
               </tr>
             )}
           </tbody>

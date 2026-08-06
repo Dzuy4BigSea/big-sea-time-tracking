@@ -25,13 +25,22 @@ async function harvestGet(
   return res.json()
 }
 
-/** Pull every page of a top-level collection (e.g. resource="clients"). Returns the full array. */
-export async function pullAll(token: string, accountId: string, resource: string): Promise<unknown[]> {
+/**
+ * Pull every page of a top-level collection (e.g. resource="clients").
+ * `updatedSince` (ISO 8601) limits to records changed since then — the delta mechanism.
+ */
+export async function pullAll(
+  token: string,
+  accountId: string,
+  resource: string,
+  updatedSince?: string,
+): Promise<unknown[]> {
   const out: unknown[] = []
   let page = 1
+  const since = updatedSince ? `&updated_since=${encodeURIComponent(updatedSince)}` : ''
   // Safety cap so a runaway pull can't loop forever.
-  for (let i = 0; i < 500; i++) {
-    const json = await harvestGet(token, accountId, `/${resource}?per_page=100&page=${page}`)
+  for (let i = 0; i < 1000; i++) {
+    const json = await harvestGet(token, accountId, `/${resource}?per_page=100&page=${page}${since}`)
     const arr = (json[resource] as unknown[]) ?? []
     out.push(...arr)
     const nextPage = json.next_page as number | null
@@ -68,17 +77,30 @@ export const BACKUP_RESOURCES = [
 
 export type BackupResource = (typeof BACKUP_RESOURCES)[number]
 
-/** Pull the full raw dataset for a backup snapshot. Returns { resource: rows[] } + counts. */
+/**
+ * Pull the raw dataset for a backup snapshot. Resilient: each resource is pulled
+ * independently, so one failure (timeout/disconnect) doesn't lose the rest — failures are
+ * reported in `errors` and the caller decides whether the run is complete/partial.
+ * `updatedSince` makes it a delta pull (only records changed since then).
+ */
 export async function pullBackup(
   token: string,
   accountId: string,
-): Promise<{ data: Record<string, unknown[]>; counts: Record<string, number> }> {
+  updatedSince?: string,
+): Promise<{ data: Record<string, unknown[]>; counts: Record<string, number>; errors: Record<string, string> }> {
   const data: Record<string, unknown[]> = {}
   const counts: Record<string, number> = {}
+  const errors: Record<string, string> = {}
   for (const resource of BACKUP_RESOURCES) {
-    const rows = await pullAll(token, accountId, resource)
-    data[resource] = rows
-    counts[resource] = rows.length
+    try {
+      const rows = await pullAll(token, accountId, resource, updatedSince)
+      data[resource] = rows
+      counts[resource] = rows.length
+    } catch (e) {
+      errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
+      data[resource] = []
+      counts[resource] = 0
+    }
   }
-  return { data, counts }
+  return { data, counts, errors }
 }
