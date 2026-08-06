@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export type NewProjectState = { error?: string }
+export type EditProjectState = { error?: string; ok?: boolean }
 
 const centsFrom = (raw: FormDataEntryValue | null): number | null => {
   const n = Number(String(raw ?? '').replace(/[$,\s]/g, ''))
@@ -90,4 +91,67 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
 
   revalidatePath('/projects')
   redirect(`/projects/${projectId}`) // NEXT_REDIRECT — outside try/catch
+}
+
+export async function updateProjectAction(_prev: EditProjectState, formData: FormData): Promise<EditProjectState> {
+  const { accountId, permissionProfile } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')) {
+    return { error: 'You do not have permission to edit projects.' }
+  }
+
+  const id = String(formData.get('id') ?? '')
+  const project = await prisma.project.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!project) return { error: 'Project not found.' }
+
+  const name = String(formData.get('name') ?? '').trim()
+  const code = String(formData.get('code') ?? '').trim() || null
+  const projectType = String(formData.get('projectType') ?? 'time_and_materials') as ProjectType
+  const billableRateMethodRaw = String(formData.get('billableRateMethod') ?? 'none') as BillableRateMethod
+  const budgetChoice = String(formData.get('budgetMethod') ?? 'none')
+
+  if (!name) return { error: 'Project name is required.' }
+
+  const isTM = projectType === 'time_and_materials'
+  const billableRateMethod = isTM ? billableRateMethodRaw : null
+  const projectHourlyRateCents = isTM && billableRateMethod === 'project' ? centsFrom(formData.get('projectRate')) : null
+  const projectFeesCents = projectType === 'fixed_fee' ? centsFrom(formData.get('projectFees')) : null
+
+  let budgetMethod: BudgetMethod = 'none'
+  let budgetValue: number | null = null
+  if (budgetChoice === 'hours_total') {
+    budgetMethod = 'hours_total'
+    const hrs = Number(String(formData.get('budgetHours') ?? ''))
+    budgetValue = Number.isFinite(hrs) && hrs > 0 ? Math.round(hrs * 60) : null
+  } else if (budgetChoice === 'fee_total') {
+    budgetMethod = 'fee_total'
+    budgetValue = centsFrom(formData.get('budgetFee'))
+  }
+  const budgetResetsMonthly = formData.get('budgetResetsMonthly') === 'on'
+  const alertRaw = Number(String(formData.get('budgetAlertPercent') ?? ''))
+  const budgetAlertPercent = Number.isFinite(alertRaw) && alertRaw > 0 ? Math.round(alertRaw) : null
+
+  try {
+    await prisma.project.update({
+      where: { id },
+      data: {
+        name,
+        code,
+        projectType,
+        billableRateMethod,
+        projectHourlyRateCents,
+        projectFeesCents,
+        budgetMethod,
+        budgetValue,
+        budgetResetsMonthly,
+        budgetAlertPercent,
+        isBillable: projectType !== 'non_billable',
+      },
+    })
+  } catch {
+    return { error: 'Could not save the project.' }
+  }
+
+  revalidatePath('/projects')
+  revalidatePath(`/projects/${id}`)
+  return { ok: true }
 }

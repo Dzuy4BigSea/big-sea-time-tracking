@@ -12,7 +12,7 @@ _Last updated: 2026-08-05._
 
 **Next up (in order) — continue the CRUD block:**
 1. ✅ **Invite Person** (Team) — create real logins (bcrypt, permission-gated, unique-email). _Edit-person still to do._
-2. **Edit** forms — **Client ✅**, **Task ✅** (`/[entity]/[id]/edit`, permission-gated). **Project edit** still to do (rich, pre-filled).
+2. ✅ **Edit** forms — Client, Task, **Project** (rich, pre-filled) all done (`/[entity]/[id]/edit`, permission-gated). _Edit-person still to do._
 3. **Expense entry** form (+ categories).
 4. **Inline time-entry edit** on the timesheet.
 5. Then: public invoice page `/i/[token]` (needs a small layout refactor), CSV exports, and a **UI-fidelity pass** (top bar, sidebar polish) toward the Harvest look.
@@ -44,7 +44,7 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 09 | Expenses | ⬜ | |
 | 10 | Recurring / retainers | ⬜ | |
 | 11 | Settings / modules | ⬜ | |
-| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen live + core loop + auth**. **Entity CRUD:** New **Client** ✅, New **Task** ✅, New **Project** ✅ (rich), **Invite Person** ✅ (bcrypt login, unique-email) — all permission-gated via `can()` in the action. Remaining CRUD: edit forms, expense entry, inline time edit; plus public /i/[token], CSV export |
+| 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **every sidebar screen live + core loop + auth**. **Entity CRUD:** New **Client** ✅, New **Task** ✅, New **Project** ✅ (rich), **Invite Person** ✅ (bcrypt login, unique-email) — all permission-gated via `can()` in the action. **Edit** forms: Client ✅, Task ✅, Project ✅ (permission-gated). Remaining CRUD: edit-person, expense entry, inline time edit; plus public /i/[token], CSV export |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
 | — | Shared helpers (money, duration) | ✅ | + tests |
 

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { formatMinutes } from '@/modules/shared/duration'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,8 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')
   const project = await prisma.project.findFirst({
     where: { id: params.id, accountId },
     include: {
@@ -56,6 +58,14 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
           {TYPE_LABEL[project.projectType] ?? project.projectType}
         </span>
+        {canManage && (
+          <Link
+            href={`/projects/${project.id}/edit`}
+            className="ml-auto rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Edit project
+          </Link>
+        )}
       </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
