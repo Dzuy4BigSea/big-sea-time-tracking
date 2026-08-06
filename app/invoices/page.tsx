@@ -10,6 +10,31 @@ import { requireModule } from '@/lib/modules'
 // Reads live data on every request (no build-time prerender).
 export const dynamic = 'force-dynamic'
 
+const dayDiff = (due: Date, today: Date) =>
+  Math.round(
+    (Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) -
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) /
+      86_400_000,
+  )
+
+/** Harvest-style relative due label. */
+function dueLabel(
+  status: string,
+  dueDate: Date | null,
+  today: Date,
+): { text: string; overdue: boolean } {
+  if (status === 'draft') return { text: 'Not sent yet', overdue: false }
+  if (status === 'paid') return { text: 'Paid', overdue: false }
+  if (status === 'written_off') return { text: 'Written off', overdue: false }
+  if (status === 'closed') return { text: 'Closed', overdue: false }
+  if (!dueDate) return { text: '—', overdue: false }
+  const d = dayDiff(dueDate, today)
+  if (d === 0) return { text: 'Due today', overdue: false }
+  if (d > 0) return { text: `Due in ${d} day${d === 1 ? '' : 's'}`, overdue: false }
+  const n = Math.abs(d)
+  return { text: `Overdue by ${n} day${n === 1 ? '' : 's'}`, overdue: true }
+}
+
 export default async function InvoicesPage({ searchParams }: { searchParams: { nothing?: string } }) {
   const { accountId } = await requireUser()
   await requireModule(accountId, 'invoices')
@@ -60,6 +85,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <div className="text-xs uppercase tracking-wide text-gray-400">Total paid</div>
           <div className="mt-1 text-2xl font-semibold">{formatCents(totalPaid)}</div>
+          <div className="mt-0.5 text-xs text-gray-400">Excluding retainer deposits</div>
         </div>
       </div>
 
@@ -68,6 +94,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Due</th>
               <th className="px-4 py-3 font-medium">Issue date</th>
               <th className="px-4 py-3 font-medium">Number</th>
               <th className="px-4 py-3 font-medium">Client</th>
@@ -87,6 +114,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
                 today,
               )
               const balance = inv.totalCents - inv.paidCents
+              const due = dueLabel(inv.status, inv.dueDate, today)
               return (
                 <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
@@ -94,6 +122,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
                       {BADGE_LABEL[badge]}
                     </span>
                   </td>
+                  <td className={`px-4 py-3 text-sm ${due.overdue ? 'font-medium text-red-600' : 'text-gray-500'}`}>{due.text}</td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(inv.issueDate)}</td>
                   <td className="px-4 py-3">
                     <Link href={`/invoices/${inv.id}`} className="text-gray-700 hover:text-brand-orange">
@@ -112,7 +141,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
             })}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                   No invoices yet.
                 </td>
               </tr>
