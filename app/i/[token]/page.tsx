@@ -82,7 +82,7 @@ export default async function PublicInvoicePage({
             {BADGE_LABEL[badge]}
           </span>
           <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">Amount due</div>
-          <div className="text-2xl font-bold" style={{ color: BRAND }}>
+          <div className="font-serif text-3xl font-semibold" style={{ color: BRAND }}>
             {formatCents(due, cur)}
           </div>
           {canPayOnline && (
@@ -103,21 +103,16 @@ export default async function PublicInvoicePage({
       )}
 
       {/* Rendered invoice document */}
-      <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            {appearance.logoFileUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={appearance.logoFileUrl} alt={`${invoice.account.name} logo`} className="h-10 w-auto" />
-            )}
-            <div className="text-lg font-semibold tracking-tight">{invoice.account.name}</div>
-          </div>
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+        {/* Brand header band */}
+        <div className="flex items-center justify-between px-8 py-6 text-white" style={{ background: BRAND }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logotype-white.png" alt={invoice.account.name} className="h-8 w-auto" />
           {appearance.showDocumentTitle && (
-            <div className="text-2xl font-bold tracking-wide" style={{ color: BRAND }}>
-              {appearance.documentTitle}
-            </div>
+            <div className="text-xl font-bold uppercase tracking-[0.14em]">{appearance.documentTitle}</div>
           )}
         </div>
+        <div className="p-8 pt-6">
 
         <div className="mt-8 flex justify-between gap-8 text-sm">
           <div>
@@ -194,6 +189,7 @@ export default async function PublicInvoicePage({
             </ul>
           </div>
         )}
+        </div>
       </div>
 
       <p className="mt-6 text-center text-xs text-gray-400">
