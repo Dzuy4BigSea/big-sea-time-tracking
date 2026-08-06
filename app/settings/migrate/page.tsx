@@ -7,6 +7,9 @@ import { isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionWithSecrets } from '@/lib/integrations'
 import { HarvestCredsForm } from '@/components/HarvestCredsForm'
 import { BackupRunner } from '@/components/BackupRunner'
+import { ImportRunner } from '@/components/ImportRunner'
+import { getImportableSnapshot } from '@/modules/migration/importer'
+import { IMPORT_RESOURCES } from '@/modules/migration/importer'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -16,7 +19,7 @@ export default async function MigratePage() {
   const { accountId, permissionProfile } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) redirect('/')
 
-  const [conn, snapshots] = await Promise.all([
+  const [conn, snapshots, importable] = await Promise.all([
     getConnectionWithSecrets(accountId, 'harvest'),
     prisma.migrationSnapshot.findMany({
       where: { accountId },
@@ -24,7 +27,10 @@ export default async function MigratePage() {
       take: 20,
       include: { parts: { select: { id: true, resource: true, chunk: true, rowCount: true }, orderBy: [{ resource: 'asc' }, { chunk: 'asc' }] } },
     }),
+    getImportableSnapshot(accountId),
   ])
+  const importCounts = (importable?.entityCounts as Record<string, number> | null) ?? {}
+  const importTotalRows = IMPORT_RESOURCES.reduce((a, r) => a + (importCounts[r] ?? 0), 0)
   const connected = conn?.status === 'connected'
   const encOk = isEncryptionConfigured()
   const lastPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
@@ -143,10 +149,11 @@ export default async function MigratePage() {
 
       {/* Step 3 — import (ETL) */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">3 · Import into Track2</h2>
-      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5 text-sm text-gray-500">
-        Dry-run preview + apply (idempotent) — coming next. The importer transforms a backup snapshot into Track2
-        clients, projects, tasks, people, assignments, time, and invoices, keyed by Harvest IDs so it is safe to re-run.
-      </div>
+      <ImportRunner
+        snapshotId={importable?.id ?? null}
+        snapshotStatus={importable?.status ?? null}
+        totalRows={importTotalRows}
+      />
     </div>
   )
 }

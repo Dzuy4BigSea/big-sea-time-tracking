@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { encryptSecret, isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionWithSecrets } from '@/lib/integrations'
 import { pullAll, verifyHarvest, LIGHT_RESOURCES, HEAVY_RESOURCES } from '@/modules/integrations/harvestClient'
+import { runImportBatch, type ImportBatchResult, type ImportCursor } from '@/modules/migration/importer'
 
 export type MigrateState = { error?: string; ok?: boolean }
 
@@ -260,4 +261,25 @@ export async function backupBatchAction(input: { snapshotId?: string; mode?: str
   const actor = await requireMigrateAdmin()
   if (!actor) return { ok: false, message: 'You do not have permission to run a migration.' }
   return executeBackupBatch(actor, { resumeId: input.snapshotId, mode: input.mode })
+}
+
+/**
+ * Client-driven ETL batch (snapshot → Track2). `dryRun:true` previews without writing; `dryRun:false`
+ * applies idempotent upserts. Resumable via the returned cursor, driven to completion by ImportRunner.
+ */
+export async function importBatchAction(input: {
+  snapshotId: string
+  dryRun: boolean
+  cursor?: ImportCursor | null
+}): Promise<ImportBatchResult> {
+  const actor = await requireMigrateAdmin()
+  if (!actor) {
+    return {
+      ok: false, message: 'You do not have permission to run a migration.',
+      dryRun: input.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [],
+    }
+  }
+  const res = await runImportBatch(actor.accountId, input.snapshotId, { dryRun: input.dryRun, cursor: input.cursor })
+  if (!input.dryRun && res.done) revalidatePath('/settings/migrate')
+  return res
 }

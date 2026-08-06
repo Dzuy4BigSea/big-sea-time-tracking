@@ -278,6 +278,7 @@ model Account {
   integrationConnections   IntegrationConnection[]
   integrationSyncLogs      IntegrationSyncLog[]
   migrationSnapshots       MigrationSnapshot[]
+  migrationIdMaps          MigrationIdMap[]
 }
 
 // Feature flags (specs/11). 1:1 with Account.
@@ -992,5 +993,24 @@ model MigrationSnapshotPart {
   createdAt  DateTime          @default(now())
 
   @@index([snapshotId])
+  @@index([accountId])
+}
+
+// Maps a source-system (Harvest) record id to the Track2 record it became, per entity. This is
+// what makes the ETL idempotent: re-running the import looks up the existing local id and updates
+// in place instead of creating duplicates. Kept out of the domain tables so a migration leaves no
+// residue on the core models. `entity` is e.g. "client" | "project" | "task" | "user" |
+// "expense_category" | "time_entry" | "expense" | "invoice" | "invoice_payment" | "estimate".
+model MigrationIdMap {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entity    String
+  harvestId String // Harvest numeric id, stored as string
+  localId   String // the Track2 (cuid) record id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, entity, harvestId])
   @@index([accountId])
 }

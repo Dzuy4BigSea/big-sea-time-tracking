@@ -6,6 +6,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('.', import.meta.url)),
+      // `server-only` is a build-time guard with no runtime impl; stub it for unit tests.
+      'server-only': fileURLToPath(new URL('./test/stubs/server-only.ts', import.meta.url)),
     },
   },
   test: {
