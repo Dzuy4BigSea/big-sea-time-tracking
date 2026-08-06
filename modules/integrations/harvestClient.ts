@@ -7,22 +7,36 @@ import 'server-only'
  */
 
 const HARVEST_API = 'https://api.harvestapp.com/v2'
+const PER_PAGE = 2000 // Harvest v2 max — ~20× fewer requests than the default 100
 
-async function harvestGet(
-  token: string,
-  accountId: string,
-  path: string,
-): Promise<Record<string, unknown>> {
-  const res = await fetch(`${HARVEST_API}${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Harvest-Account-Id': accountId,
-      'User-Agent': 'Track2 Migration (admin)',
-      Accept: 'application/json',
-    },
-  })
-  if (!res.ok) throw new Error(`Harvest GET ${path} → ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  return res.json()
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * GET a Harvest endpoint with rate-limit (429) + transient (5xx) retry & backoff.
+ * Harvest allows ~100 requests / 15s; on 429 we honor Retry-After. Retries up to 5×.
+ */
+async function harvestGet(token: string, accountId: string, path: string): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch(`${HARVEST_API}${path}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Harvest-Account-Id': accountId,
+        'User-Agent': 'Track2 Migration (admin)',
+        Accept: 'application/json',
+      },
+    })
+    if (res.ok) return res.json()
+
+    if (res.status === 429 || res.status >= 500) {
+      if (attempt === 5) throw new Error(`Harvest GET ${path} → ${res.status} after retries`)
+      const retryAfter = Number(res.headers.get('retry-after'))
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : Math.min(15000, 1000 * 2 ** attempt)
+      await sleep(waitMs)
+      continue
+    }
+    throw new Error(`Harvest GET ${path} → ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  }
+  throw new Error(`Harvest GET ${path} → exhausted retries`)
 }
 
 /**
@@ -40,7 +54,7 @@ export async function pullAll(
   const since = updatedSince ? `&updated_since=${encodeURIComponent(updatedSince)}` : ''
   // Safety cap so a runaway pull can't loop forever.
   for (let i = 0; i < 1000; i++) {
-    const json = await harvestGet(token, accountId, `/${resource}?per_page=100&page=${page}${since}`)
+    const json = await harvestGet(token, accountId, `/${resource}?per_page=${PER_PAGE}&page=${page}${since}`)
     const arr = (json[resource] as unknown[]) ?? []
     out.push(...arr)
     const nextPage = json.next_page as number | null
