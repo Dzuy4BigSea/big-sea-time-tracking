@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { NewPersonForm } from '@/components/NewPersonForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +18,8 @@ const PROFILE_LABEL: Record<string, string> = {
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function TeamPage() {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')
   const users = await prisma.user.findMany({
     where: { accountId, archivedAt: null },
     select: {
@@ -36,6 +39,8 @@ export default async function TeamPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Team</h1>
       <p className="mb-6 text-sm text-gray-500">Live from Supabase · {users.length} people</p>
+
+      {canManage && <NewPersonForm />}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
