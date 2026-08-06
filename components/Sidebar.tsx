@@ -39,6 +39,9 @@ const NAV: Section[] = [
   { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
+// The Big Sea "rope" motif — a lime hatch strip pinned to the left edge (contained width, 14px).
+const ROPE = 'repeating-linear-gradient(45deg,#bbfd50 0 7px,#ffffff 7px 14px)'
+
 export function Sidebar({
   userName,
   showSettings,
@@ -53,81 +56,79 @@ export function Sidebar({
     ...section,
     items: section.items.filter((i) => !i.moduleKey || modules[i.moduleKey]),
   })).filter((section) => section.items.length > 0)
+
+  const navLink = (href: string, label: string, active: boolean) => (
+    <Link
+      href={href}
+      className={`flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13.5px] ${
+        active ? 'bg-brand-lime/15 font-semibold text-brand-lime' : 'text-white/75 hover:bg-white/5 hover:text-white'
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 flex-none rounded-full ${active ? 'bg-brand-lime' : 'bg-white/30'}`} />
+      {label}
+    </Link>
+  )
+
+  const settingsActive = pathname === '/settings'
+  const migrateActive = pathname.startsWith('/settings/migrate')
+  const integrationsActive = pathname.startsWith('/settings/integrations')
+
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-4">
-      <div className="mb-6 flex items-center gap-2 px-2">
-        <span className="inline-block h-5 w-5 rounded bg-brand-teal" />
-        <span className="text-lg font-semibold tracking-tight">Track2</span>
-      </div>
-      <nav className="flex-1 space-y-5">
-        {visibleNav.map((section, i) => (
-          <div key={i}>
-            {section.heading && (
-              <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                {section.heading}
-              </div>
-            )}
-            <ul className="space-y-0.5">
-              {section.items.map((item) => {
-                const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={`block rounded px-2 py-1.5 text-sm ${
-                        active ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-700 hover:bg-gray-50'
-                      } ${item.ready ? '' : 'text-gray-400'}`}
-                    >
-                      {item.label}
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
+    <aside className="flex w-[238px] shrink-0">
+      <div className="w-3.5 flex-none" style={{ background: ROPE }} aria-hidden />
+      <div className="flex min-w-0 flex-1 flex-col bg-brand-ink px-3 py-4">
+        {/* Brand lockup */}
+        <div className="px-2 pb-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logotype-white.png" alt="Big Sea" className="h-auto w-[74px]" />
+          <div className="my-2.5 h-0.5 w-8 bg-brand-lime" />
+          <div className="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Track2</div>
+        </div>
+
+        <nav className="flex-1 space-y-4">
+          {visibleNav.map((section, i) => (
+            <div key={i}>
+              {section.heading && (
+                <div className="mb-1 px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/55">
+                  {section.heading}
+                </div>
+              )}
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+                  return <li key={item.href}>{navLink(item.href, item.label, active)}</li>
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        {showSettings && (
+          <div className="mt-4 space-y-0.5 border-t border-white/10 pt-3">
+            <div className="mb-1 px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/55">Admin</div>
+            {navLink('/settings/integrations', 'Integrations', integrationsActive)}
+            {navLink('/settings/migrate', 'Migrate', migrateActive)}
+            {navLink('/settings', 'Settings', settingsActive)}
           </div>
-        ))}
-      </nav>
+        )}
 
-      {showSettings && (
-        <div className="mt-4 space-y-0.5">
-          <Link
-            href="/settings/integrations"
-            className={`block rounded px-2 py-1.5 text-sm ${
-              pathname.startsWith('/settings/integrations') ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            ⧉ Integrations
-          </Link>
-          <Link
-            href="/settings/migrate"
-            className={`block rounded px-2 py-1.5 text-sm ${
-              pathname.startsWith('/settings/migrate') ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            ⬇ Migrate
-          </Link>
-          <Link
-            href="/settings"
-            className={`block rounded px-2 py-1.5 text-sm ${
-              pathname === '/settings' ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            ⚙ Settings
-          </Link>
-        </div>
-      )}
-
-      {userName && (
-        <div className="mt-4 border-t border-gray-100 pt-3">
-          <div className="px-2 text-sm font-medium text-gray-800">{userName}</div>
-          <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="mt-1 px-2 text-xs text-gray-400 hover:text-brand-teal"
-          >
-            Sign out
-          </button>
-        </div>
-      )}
+        {userName && (
+          <div className="mt-4 flex items-center gap-2.5 border-t border-white/10 pt-3">
+            <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-brand-lime/15 text-[11px] font-bold text-brand-lime">
+              {userName.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[12.5px] font-semibold text-white">{userName}</div>
+              <button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="text-[11px] text-white/50 hover:text-brand-lime"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </aside>
   )
 }
