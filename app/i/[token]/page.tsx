@@ -6,6 +6,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance } from '@/lib/appearance'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
+import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,13 +28,31 @@ async function loadInvoice(token: string) {
   })
 }
 
-export default async function PublicInvoicePage({ params }: { params: { token: string } }) {
+export default async function PublicInvoicePage({
+  params,
+  searchParams,
+}: {
+  params: { token: string }
+  searchParams: { paid?: string }
+}) {
   const invoice = await loadInvoice(params.token)
   // Only sent invoices are shareable. Drafts have no publicToken, so this also covers them.
   if (!invoice || invoice.status === 'draft') notFound()
 
   const appearance = await getInvoiceAppearance(invoice.accountId)
   const BRAND = appearance.brandColor
+
+  // Online payment (Stripe) — only when connected and there's a balance to pay.
+  const balanceDue = invoice.totalCents - invoice.paidCents
+  const stripeConn =
+    invoice.status === 'open' && balanceDue > 0
+      ? await prisma.integrationConnection.findFirst({
+          where: { accountId: invoice.accountId, provider: 'stripe', status: 'connected' },
+          select: { id: true },
+        })
+      : null
+  const canPayOnline = !!stripeConn
+  const justPaid = searchParams.paid === '1'
 
   const badge = displayBadge(
     {
@@ -66,8 +85,22 @@ export default async function PublicInvoicePage({ params }: { params: { token: s
           <div className="text-2xl font-bold" style={{ color: BRAND }}>
             {formatCents(due, cur)}
           </div>
+          {canPayOnline && (
+            <form action={startStripeCheckoutAction} className="mt-2">
+              <input type="hidden" name="token" value={params.token} />
+              <button className="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+                Pay {formatCents(due, cur)}
+              </button>
+            </form>
+          )}
         </div>
       </div>
+
+      {justPaid && (
+        <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+          Thanks! Your payment is processing — this invoice will update to paid once your bank confirms.
+        </div>
+      )}
 
       {/* Rendered invoice document */}
       <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">

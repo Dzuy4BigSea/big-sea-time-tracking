@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { generateInvoice } from '@/modules/invoicing/generateInvoice'
 import { sendInvoice, markInvoiceDraft, deleteInvoice } from '@/modules/invoicing/invoiceLifecycle'
+import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xeroSync'
 import { parseYmd } from '@/lib/week'
 import { requireUser } from '@/lib/session'
 
@@ -44,6 +45,7 @@ export async function recordPaymentAction(_prev: PaymentState, formData: FormDat
     return { error: msg }
   }
 
+  await copyPaymentToXero(accountId, invoiceId).catch(() => {}) // best-effort accounting sync
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   return { ok: true }
@@ -71,6 +73,7 @@ export async function sendInvoiceAction(formData: FormData): Promise<void> {
   } catch {
     return
   }
+  await copyInvoiceToXero(accountId, invoiceId).catch(() => {}) // auto-copy to Xero on send (best-effort)
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
 }

@@ -14,6 +14,8 @@ export interface RecordPaymentInput {
   method: PaymentMethod
   note?: string
   allowOverpayment?: boolean
+  source?: 'manual' | 'stripe'
+  stripeChargeId?: string
 }
 
 export async function recordPayment(prisma: PrismaClient, input: RecordPaymentInput) {
@@ -52,6 +54,8 @@ export async function recordPayment(prisma: PrismaClient, input: RecordPaymentIn
         paidOn: input.paidOn,
         method: input.method,
         note: input.note,
+        source: input.source ?? 'manual',
+        stripeChargeId: input.stripeChargeId,
       },
     })
     return tx.invoice.update({
