@@ -5,12 +5,13 @@ import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { startOfWeekMonday, addDays, ymd, parseYmd } from '@/lib/week'
 
 export const dynamic = 'force-dynamic'
 
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-// Harvest's Time report groups by one of these dimensions (sub-tabs under the Time tab).
+// Time report groups by one of these dimensions (sub-tabs under the Time tab).
 type Group = 'clients' | 'projects' | 'tasks' | 'teammates'
 const GROUPS: { key: Group; label: string; column: string }[] = [
   { key: 'clients', label: 'Clients', column: 'Client' },
@@ -19,15 +20,56 @@ const GROUPS: { key: Group; label: string; column: string }[] = [
   { key: 'teammates', label: 'Teammates', column: 'Teammate' },
 ]
 
-export default async function ReportsPage({ searchParams }: { searchParams: { group?: string } }) {
+type Period = 'week' | 'month' | 'all'
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const md = (d: Date) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: { group?: string; period?: string; anchor?: string }
+}) {
   const { accountId, permissionProfile } = await requireUser()
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile }, 'run_account_reports')
   const group: Group = (['clients', 'projects', 'tasks', 'teammates'] as const).includes(searchParams.group as Group)
     ? (searchParams.group as Group)
     : 'clients'
+  const period: Period = (['week', 'month', 'all'] as const).includes(searchParams.period as Period)
+    ? (searchParams.period as Period)
+    : 'all'
+
+  // Anchor date for week/month navigation (defaults to the latest tracked day, so there's data).
+  let anchor = parseYmd(searchParams.anchor)
+  if (!anchor && period !== 'all') {
+    const latest = await prisma.timeEntry.aggregate({ where: { accountId }, _max: { spentDate: true } })
+    anchor = latest._max.spentDate ?? new Date()
+  }
+
+  // Resolve [from, till] for the selected period.
+  let from: Date | null = null
+  let till: Date | null = null
+  let rangeLabel = 'All time'
+  let prevAnchor: string | null = null
+  let nextAnchor: string | null = null
+  if (period === 'week' && anchor) {
+    const monday = startOfWeekMonday(anchor)
+    from = monday
+    till = addDays(monday, 6)
+    rangeLabel = `${md(from)} – ${md(till)} ${till.getUTCFullYear()}`
+    prevAnchor = ymd(addDays(monday, -7))
+    nextAnchor = ymd(addDays(monday, 7))
+  } else if (period === 'month' && anchor) {
+    const y = anchor.getUTCFullYear()
+    const m = anchor.getUTCMonth()
+    from = new Date(Date.UTC(y, m, 1))
+    till = new Date(Date.UTC(y, m + 1, 0))
+    rangeLabel = `${MONTHS[m]} ${y}`
+    prevAnchor = ymd(new Date(Date.UTC(y, m - 1, 1)))
+    nextAnchor = ymd(new Date(Date.UTC(y, m + 1, 1)))
+  }
 
   const entries = await prisma.timeEntry.findMany({
-    where: { accountId },
+    where: { accountId, ...(from && till ? { spentDate: { gte: from, lte: till } } : {}) },
     select: {
       minutes: true,
       isBillable: true,
@@ -79,6 +121,18 @@ export default async function ReportsPage({ searchParams }: { searchParams: { gr
 
   const rows = [...rowsMap.values()].sort((a, b) => b.minutes - a.minutes)
   const column = GROUPS.find((g) => g.key === group)!.column
+  const nonBillableMinutes = totals.minutes - totals.billableMinutes
+  const billablePct = totals.minutes > 0 ? Math.round((totals.billableMinutes / totals.minutes) * 100) : 0
+
+  // Query-string builders that preserve the other params.
+  const withParams = (o: { group?: Group; period?: Period; anchor?: string | null }) => {
+    const p = new URLSearchParams()
+    p.set('group', o.group ?? group)
+    p.set('period', o.period ?? period)
+    const a = o.anchor === undefined ? (searchParams.anchor ?? null) : o.anchor
+    if (a && (o.period ?? period) !== 'all') p.set('anchor', a)
+    return `/reports?${p.toString()}`
+  }
 
   return (
     <div>
@@ -93,15 +147,43 @@ export default async function ReportsPage({ searchParams }: { searchParams: { gr
       <p className="mb-4 text-sm text-gray-500">Time report · live from Supabase</p>
       <ReportsTabs active="Time" />
 
-      {/* Grouping sub-tabs (Clients / Projects / Tasks / Teammates) */}
+      {/* Period selector */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 text-sm">
+          {(['week', 'month', 'all'] as Period[]).map((p) => (
+            <Link
+              key={p}
+              href={withParams({ period: p, anchor: p === 'all' ? null : undefined })}
+              className={`rounded px-3 py-1 ${period === p ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              {p === 'week' ? 'This week' : p === 'month' ? 'This month' : 'All time'}
+            </Link>
+          ))}
+        </div>
+        {period !== 'all' && (
+          <div className="flex items-center gap-2 text-sm">
+            <Link href={withParams({ anchor: prevAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-orange">←</Link>
+            <span className="rounded border border-gray-200 bg-white px-3 py-1">{rangeLabel}</span>
+            <Link href={withParams({ anchor: nextAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-orange">→</Link>
+          </div>
+        )}
+      </div>
+
+      {/* Summary band */}
+      <div className="mb-4 grid gap-4 rounded-lg border border-gray-200 bg-white p-5 sm:grid-cols-4">
+        <Metric label="Total hours" value={hrs(totals.minutes)} />
+        <Metric label={`Billable (${billablePct}%)`} value={hrs(totals.billableMinutes)} sub={`${hrs(nonBillableMinutes)} non-billable`} />
+        <Metric label="Billable amount" value={formatCents(totals.billableCents)} />
+        <Metric label="Uninvoiced amount" value={formatCents(totals.uninvoicedCents)} accent="text-brand-green" />
+      </div>
+
+      {/* Grouping sub-tabs */}
       <div className="mb-4 flex gap-1 text-sm">
         {GROUPS.map((g) => (
           <Link
             key={g.key}
-            href={`/reports?group=${g.key}`}
-            className={`rounded-full px-3 py-1 ${
-              g.key === group ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-500 hover:bg-gray-50'
-            }`}
+            href={withParams({ group: g.key })}
+            className={`rounded-full px-3 py-1 ${g.key === group ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-500 hover:bg-gray-50'}`}
           >
             {g.label}
           </Link>
@@ -140,7 +222,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: { gr
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                  No tracked time yet.
+                  No tracked time in this period.
                 </td>
               </tr>
             )}
@@ -158,6 +240,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: { gr
           )}
         </table>
       </div>
+    </div>
+  )
+}
+
+function Metric({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-gray-400">{label}</div>
+      <div className={`mt-1 text-xl font-semibold ${accent ?? 'text-gray-900'}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-400">{sub}</div>}
     </div>
   )
 }
