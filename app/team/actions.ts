@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export type NewPersonState = { error?: string; ok?: boolean }
+export type EditPersonState = { error?: string; ok?: boolean }
 
 const PROFILES: DbProfile[] = [
   'member',
@@ -58,6 +59,54 @@ export async function createPersonAction(_prev: NewPersonState, formData: FormDa
       return { error: 'A user with that email already exists in this account.' }
     }
     return { error: 'Could not create the user.' }
+  }
+
+  revalidatePath('/team')
+  return { ok: true }
+}
+
+export async function updatePersonAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
+  const { userId: selfId, accountId, permissionProfile } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) {
+    return { error: 'You do not have permission to edit people.' }
+  }
+
+  const id = String(formData.get('id') ?? '')
+  const firstName = String(formData.get('firstName') ?? '').trim()
+  const lastName = String(formData.get('lastName') ?? '').trim()
+  const profileRaw = String(formData.get('profile') ?? 'member') as DbProfile
+  const profile = PROFILES.includes(profileRaw) ? profileRaw : 'member'
+  const typeRaw = String(formData.get('type') ?? 'employee') as DbUserType
+  const type = TYPES.includes(typeRaw) ? typeRaw : 'employee'
+  const isActive = formData.get('isActive') === 'on'
+  const newPassword = String(formData.get('newPassword') ?? '')
+  const capRaw = Number(String(formData.get('capacity') ?? ''))
+  const capacityHoursPerWeek = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : null
+
+  if (!firstName) return { error: 'First name is required.' }
+  if (newPassword && newPassword.length < 8) return { error: 'New password must be at least 8 characters.' }
+
+  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!user) return { error: 'Person not found.' }
+
+  // Prevent locking yourself out.
+  if (id === selfId && !isActive) return { error: 'You can’t deactivate your own account.' }
+
+  try {
+    await prisma.user.update({
+      where: { id },
+      data: {
+        firstName,
+        lastName,
+        permissionProfile: profile,
+        type,
+        capacityHoursPerWeek,
+        isActive,
+        ...(newPassword ? { passwordHash: bcrypt.hashSync(newPassword, 10) } : {}),
+      },
+    })
+  } catch {
+    return { error: 'Could not save the person.' }
   }
 
   revalidatePath('/team')

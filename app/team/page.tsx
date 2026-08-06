@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
@@ -52,6 +53,7 @@ export default async function TeamPage() {
               <th className="px-4 py-3 text-right font-medium">Capacity</th>
               <th className="px-4 py-3 text-right font-medium">Tracked</th>
               <th className="px-4 py-3 text-right font-medium">Billable</th>
+              {canManage && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody>
@@ -80,6 +82,13 @@ export default async function TeamPage() {
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(totalMin)}h</td>
                   <td className="px-4 py-3 text-right tabular-nums">{billableCents > 0 ? formatCents(billableCents) : '—'}</td>
+                  {canManage && (
+                    <td className="px-4 py-3 text-right">
+                      <Link href={`/team/${u.id}/edit`} className="text-xs text-gray-500 hover:text-brand-orange">
+                        Edit
+                      </Link>
+                    </td>
+                  )}
                 </tr>
               )
             })}
