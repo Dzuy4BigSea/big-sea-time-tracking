@@ -10,13 +10,13 @@ _Last updated: 2026-08-06._
 
 **Done:** core loop (track → invoice → send → pay), every sidebar screen, auth + per-account tenancy, real migrations. **Full entity CRUD** (create + edit) for Client / Task / Project / Person. **Expense entry** + **expenses billed onto invoices**. **Inline time-entry edit**. **Public invoice** `/i/[token]`. **CSV export** + **Client detail**. **Global Harvest-style top bar** (Timer popover / Track-time modal / Create-invoice / More→Track-expenses, live running-timer pill). **Settings** (preferences + module toggles + categories + invoice appearance). **Invoice appearance theming** (brand/logo/columns, data-driven). **Retainers** (deposit/drawdown). **Recurring invoices** (profiles + generate-due + create-from-invoice). **Module nav/route gating** (AC-MOD).
 
-**Suggested next directions (pick per priority):**
-1. **Estimates** (specs/06) — the last unbuilt core module; off at Big Sea (module flag), so lower priority but completes the spec. Schema (Estimate/EstimateLineItem) + estimateNumberSeq exist.
-2. **Migration importer** (specs/13) — needed before real client data; requires a Harvest CSV/API export to build against.
-3. **DB-backed tenant-isolation tests** (specs/08) — need a test-env DATABASE_URL loader (no dotenv dep yet); isolation is currently verified live + covered structurally by the authz matrix.
-4. **Home dashboard enrichment** — surface A/R, upcoming recurring, retainer balances.
-5. **Online payment on the public invoice** — needs a payment-provider decision.
-6. **Recurring generation as a real scheduled job** — currently a manual "Generate due" button (stand-in for cron); wire a Vercel Cron → protected route.
+**Every spec phase buildable without external input is now done (01–12).** What's left needs a decision or an artifact from you:
+1. **Set `CRON_SECRET`** in Vercel project env → activates the daily recurring-invoice cron (`vercel.json` → `/api/cron/recurring`). Until then, the manual "Generate due" button covers it.
+2. **Migration importer** (specs/13) — needs a real **Harvest CSV/API export** to build the column mapping against; risky to build speculatively.
+3. **Online payment** on the public invoice — needs a **payment-provider** decision (Stripe, etc.).
+4. **DB-backed tenant-isolation tests** (specs/08) — need a test-env `DATABASE_URL` loader (no `dotenv` dep yet). Isolation is verified live + covered structurally by the authz matrix.
+5. **Audit log** (`AuditLog` model exists) — wire key mutations to write entries; broad-touch, deferred.
+6. **Public estimate view** `/e/[token]` (mirror `/i/[token]`); reports CSV on the profitability/receivables tabs.
 
 **Ops follow-ups (your call, dashboard settings):** provision a separate **production Supabase** (Pro, with backups) before real client data; optional Vercel preview-URL protection. See parking lot.
 
@@ -30,7 +30,7 @@ _Last updated: 2026-08-06._
 
 **Phase:** Feature build — entity CRUD. DB live on Supabase (migrations adopted); core logic tested; app deployed on Vercel with auth + multi-tenant scoping. Create forms landing for the core entities.
 
-**Test suite:** 66 unit tests passing across 9 files; `next build` + `tsc` clean. Write paths (time, timer, invoicing lifecycle, CRUD creates) integration-verified against the DB.
+**Test suite:** 167 unit tests passing; `next build` + `tsc` clean. Write paths (time, timer, invoicing lifecycle, CRUD, expenses→invoice, retainers, recurring generation, estimate send/convert) integration-verified against the DB (then rolled back / reseeded).
 
 ## Build order checklist
 
@@ -45,11 +45,11 @@ Dependency order from the README. Status: ✅ done · 🟡 in progress · ⬜ no
 | 03 | Projects / **rate resolution** | 🟡 | `resolveRate` ✅ + tests; project/task/client CRUD services ⬜ |
 | 04 | Time tracking | 🟡 | duration helpers ✅; time-entry logic (timer, one-running-timer, lock guards) ✅ + tests; **logTime + timer services** ✅ + DB integration-tested; **log-time form, start/stop timer UI, delete entry (lock-guarded)** ✅; **inline entry edit (duration + notes, lock-guarded)** ✅. Timesheets/approval (module off) ⬜ |
 | 05 | Invoicing | ✅ | **core loop complete & live**: generateInvoice (pool→draft), sendInvoice (number/lock/token/seq-bump), recordPayment (partial/full/overpayment-guard), markInvoiceDraft (unlock) — all DB integration-tested + wired to UI. **Public client-facing view `/i/[token]`** ✅ (no-auth, bare layout, noindex; "View client link" on the internal detail). Remaining polish: taxes/discount UI on generate, per-account `InvoiceAppearance` (brand/logo), online payment |
-| 06 | Estimates | ⬜ | Module off at Big Sea (gated off by default) — schema ready; screens not built |
+| 06 | Estimates | ✅ | Full CRUD + lifecycle (draft/sent/accepted/declined), **separate number sequence** (AC-EST-005), **convert-to-invoice once** (AC-EST-003/004), shared totals engine. Module-gated (off at Big Sea → hidden). Public estimate view ⬜ |
 | 07 | Reporting | ✅ | **Time**, **Profitability** (revenue vs effective-dated cost → margin), **Receivables** (A/R aging) ✅ live, tabbed. **CSV export** (detailed time entries, permission-gated) ✅ |
 | 08 | Non-functional | 🟡 | **Authz matrix tests** (full capability grid + overrides + scoping) ✅; tenant isolation verified live. DB-backed isolation tests + audit log ⬜ |
 | 09 | Expenses | 🟡 | **Expense entry** ✅ (self-service; project/category/date/amount/markup/billable/notes, tenant-scoped) + **admin category management** ✅ (inline on /expenses). Receipts upload ⬜; expense→invoice line items ⬜ |
-| 10 | Recurring / retainers | ✅ | **Retainers** (deposit/drawdown math + tests, uninvoiced aggregation, archive) ✅; **Recurring** (profiles, schedule math + tests, generate-due, create-from-invoice, pause/delete) ✅. Real cron job still a manual button |
+| 10 | Recurring / retainers | ✅ | **Retainers** (deposit/drawdown math + tests, uninvoiced aggregation, archive); **Recurring** (profiles, schedule math + tests, generate-due, create-from-invoice, pause/delete) + **Vercel Cron** `/api/cron/recurring` (needs `CRON_SECRET` env to activate) |
 | 11 | Settings / modules | ✅ | **Settings** screen: preferences, **module toggles** (with nav/route gating, AC-MOD), expense categories, **invoice appearance** editor. Import/export ⬜ |
 | 12 | UI (Next.js app) | 🟡 | App Router + Tailwind + Prisma singleton ✅; sidebar layout ✅; **global sticky top bar** (section title + "+ New" quick-create) ✅; **every sidebar screen live + core loop + auth**. **Full entity CRUD** (create + edit) for **Client / Task / Project / Person** ✅ — all permission-gated via `can()` in the action. **Expense entry** ✅. **Inline time-entry edit** ✅. **Client detail** (`/clients/[id]`) ✅. **Public invoice** (`/i/[token]`) ✅. **CSV export** ✅. Remaining: Settings screen, invoice-appearance theming, receipts upload |
 | 13 | Migration importer | ⬜ | Needs Supabase + API/CSV |
