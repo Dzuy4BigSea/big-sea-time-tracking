@@ -1,22 +1,23 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
-import { ymd } from '@/lib/week'
-import { RecordPaymentForm } from '@/components/RecordPaymentForm'
-import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
-import { requireUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 const BRAND = '#004348' // Big Sea teal (until per-account InvoiceAppearance is wired)
 
-export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const { accountId } = await requireUser()
-  const invoice = await prisma.invoice.findFirst({
-    where: { id: params.id, accountId },
+export const metadata: Metadata = {
+  title: 'Invoice',
+  robots: { index: false, follow: false }, // public-by-link, but keep it out of search indexes
+}
+
+async function loadInvoice(token: string) {
+  if (!token) return null
+  return prisma.invoice.findUnique({
+    where: { publicToken: token },
     include: {
       client: true,
       account: true,
@@ -24,7 +25,12 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
       payments: { orderBy: { paidOn: 'asc' } },
     },
   })
-  if (!invoice) notFound()
+}
+
+export default async function PublicInvoicePage({ params }: { params: { token: string } }) {
+  const invoice = await loadInvoice(params.token)
+  // Only sent invoices are shareable. Drafts have no publicToken, so this also covers them.
+  if (!invoice || invoice.status === 'draft') notFound()
 
   const badge = displayBadge(
     {
@@ -40,62 +46,28 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   const cur = invoice.currency
 
   return (
-    <div>
-      <Link href="/invoices" className="text-sm text-gray-500 hover:text-brand-orange">
-        ← Back to Invoices
-      </Link>
-
-      <div className="mb-4 mt-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">Invoice {invoice.number ?? <span className="text-gray-400">(draft)</span>}</h1>
-        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>
-          {BADGE_LABEL[badge]}
-        </span>
-        <div className="ml-auto text-right">
-          <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
-          <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
+    <div className="mx-auto max-w-3xl px-4 py-10">
+      {/* Summary banner */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg bg-white p-5 shadow-sm">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-gray-400">Invoice {invoice.number ?? ''} from</div>
+          <div className="text-lg font-semibold" style={{ color: BRAND }}>
+            {invoice.account.name}
+          </div>
+        </div>
+        <div className="text-right">
+          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>
+            {BADGE_LABEL[badge]}
+          </span>
+          <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">Amount due</div>
+          <div className="text-2xl font-bold" style={{ color: BRAND }}>
+            {formatCents(due, cur)}
+          </div>
         </div>
       </div>
 
-      {/* Action bar */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {invoice.status === 'draft' && (
-          <form action={sendInvoiceAction}>
-            <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
-              Send invoice
-            </button>
-          </form>
-        )}
-        {invoice.status === 'open' && (
-          <form action={markDraftAction}>
-            <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Mark as draft
-            </button>
-          </form>
-        )}
-        {invoice.status === 'draft' && (
-          <form action={deleteInvoiceAction}>
-            <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600">
-              Delete draft
-            </button>
-          </form>
-        )}
-        {invoice.publicToken && invoice.status !== 'draft' && (
-          <a
-            href={`/i/${invoice.publicToken}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            View client link ↗
-          </a>
-        )}
-      </div>
-
       {/* Rendered invoice document */}
-      <div className="rounded-lg border border-gray-200 bg-white p-8">
+      <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
         <div className="flex items-start justify-between">
           <div className="text-lg font-semibold tracking-tight">{invoice.account.name}</div>
           <div className="text-2xl font-bold tracking-wide" style={{ color: BRAND }}>
@@ -107,9 +79,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           <div>
             <div className="text-xs uppercase tracking-wide text-gray-400">Invoice for</div>
             <div className="mt-1 font-medium">{invoice.client.name}</div>
-            {invoice.client.address && (
-              <div className="whitespace-pre-line text-gray-600">{invoice.client.address}</div>
-            )}
+            {invoice.client.address && <div className="whitespace-pre-line text-gray-600">{invoice.client.address}</div>}
           </div>
           <div className="text-right">
             <dl className="space-y-1">
@@ -133,7 +103,6 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           </div>
         )}
 
-        {/* Line items */}
         <table className="mt-6 w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
@@ -155,7 +124,6 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           </tbody>
         </table>
 
-        {/* Totals */}
         <div className="mt-4 flex justify-end">
           <dl className="w-64 space-y-1 text-sm">
             <TotalRow label="Subtotal" value={formatCents(invoice.subtotalCents, cur)} />
@@ -175,32 +143,27 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
             <div className="whitespace-pre-line">{invoice.notes}</div>
           </div>
         )}
-      </div>
 
-      {/* Payments */}
-      <div className="mt-6">
-        <h2 className="mb-2 text-sm font-semibold text-gray-700">Payments</h2>
-        {invoice.status === 'open' && (
-          <div className="mb-3">
-            <RecordPaymentForm invoiceId={invoice.id} defaultDate={ymd(new Date())} dueLabel={formatCents(due, cur)} />
+        {invoice.payments.length > 0 && (
+          <div className="mt-8 border-t border-gray-200 pt-4 text-sm">
+            <div className="mb-2 text-xs uppercase tracking-wide text-gray-400">Payments</div>
+            <ul className="space-y-1">
+              {invoice.payments.map((p) => (
+                <li key={p.id} className="flex items-center justify-between text-gray-600">
+                  <span>
+                    {formatDate(p.paidOn)} · {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
+                  </span>
+                  <span className="font-medium text-gray-800">{formatCents(p.amountCents, cur)}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
-        {invoice.payments.length === 0 ? (
-          <p className="text-sm text-gray-400">No payments recorded.</p>
-        ) : (
-          <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white text-sm">
-            {invoice.payments.map((p) => (
-              <li key={p.id} className="flex items-center justify-between px-4 py-2">
-                <span className="text-gray-600">
-                  {formatDate(p.paidOn)} · {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
-                  {p.note ? ` · ${p.note}` : ''}
-                </span>
-                <span className="font-medium">{formatCents(p.amountCents, cur)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
+
+      <p className="mt-6 text-center text-xs text-gray-400">
+        Questions about this invoice? Reply to the email it came from.
+      </p>
     </div>
   )
 }
