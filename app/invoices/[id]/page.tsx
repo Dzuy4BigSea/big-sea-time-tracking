@@ -8,6 +8,7 @@ import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
+import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
 import { getInvoiceAppearance } from '@/lib/appearance'
 
@@ -94,6 +95,14 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           >
             View client link ↗
           </a>
+        )}
+        {invoice.lineItems.length > 0 && (
+          <form action={createRecurringFromInvoiceAction}>
+            <input type="hidden" name="invoiceId" value={invoice.id} />
+            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Create recurring
+            </button>
+          </form>
         )}
       </div>
 

@@ -29,6 +29,7 @@ const NAV: Section[] = [
     heading: 'Bill',
     items: [
       { label: 'Invoices', href: '/invoices', ready: true },
+      { label: 'Recurring', href: '/recurring', ready: true },
       { label: 'Retainers', href: '/retainers', ready: true },
     ],
   },
