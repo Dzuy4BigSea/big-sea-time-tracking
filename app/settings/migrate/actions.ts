@@ -5,9 +5,10 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { createHash } from 'node:crypto'
 import { encryptSecret, isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionWithSecrets } from '@/lib/integrations'
-import { pullBackup, verifyHarvest } from '@/modules/integrations/harvestClient'
+import { pullAll, verifyHarvest, LIGHT_RESOURCES, HEAVY_RESOURCES } from '@/modules/integrations/harvestClient'
 
 export type MigrateState = { error?: string; ok?: boolean }
 
@@ -82,43 +83,86 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
   // High-water for the NEXT delta = the moment we START (so records changed during the pull
   // are re-captured next time rather than missed). Slight overlap is safe (idempotent upserts).
   const startedAt = new Date().toISOString()
+  const startYear = 2008 // safe lower bound; empty years are one cheap request each
+  const endYear = new Date().getUTCFullYear()
 
-  let status: 'complete' | 'partial' | 'error' = 'error'
-  try {
-    const { data, counts, errors } = await pullBackup(token, harvestAccountId, updatedSince)
-    const errorKeys = Object.keys(errors)
-    const pulledAny = Object.values(counts).some((n) => n > 0) || errorKeys.length === 0
-    status = errorKeys.length === 0 ? 'complete' : pulledAny ? 'partial' : 'error'
+  // Parent snapshot first (status "running") so parts can attach and a crash leaves a visible,
+  // partially-populated snapshot rather than nothing.
+  const snapshot = await prisma.migrationSnapshot.create({
+    data: { accountId: actor.accountId, source: 'harvest', status: 'running', mode, createdByUserId: actor.userId },
+  })
 
-    await prisma.migrationSnapshot.create({
+  const counts: Record<string, number> = {}
+  const errors: Record<string, string> = {}
+
+  // Write one bounded, checksummed part, then let the rows go out of scope (memory freed).
+  const writePart = async (resource: string, chunk: string | null, rows: unknown[]) => {
+    const json = JSON.stringify(rows)
+    const checksum = createHash('sha256').update(json).digest('hex')
+    await prisma.migrationSnapshotPart.create({
       data: {
+        snapshotId: snapshot.id,
         accountId: actor.accountId,
-        source: 'harvest',
-        status,
-        entityCounts: counts as Prisma.InputJsonValue,
-        data: { ...data, _meta: { mode, updatedSince: updatedSince ?? null, startedAt, errors } } as Prisma.InputJsonValue,
-        errorMessage: errorKeys.length ? `Failed: ${errorKeys.join(', ')}` : null,
-        createdByUserId: actor.userId,
+        resource,
+        chunk,
+        rowCount: rows.length,
+        checksum,
+        data: rows as Prisma.InputJsonValue,
       },
     })
+    counts[resource] = (counts[resource] ?? 0) + rows.length
+  }
 
-    // Only advance the delta high-water mark on a fully clean run.
-    if (status === 'complete') {
-      await prisma.integrationConnection.update({
-        where: { accountId_provider: { accountId: actor.accountId, provider: 'harvest' } },
-        data: { config: { harvestAccountId, lastPulledAt: startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },
-      })
+  // Light resources — one part each.
+  for (const resource of LIGHT_RESOURCES) {
+    try {
+      const rows = await pullAll(token, harvestAccountId, resource, { updatedSince })
+      await writePart(resource, null, rows)
+    } catch (e) {
+      errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
     }
-  } catch (e) {
-    await prisma.migrationSnapshot.create({
-      data: {
-        accountId: actor.accountId,
-        source: 'harvest',
-        status: 'error',
-        data: { _meta: { mode, updatedSince: updatedSince ?? null, startedAt } } as Prisma.InputJsonValue,
-        errorMessage: (e as Error).message?.slice(0, 500),
-        createdByUserId: actor.userId,
-      },
+  }
+
+  // Heavy resources — year-chunked in a full pull; single delta part when incremental.
+  for (const resource of HEAVY_RESOURCES) {
+    if (mode === 'incremental') {
+      try {
+        const rows = await pullAll(token, harvestAccountId, resource, { updatedSince })
+        await writePart(resource, null, rows)
+      } catch (e) {
+        errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
+      }
+      continue
+    }
+    counts[resource] = counts[resource] ?? 0
+    for (let year = startYear; year <= endYear; year++) {
+      try {
+        const rows = await pullAll(token, harvestAccountId, resource, { from: `${year}-01-01`, to: `${year}-12-31` })
+        if (rows.length > 0) await writePart(resource, String(year), rows)
+      } catch (e) {
+        errors[`${resource}:${year}`] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
+      }
+    }
+  }
+
+  const errorKeys = Object.keys(errors)
+  const status = errorKeys.length === 0 ? 'complete' : 'partial'
+
+  await prisma.migrationSnapshot.update({
+    where: { id: snapshot.id },
+    data: {
+      status,
+      entityCounts: counts as Prisma.InputJsonValue,
+      meta: { mode, updatedSince: updatedSince ?? null, startedAt, errors } as Prisma.InputJsonValue,
+      errorMessage: errorKeys.length ? `Failed: ${errorKeys.join(', ')}` : null,
+    },
+  })
+
+  // Advance the delta high-water mark only on a fully clean run.
+  if (status === 'complete') {
+    await prisma.integrationConnection.update({
+      where: { accountId_provider: { accountId: actor.accountId, provider: 'harvest' } },
+      data: { config: { harvestAccountId, lastPulledAt: startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },
     })
   }
   revalidatePath('/settings/migrate')

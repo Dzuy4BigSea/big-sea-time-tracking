@@ -4,17 +4,28 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export const dynamic = 'force-dynamic'
 
-/** Download a migration backup snapshot as a JSON file. Admin-gated, account-scoped. */
+/** Download a backup snapshot MANIFEST (metadata + per-part checksums). Small + bounded. */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const { accountId, permissionProfile } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
     return new Response('Forbidden', { status: 403 })
   }
-  const snap = await prisma.migrationSnapshot.findFirst({ where: { id: params.id, accountId } })
+  const snap = await prisma.migrationSnapshot.findFirst({
+    where: { id: params.id, accountId },
+    include: { parts: { select: { id: true, resource: true, chunk: true, rowCount: true, checksum: true }, orderBy: [{ resource: 'asc' }, { chunk: 'asc' }] } },
+  })
   if (!snap) return new Response('Not found', { status: 404 })
 
   const body = JSON.stringify(
-    { source: snap.source, capturedAt: snap.createdAt, counts: snap.entityCounts, data: snap.data },
+    {
+      source: snap.source,
+      capturedAt: snap.createdAt,
+      status: snap.status,
+      mode: snap.mode,
+      counts: snap.entityCounts,
+      meta: snap.meta,
+      parts: snap.parts,
+    },
     null,
     2,
   )
@@ -22,7 +33,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return new Response(body, {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="harvest-backup-${stamp}.json"`,
+      'Content-Disposition': `attachment; filename="harvest-backup-manifest-${stamp}.json"`,
       'Cache-Control': 'no-store',
     },
   })

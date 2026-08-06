@@ -956,17 +956,41 @@ model IntegrationSyncLog {
 }
 
 // Raw source-data backup captured BEFORE any ETL into Track2 (specs/13). Immutable snapshot.
+// The actual rows live in bounded MigrationSnapshotPart rows (one per resource, or per year for
+// heavy resources) so memory and row size stay bounded regardless of how many years of data.
 model MigrationSnapshot {
   id              String   @id @default(cuid())
   accountId       String
   account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   source          String   @default("harvest")
-  status          String   @default("complete") // "complete" | "error"
-  entityCounts    Json? // { clients: 12, projects: 40, timeEntries: 3120, ... }
-  data            Json // raw payload per entity, exactly as pulled from the source API
+  status          String   @default("running") // "running" | "complete" | "partial" | "error"
+  mode            String   @default("full") // "full" | "incremental"
+  entityCounts    Json? // { clients: 12, projects: 40, time_entries: 82000, ... }
+  meta            Json? // { updatedSince, startedAt, errors }
   errorMessage    String?
   createdByUserId String?
   createdAt       DateTime @default(now())
 
+  parts MigrationSnapshotPart[]
+
+  @@index([accountId])
+}
+
+// One bounded chunk of a snapshot: a single resource (e.g. "clients") or a year-slice of a heavy
+// resource (e.g. "time_entries" chunk "2024"). Written incrementally as data is pulled, then the
+// in-memory copy is freed. `checksum` is a SHA-256 of the JSON for integrity verification.
+model MigrationSnapshotPart {
+  id         String            @id @default(cuid())
+  snapshotId String
+  snapshot   MigrationSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  accountId  String
+  resource   String
+  chunk      String? // e.g. "2024" for a year-sliced heavy resource; null otherwise
+  rowCount   Int               @default(0)
+  checksum   String
+  data       Json // the raw rows array for this part, exactly as pulled
+  createdAt  DateTime          @default(now())
+
+  @@index([snapshotId])
   @@index([accountId])
 }

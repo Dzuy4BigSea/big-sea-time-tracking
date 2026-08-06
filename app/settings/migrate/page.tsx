@@ -18,7 +18,12 @@ export default async function MigratePage() {
 
   const [conn, snapshots] = await Promise.all([
     getConnectionWithSecrets(accountId, 'harvest'),
-    prisma.migrationSnapshot.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.migrationSnapshot.findMany({
+      where: { accountId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: { parts: { select: { id: true, resource: true, chunk: true, rowCount: true }, orderBy: [{ resource: 'asc' }, { chunk: 'asc' }] } },
+    }),
   ])
   const connected = conn?.status === 'connected'
   const encOk = isEncryptionConfigured()
@@ -103,28 +108,46 @@ export default async function MigratePage() {
             {snapshots.map((s) => {
               const counts = (s.entityCounts as Record<string, number> | null) ?? {}
               const total = Object.values(counts).reduce((a, b) => a + b, 0)
-              const meta = ((s.data as Record<string, unknown> | null)?._meta ?? {}) as { mode?: string }
               return (
-                <tr key={s.id} className="border-b border-gray-100 last:border-0">
+                <tr key={s.id} className="border-b border-gray-100 align-top last:border-0">
                   <td className="px-4 py-2 text-gray-600">{formatDate(s.createdAt)}</td>
-                  <td className="px-4 py-2 capitalize text-gray-500">{meta.mode ?? 'full'}</td>
+                  <td className="px-4 py-2 capitalize text-gray-500">{s.mode}</td>
                   <td className="px-4 py-2">
                     {s.status === 'complete' ? (
                       <span className="text-brand-green">complete</span>
                     ) : s.status === 'partial' ? (
                       <span className="text-amber-600" title={s.errorMessage ?? ''}>partial</span>
+                    ) : s.status === 'running' ? (
+                      <span className="text-gray-400">running…</span>
                     ) : (
                       <span className="text-red-600" title={s.errorMessage ?? ''}>error</span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-gray-600">
-                    {s.status === 'complete' ? `${total.toLocaleString()} across ${Object.keys(counts).length} types` : '—'}
+                    {total.toLocaleString()} rows · {s.parts.length} parts
                   </td>
                   <td className="px-4 py-2 text-right">
-                    {s.status === 'complete' && (
-                      <a href={`/settings/migrate/snapshot/${s.id}`} className="text-xs text-blue-600 hover:underline">
-                        Download JSON
-                      </a>
+                    {s.parts.length > 0 && (
+                      <details className="text-left">
+                        <summary className="cursor-pointer text-xs text-blue-600 hover:underline">
+                          Download ({s.parts.length})
+                        </summary>
+                        <div className="mt-2 space-y-1">
+                          <a href={`/settings/migrate/snapshot/${s.id}`} className="block text-xs text-gray-600 hover:text-brand-orange">
+                            ⤓ Manifest (checksums)
+                          </a>
+                          {s.parts.map((p) => (
+                            <a
+                              key={p.id}
+                              href={`/settings/migrate/snapshot/${s.id}/part/${p.id}`}
+                              className="block text-xs text-gray-600 hover:text-brand-orange"
+                            >
+                              ⤓ {p.resource}
+                              {p.chunk ? ` ${p.chunk}` : ''} ({p.rowCount.toLocaleString()})
+                            </a>
+                          ))}
+                        </div>
+                      </details>
                     )}
                   </td>
                 </tr>

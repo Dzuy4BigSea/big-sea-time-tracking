@@ -39,22 +39,32 @@ async function harvestGet(token: string, accountId: string, path: string): Promi
   throw new Error(`Harvest GET ${path} → exhausted retries`)
 }
 
+export interface PullOptions {
+  updatedSince?: string // ISO 8601 — delta (records changed since)
+  from?: string // YYYY-MM-DD — date-range lower bound (heavy resources, year chunking)
+  to?: string // YYYY-MM-DD — date-range upper bound
+}
+
 /**
- * Pull every page of a top-level collection (e.g. resource="clients").
- * `updatedSince` (ISO 8601) limits to records changed since then — the delta mechanism.
+ * Pull every page of a top-level collection (e.g. resource="clients") with optional
+ * delta (`updatedSince`) and date-range (`from`/`to`) filters.
  */
 export async function pullAll(
   token: string,
   accountId: string,
   resource: string,
-  updatedSince?: string,
+  opts: PullOptions = {},
 ): Promise<unknown[]> {
   const out: unknown[] = []
   let page = 1
-  const since = updatedSince ? `&updated_since=${encodeURIComponent(updatedSince)}` : ''
+  const q: string[] = [`per_page=${PER_PAGE}`]
+  if (opts.updatedSince) q.push(`updated_since=${encodeURIComponent(opts.updatedSince)}`)
+  if (opts.from) q.push(`from=${encodeURIComponent(opts.from)}`)
+  if (opts.to) q.push(`to=${encodeURIComponent(opts.to)}`)
+  const base = q.join('&')
   // Safety cap so a runaway pull can't loop forever.
   for (let i = 0; i < 1000; i++) {
-    const json = await harvestGet(token, accountId, `/${resource}?per_page=${PER_PAGE}&page=${page}${since}`)
+    const json = await harvestGet(token, accountId, `/${resource}?${base}&page=${page}`)
     const arr = (json[resource] as unknown[]) ?? []
     out.push(...arr)
     const nextPage = json.next_page as number | null
@@ -74,47 +84,13 @@ export async function verifyHarvest(token: string, accountId: string): Promise<{
   }
 }
 
-// The core resources we back up (top-level Harvest v2 collections).
-export const BACKUP_RESOURCES = [
-  'clients',
-  'contacts',
-  'projects',
-  'tasks',
-  'users',
-  'roles',
-  'time_entries',
-  'expenses',
-  'expense_categories',
-  'invoices',
-  'estimates',
-] as const
+// Light resources — small; pulled whole into a single part.
+export const LIGHT_RESOURCES = ['clients', 'contacts', 'projects', 'tasks', 'users', 'roles', 'expense_categories', 'estimates'] as const
+
+// Heavy resources — can span years; pulled year-by-year (date range) in a FULL backup so each
+// part stays bounded. In an INCREMENTAL backup they're pulled by updated_since (small delta).
+export const HEAVY_RESOURCES = ['time_entries', 'expenses', 'invoices'] as const
+
+export const BACKUP_RESOURCES = [...LIGHT_RESOURCES, ...HEAVY_RESOURCES] as const
 
 export type BackupResource = (typeof BACKUP_RESOURCES)[number]
-
-/**
- * Pull the raw dataset for a backup snapshot. Resilient: each resource is pulled
- * independently, so one failure (timeout/disconnect) doesn't lose the rest — failures are
- * reported in `errors` and the caller decides whether the run is complete/partial.
- * `updatedSince` makes it a delta pull (only records changed since then).
- */
-export async function pullBackup(
-  token: string,
-  accountId: string,
-  updatedSince?: string,
-): Promise<{ data: Record<string, unknown[]>; counts: Record<string, number>; errors: Record<string, string> }> {
-  const data: Record<string, unknown[]> = {}
-  const counts: Record<string, number> = {}
-  const errors: Record<string, string> = {}
-  for (const resource of BACKUP_RESOURCES) {
-    try {
-      const rows = await pullAll(token, accountId, resource, updatedSince)
-      data[resource] = rows
-      counts[resource] = rows.length
-    } catch (e) {
-      errors[resource] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
-      data[resource] = []
-      counts[resource] = 0
-    }
-  }
-  return { data, counts, errors }
-}
