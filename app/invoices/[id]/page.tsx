@@ -10,12 +10,14 @@ import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
+import { requireModule } from '@/lib/modules'
 import { getInvoiceAppearance } from '@/lib/appearance'
 
 export const dynamic = 'force-dynamic'
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
   const { accountId } = await requireUser()
+  await requireModule(accountId, 'invoices')
   const invoice = await prisma.invoice.findFirst({
     where: { id: params.id, accountId },
     include: {

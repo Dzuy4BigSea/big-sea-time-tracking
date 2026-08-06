@@ -4,6 +4,7 @@ import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
+import { requireModule } from '@/lib/modules'
 import { NewRetainerForm } from '@/components/NewRetainerForm'
 import { addDepositAction, applyDrawdownAction, archiveRetainerAction } from '@/app/retainers/actions'
 
@@ -16,6 +17,7 @@ export default async function RetainersPage() {
   if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) {
     redirect('/')
   }
+  await requireModule(accountId, 'invoices')
 
   const [retainers, clients, timeRows, expenseRows] = await Promise.all([
     prisma.retainer.findMany({

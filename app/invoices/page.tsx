@@ -5,12 +5,14 @@ import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 import { generateInvoiceAction } from '@/app/invoices/actions'
 import { requireUser } from '@/lib/session'
+import { requireModule } from '@/lib/modules'
 
 // Reads live data on every request (no build-time prerender).
 export const dynamic = 'force-dynamic'
 
 export default async function InvoicesPage({ searchParams }: { searchParams: { nothing?: string } }) {
   const { accountId } = await requireUser()
+  await requireModule(accountId, 'invoices')
   const [invoices, clients] = await Promise.all([
     prisma.invoice.findMany({
       where: { accountId },

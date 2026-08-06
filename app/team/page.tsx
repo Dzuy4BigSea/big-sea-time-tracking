@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { requireModule } from '@/lib/modules'
 import { NewPersonForm } from '@/components/NewPersonForm'
 
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,7 @@ const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionD
 
 export default async function TeamPage() {
   const { accountId, permissionProfile } = await requireUser()
+  await requireModule(accountId, 'team')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')
   const users = await prisma.user.findMany({
     where: { accountId, archivedAt: null },

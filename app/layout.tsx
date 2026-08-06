@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { auth } from '@/auth'
 import { getTopBarData } from '@/lib/topbar'
+import { getModules, DEFAULT_MODULES } from '@/lib/modules'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export const metadata: Metadata = {
@@ -33,6 +34,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const userId = session?.user?.id
   const profile = (session?.user?.profile ?? 'member') as PermissionProfile
   const topBar = userId ? await getTopBarData(userId) : { projects: [], running: null }
+  const accountId = session?.user?.accountId
+  const modules = accountId ? await getModules(accountId) : DEFAULT_MODULES
   const today = new Date().toISOString().slice(0, 10)
 
   return (
@@ -42,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Sidebar
             userName={session?.user?.name ?? undefined}
             showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
+            modules={modules}
           />
           <main className="flex-1 overflow-x-auto">
             <TopBar

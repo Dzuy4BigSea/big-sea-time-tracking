@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { requireModule } from '@/lib/modules'
 import { cadenceLabel, type RecurringFrequency } from '@/modules/invoicing/recurring'
 import { NewRecurringForm } from '@/components/NewRecurringForm'
 import { generateDueAction, toggleRecurringStatusAction, deleteRecurringAction } from '@/app/recurring/actions'
@@ -14,6 +15,7 @@ export default async function RecurringPage() {
   if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) {
     redirect('/')
   }
+  await requireModule(accountId, 'invoices')
 
   const [profiles, clients] = await Promise.all([
     prisma.recurringInvoiceProfile.findMany({

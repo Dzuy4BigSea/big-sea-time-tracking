@@ -3,8 +3,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
+import type { ModuleFlags } from '@/lib/modules'
+import { DEFAULT_MODULES } from '@/lib/modules'
 
-type Item = { label: string; href: string; ready?: boolean }
+type Item = { label: string; href: string; ready?: boolean; moduleKey?: keyof ModuleFlags }
 type Section = { heading?: string; items: Item[] }
 
 const NAV: Section[] = [
@@ -12,14 +14,14 @@ const NAV: Section[] = [
   {
     heading: 'Track',
     items: [
-      { label: 'Timesheet', href: '/timesheet', ready: true },
-      { label: 'Expenses', href: '/expenses', ready: true },
+      { label: 'Timesheet', href: '/timesheet', ready: true, moduleKey: 'timeTracking' },
+      { label: 'Expenses', href: '/expenses', ready: true, moduleKey: 'expenseTracking' },
     ],
   },
   {
     heading: 'Organize',
     items: [
-      { label: 'Team', href: '/team', ready: true },
+      { label: 'Team', href: '/team', ready: true, moduleKey: 'team' },
       { label: 'Clients', href: '/clients', ready: true },
       { label: 'Projects', href: '/projects', ready: true },
       { label: 'Tasks', href: '/tasks', ready: true },
@@ -28,16 +30,28 @@ const NAV: Section[] = [
   {
     heading: 'Bill',
     items: [
-      { label: 'Invoices', href: '/invoices', ready: true },
-      { label: 'Recurring', href: '/recurring', ready: true },
-      { label: 'Retainers', href: '/retainers', ready: true },
+      { label: 'Invoices', href: '/invoices', ready: true, moduleKey: 'invoices' },
+      { label: 'Recurring', href: '/recurring', ready: true, moduleKey: 'invoices' },
+      { label: 'Retainers', href: '/retainers', ready: true, moduleKey: 'invoices' },
     ],
   },
   { heading: 'Review', items: [{ label: 'Reports', href: '/reports', ready: true }] },
 ]
 
-export function Sidebar({ userName, showSettings }: { userName?: string; showSettings?: boolean }) {
+export function Sidebar({
+  userName,
+  showSettings,
+  modules = DEFAULT_MODULES,
+}: {
+  userName?: string
+  showSettings?: boolean
+  modules?: ModuleFlags
+}) {
   const pathname = usePathname()
+  const visibleNav = NAV.map((section) => ({
+    ...section,
+    items: section.items.filter((i) => !i.moduleKey || modules[i.moduleKey]),
+  })).filter((section) => section.items.length > 0)
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-4">
       <div className="mb-6 flex items-center gap-2 px-2">
@@ -45,7 +59,7 @@ export function Sidebar({ userName, showSettings }: { userName?: string; showSet
         <span className="text-lg font-semibold tracking-tight">Track2</span>
       </div>
       <nav className="flex-1 space-y-5">
-        {NAV.map((section, i) => (
+        {visibleNav.map((section, i) => (
           <div key={i}>
             {section.heading && (
               <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">

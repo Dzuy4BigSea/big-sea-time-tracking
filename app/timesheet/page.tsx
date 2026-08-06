@@ -6,6 +6,7 @@ import { LogTimeForm } from '@/components/LogTimeForm'
 import { EntryRow } from '@/components/EntryRow'
 import { stopTimerAction } from '@/app/timesheet/actions'
 import { requireUser } from '@/lib/session'
+import { requireModule } from '@/lib/modules'
 
 const timeFmt = (d: Date) =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
@@ -19,7 +20,8 @@ export default async function TimesheetPage({
 }: {
   searchParams: { week?: string }
 }) {
-  const { userId } = await requireUser()
+  const { userId, accountId } = await requireUser()
+  await requireModule(accountId, 'timeTracking')
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
 
   // Default to the week containing the user's most recent entry, so there's data to see.

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { requireModule } from '@/lib/modules'
 import { NewExpenseForm } from '@/components/NewExpenseForm'
 import { NewCategoryForm } from '@/components/NewCategoryForm'
 
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function ExpensesPage() {
   const { accountId, permissionProfile } = await requireUser()
+  await requireModule(accountId, 'expenseTracking')
   const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')
 
   const [expenses, projects, categories] = await Promise.all([
