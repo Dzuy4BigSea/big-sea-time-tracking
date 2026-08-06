@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
+import { TopBar } from '@/components/TopBar'
 import { auth } from '@/auth'
 
 export const metadata: Metadata = {
@@ -33,6 +34,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <div className="flex min-h-screen bg-gray-50">
           <Sidebar userName={session?.user?.name ?? undefined} />
           <main className="flex-1 overflow-x-auto">
+            <TopBar />
             <div className="mx-auto max-w-6xl px-8 py-6">{children}</div>
           </main>
         </div>
