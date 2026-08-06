@@ -6,7 +6,7 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionWithSecrets } from '@/lib/integrations'
 import { HarvestCredsForm } from '@/components/HarvestCredsForm'
-import { createBackupSnapshotAction } from '@/app/settings/migrate/actions'
+import { BackupRunner } from '@/components/BackupRunner'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -29,8 +29,15 @@ export default async function MigratePage() {
   const encOk = isEncryptionConfigured()
   const lastPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
   const hasCompleteBackup = snapshots.some((s) => s.status === 'complete')
-  const running = snapshots.find((s) => s.status === 'running') ?? null
-  const runningRemaining = running ? Number((running.meta as { remaining?: number } | null)?.remaining ?? 0) : 0
+  const runningSnap = snapshots.find((s) => s.status === 'running') ?? null
+  const running = runningSnap
+    ? {
+        id: runningSnap.id,
+        done: runningSnap.parts.length,
+        total: Number((runningSnap.meta as { total?: number } | null)?.total ?? 0),
+        rows: Object.values((runningSnap.entityCounts as Record<string, number> | null) ?? {}).reduce((a, b) => a + b, 0),
+      }
+    : null
 
   return (
     <div>
@@ -58,58 +65,12 @@ export default async function MigratePage() {
 
       {/* Step 2 — backup */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">2 · Backup (before ETL)</h2>
-      <div className="mb-4 rounded-lg border border-gray-200 bg-white p-5">
-        <p className="mb-3 text-sm text-gray-600">
-          Pulls every Harvest record (clients, contacts, projects, tasks, people, time, expenses, invoices, estimates)
-          and stores an immutable JSON snapshot you can download and keep. Run this first — it does not change anything.
-          It works in <strong>resumable batches</strong>: for large multi-year accounts a single run may not finish, so
-          press <strong>Continue</strong> until it reports <em>complete</em>. Already-captured data is never re-pulled.
-        </p>
-
-        {running ? (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <span className="text-sm text-amber-800">
-              Backup in progress{runningRemaining > 0 ? ` — ${runningRemaining} chunk${runningRemaining === 1 ? '' : 's'} left` : ''}.
-              Press Continue to pull the next batch (repeat until it reports complete).
-            </span>
-            <form action={createBackupSnapshotAction}>
-              <input type="hidden" name="snapshotId" value={running.id} />
-              <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
-                Continue backup
-              </button>
-            </form>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <form action={createBackupSnapshotAction}>
-              <input type="hidden" name="mode" value="full" />
-              <button
-                disabled={!connected}
-                className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Full backup
-              </button>
-            </form>
-            <form action={createBackupSnapshotAction}>
-              <input type="hidden" name="mode" value="incremental" />
-              <button
-                disabled={!connected || !hasCompleteBackup}
-                title={!hasCompleteBackup ? 'Run a full backup first' : ''}
-                className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Incremental (delta since last)
-              </button>
-            </form>
-            {!connected ? (
-              <span className="text-xs text-gray-400">Connect Harvest first.</span>
-            ) : lastPulledAt ? (
-              <span className="text-xs text-gray-400">Last clean pull: {new Date(lastPulledAt).toLocaleString()}</span>
-            ) : (
-              <span className="text-xs text-gray-400">No clean pull yet — start with a full backup.</span>
-            )}
-          </div>
-        )}
+      <div className="mb-1">
+        <BackupRunner connected={connected} hasCompleteBackup={hasCompleteBackup} running={running} />
       </div>
+      <p className="mb-4 text-xs text-gray-400">
+        {lastPulledAt ? `Last clean pull: ${new Date(lastPulledAt).toLocaleString()}` : 'No clean pull yet — start with a full backup.'}
+      </p>
 
       <div className="mb-8 overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">

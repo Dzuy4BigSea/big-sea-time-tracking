@@ -93,30 +93,55 @@ function backupWorkList(mode: string, updatedSince?: string): WorkItem[] {
 
 const workKey = (w: { resource: string; chunk: string | null }) => `${w.resource}|${w.chunk ?? ''}`
 
+export type BackupProgress = {
+  ok: boolean
+  message?: string
+  snapshotId?: string
+  mode?: string
+  status?: 'running' | 'complete' | 'partial' | 'error'
+  /** work items captured so far (parts written) */
+  done?: number
+  /** total work items in this backup's plan */
+  total?: number
+  /** work items still to capture */
+  remaining?: number
+  /** rows captured per resource so far */
+  counts?: Record<string, number>
+  /** total rows captured so far */
+  rows?: number
+  /** work keys that hit an error (captured empty so the run can finish) */
+  errorKeys?: string[]
+}
+
 /**
- * Resumable raw backup (BEFORE any ETL). Each invocation processes a time-bounded batch of the
- * work list, skipping items already captured for this snapshot, then either finishes (status
- * "complete") or leaves it "running" for the next "Continue" press. This is how a multi-year
- * dataset that can't be pulled in a single serverless request gets captured safely and idempotently.
- * `mode=incremental` pulls only records changed since the last clean pull (delta).
+ * Process ONE resumable batch of a raw backup (BEFORE any ETL) and return structured progress.
+ * Each call pulls a time-bounded slice of the work list, skips items already captured for this
+ * snapshot, and reports how far along the whole plan is. A multi-year dataset that can't be pulled
+ * in one serverless request is captured safely by calling this repeatedly (the client runner drives
+ * it automatically; the plain form action below is the no-JS fallback). `mode=incremental` pulls
+ * only records changed since the last clean pull (delta).
  */
-export async function createBackupSnapshotAction(formData: FormData): Promise<void> {
-  const actor = await requireMigrateAdmin()
-  if (!actor) return
+async function executeBackupBatch(
+  actor: { accountId: string; userId: string },
+  opts: { resumeId?: string; mode?: string },
+): Promise<BackupProgress> {
   const conn = await getConnectionWithSecrets(actor.accountId, 'harvest')
   const token = conn?.secrets.accessToken
   const harvestAccountId = String(conn?.config.harvestAccountId ?? '')
-  if (!conn || conn.status !== 'connected' || !token || !harvestAccountId) return
-
-  const resumeId = String(formData.get('snapshotId') ?? '')
+  if (!conn || conn.status !== 'connected' || !token || !harvestAccountId) {
+    return { ok: false, message: 'Connect a verified Harvest account first.' }
+  }
 
   // Resume an existing running snapshot, or start a new one.
-  let snapshot = resumeId
-    ? await prisma.migrationSnapshot.findFirst({ where: { id: resumeId, accountId: actor.accountId, status: 'running' } })
+  let snapshot = opts.resumeId
+    ? await prisma.migrationSnapshot.findFirst({ where: { id: opts.resumeId, accountId: actor.accountId, status: 'running' } })
     : null
   if (!snapshot) {
-    const mode = String(formData.get('mode') ?? 'full') === 'incremental' ? 'incremental' : 'full'
+    const mode = opts.mode === 'incremental' ? 'incremental' : 'full'
     const updatedSince = mode === 'incremental' ? ((conn.config.lastPulledAt as string | undefined) ?? undefined) : undefined
+    if (mode === 'incremental' && !updatedSince) {
+      return { ok: false, message: 'No previous clean pull to delta from — run a full backup first.' }
+    }
     snapshot = await prisma.migrationSnapshot.create({
       data: {
         accountId: actor.accountId,
@@ -144,7 +169,7 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
 
   for (const item of work) {
     if (done.has(workKey(item))) continue
-    if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) break // time budget — resume next press
+    if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) break // time budget — resume next call
     try {
       const rows = await pullAll(token, harvestAccountId, item.resource, {
         updatedSince: item.updatedSince,
@@ -166,6 +191,7 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
         },
       })
       done.add(workKey(item))
+      delete errors[workKey(item)] // a previously-failed item that now succeeded
     } catch (e) {
       errors[workKey(item)] = (e as Error).message?.slice(0, 200) ?? 'pull failed'
       done.add(workKey(item)) // don't get stuck retrying the same failing item forever
@@ -176,7 +202,7 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
   const remaining = work.filter((w) => !done.has(workKey(w))).length
   const errorKeys = Object.keys(errors)
   const finished = remaining === 0
-  const status = !finished ? 'running' : errorKeys.length ? 'partial' : 'complete'
+  const status: 'running' | 'complete' | 'partial' = !finished ? 'running' : errorKeys.length ? 'partial' : 'complete'
 
   // Recompute counts from the parts actually stored.
   const grouped = await prisma.migrationSnapshotPart.groupBy({
@@ -186,13 +212,14 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
   })
   const counts: Record<string, number> = {}
   for (const g of grouped) counts[g.resource] = g._sum.rowCount ?? 0
+  const rows = Object.values(counts).reduce((a, b) => a + b, 0)
 
   await prisma.migrationSnapshot.update({
     where: { id: snapshot.id },
     data: {
       status,
       entityCounts: counts as Prisma.InputJsonValue,
-      meta: { ...meta, errors, remaining } as Prisma.InputJsonValue,
+      meta: { ...meta, errors, remaining, total: work.length } as Prisma.InputJsonValue,
       errorMessage: errorKeys.length ? `Issues: ${errorKeys.join(', ')}` : null,
     },
   })
@@ -204,4 +231,33 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
     })
   }
   revalidatePath('/settings/migrate')
+  return {
+    ok: true,
+    snapshotId: snapshot.id,
+    mode: snapshot.mode,
+    status,
+    done: work.length - remaining,
+    total: work.length,
+    remaining,
+    counts,
+    rows,
+    errorKeys,
+  }
+}
+
+/** Plain form action — no-JS fallback that runs a single batch (one "Continue" press). */
+export async function createBackupSnapshotAction(formData: FormData): Promise<void> {
+  const actor = await requireMigrateAdmin()
+  if (!actor) return
+  await executeBackupBatch(actor, {
+    resumeId: String(formData.get('snapshotId') ?? '') || undefined,
+    mode: String(formData.get('mode') ?? 'full'),
+  })
+}
+
+/** Client-driven batch: runs one batch and returns progress so the runner can auto-continue. */
+export async function backupBatchAction(input: { snapshotId?: string; mode?: string }): Promise<BackupProgress> {
+  const actor = await requireMigrateAdmin()
+  if (!actor) return { ok: false, message: 'You do not have permission to run a migration.' }
+  return executeBackupBatch(actor, { resumeId: input.snapshotId, mode: input.mode })
 }
