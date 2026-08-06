@@ -155,3 +155,55 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
   revalidatePath(`/projects/${id}`)
   return { ok: true }
 }
+
+// ── Project team assignments (assign people so they can track time) ──────────
+
+async function requireProjectManager(projectId: string) {
+  const actor = await requireUser()
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'manage_projects')) return null
+  const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
+  return project ? actor : null
+}
+
+export async function assignUserToProjectAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  const isProjectManager = formData.get('isProjectManager') === 'on'
+  const actor = await requireProjectManager(projectId)
+  if (!actor || !userId) return
+  // The person must belong to the same account (tenant guard).
+  const user = await prisma.user.findFirst({ where: { id: userId, accountId: actor.accountId }, select: { id: true } })
+  if (!user) return
+  await prisma.projectUserAssignment.upsert({
+    where: { projectId_userId: { projectId, userId } },
+    update: { isActive: true, isProjectManager },
+    create: { accountId: actor.accountId, projectId, userId, isProjectManager, isActive: true },
+  })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function toggleProjectManagerAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  const a = await prisma.projectUserAssignment.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { isProjectManager: true } })
+  if (!a) return
+  await prisma.projectUserAssignment.update({ where: { projectId_userId: { projectId, userId } }, data: { isProjectManager: !a.isProjectManager } })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function unassignUserFromProjectAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  // Remove the assignment; if the person has tracked time, deactivate instead of hard-delete.
+  const hasTime = await prisma.timeEntry.findFirst({ where: { projectId, userId }, select: { id: true } })
+  if (hasTime) {
+    await prisma.projectUserAssignment.updateMany({ where: { projectId, userId }, data: { isActive: false } })
+  } else {
+    await prisma.projectUserAssignment.deleteMany({ where: { projectId, userId } })
+  }
+  revalidatePath(`/projects/${projectId}`)
+}

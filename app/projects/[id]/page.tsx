@@ -5,6 +5,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { formatMinutes } from '@/modules/shared/duration'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { assignUserToProjectAction, toggleProjectManagerAction, unassignUserFromProjectAction } from '@/app/projects/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +22,11 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
     where: { id: params.id, accountId },
     include: {
       client: true,
-      userAssignments: { include: { user: { select: { firstName: true, lastName: true } } } },
+      userAssignments: {
+        where: { isActive: true },
+        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+        orderBy: { user: { firstName: 'asc' } },
+      },
       timeEntries: {
         include: { user: { select: { firstName: true, lastName: true } }, task: { select: { name: true } } },
         orderBy: { spentDate: 'desc' },
@@ -29,6 +34,18 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
     },
   })
   if (!project) notFound()
+
+  // People available to add (active account members not already assigned).
+  const assignedIds = new Set(project.userAssignments.map((a) => a.userId))
+  const addableUsers = canManage
+    ? (
+        await prisma.user.findMany({
+          where: { accountId, isActive: true, archivedAt: null },
+          select: { id: true, firstName: true, lastName: true },
+          orderBy: [{ firstName: 'asc' }],
+        })
+      ).filter((u) => !assignedIds.has(u.id))
+    : []
 
   const spentMin = project.timeEntries.reduce((s, e) => s + e.minutes, 0)
   const billableCents = project.timeEntries.reduce(
@@ -75,9 +92,11 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         <Stat label="Uninvoiced" value={formatCents(uninvoicedCents)} accent="text-brand-green" />
       </div>
 
-      {project.userAssignments.length > 0 && (
-        <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-gray-700">Team</h2>
+      <div className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold text-gray-700">Team</h2>
+        <p className="mb-2 text-xs text-gray-400">Only assigned people can track time to this project.</p>
+
+        {!canManage && (
           <div className="flex flex-wrap gap-2">
             {project.userAssignments.map((a) => (
               <span key={a.id} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
@@ -85,9 +104,58 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                 {a.isProjectManager && <span className="ml-1 text-xs text-brand-orange">PM</span>}
               </span>
             ))}
+            {project.userAssignments.length === 0 && <span className="text-sm text-gray-400">No one assigned yet.</span>}
           </div>
-        </div>
-      )}
+        )}
+
+        {canManage && (
+          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <ul className="divide-y divide-gray-100 text-sm">
+              {project.userAssignments.map((a) => (
+                <li key={a.id} className="flex items-center gap-3 px-4 py-2">
+                  <span className="flex-1 font-medium text-gray-800">
+                    {a.user.firstName} {a.user.lastName}
+                    {a.isProjectManager && <span className="ml-2 rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-brand-orange">PM</span>}
+                  </span>
+                  <form action={toggleProjectManagerAction}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input type="hidden" name="userId" value={a.user.id} />
+                    <button className="text-xs text-gray-500 hover:text-brand-orange">
+                      {a.isProjectManager ? 'Remove PM' : 'Make PM'}
+                    </button>
+                  </form>
+                  <form action={unassignUserFromProjectAction}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input type="hidden" name="userId" value={a.user.id} />
+                    <button className="text-xs text-gray-400 hover:text-red-600">Remove</button>
+                  </form>
+                </li>
+              ))}
+              {project.userAssignments.length === 0 && (
+                <li className="px-4 py-3 text-gray-400">No one assigned yet.</li>
+              )}
+            </ul>
+            {addableUsers.length > 0 && (
+              <form action={assignUserToProjectAction} className="flex flex-wrap items-center gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3">
+                <input type="hidden" name="projectId" value={project.id} />
+                <select name="userId" className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                  {addableUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.firstName} {u.lastName}
+                    </option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                  <input type="checkbox" name="isProjectManager" /> Project manager
+                </label>
+                <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+                  Add to project
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
 
       <h2 className="mb-2 text-sm font-semibold text-gray-700">Recent time</h2>
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
