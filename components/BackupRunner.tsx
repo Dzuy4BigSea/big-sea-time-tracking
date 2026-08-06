@@ -75,6 +75,12 @@ export function BackupRunner({ connected, hasCompleteBackup, running }: Props) {
         It works in <strong>resumable batches</strong> and continues automatically until every year is captured;
         already-captured data is never re-pulled, so it is safe to pause and resume.
       </p>
+      <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+        <strong>Very large accounts (many years, tens of thousands of time entries):</strong> a single
+        year can exceed the server request limit here and stall. If the bar stops advancing, run the
+        one-time offline backup instead (<code>scripts/backup-harvest-offline.mjs</code>, see
+        MIGRATION-RUNBOOK.md) — then use <em>Incremental</em> for the quick delta pulls, which always work here.
+      </p>
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
