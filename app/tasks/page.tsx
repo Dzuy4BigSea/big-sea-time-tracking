@@ -79,7 +79,7 @@ function Section({
                 </td>
                 {canManage && (
                   <td className="px-4 py-3 text-right">
-                    <Link href={`/tasks/${t.id}/edit`} className="text-gray-500 hover:text-brand-orange">
+                    <Link href={`/tasks/${t.id}/edit`} className="text-gray-500 hover:text-brand-teal">
                       Edit
                     </Link>
                   </td>

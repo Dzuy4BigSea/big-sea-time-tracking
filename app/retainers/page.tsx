@@ -105,7 +105,7 @@ export default async function RetainersPage() {
                       <form action={applyDrawdownAction} className="flex items-center gap-1">
                         <input type="hidden" name="id" value={r.id} />
                         <input name="amount" placeholder="draw" className={amt} />
-                        <button className="rounded border border-brand-orange px-2 py-1 text-xs text-brand-orange hover:bg-orange-50">− Apply</button>
+                        <button className="rounded border border-brand-teal px-2 py-1 text-xs text-brand-teal hover:bg-brand-teal-50">− Apply</button>
                       </form>
                       <form action={archiveRetainerAction}>
                         <input type="hidden" name="id" value={r.id} />
@@ -147,7 +147,7 @@ export default async function RetainersPage() {
                     <td className="px-4 py-3 text-right">
                       <form action={archiveRetainerAction}>
                         <input type="hidden" name="id" value={r.id} />
-                        <button className="text-xs text-gray-400 hover:text-brand-orange">Restore</button>
+                        <button className="text-xs text-gray-400 hover:text-brand-teal">Restore</button>
                       </form>
                     </td>
                   </tr>

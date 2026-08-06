@@ -86,7 +86,7 @@ export function EntryRow({ entry }: { entry: EntryRowData }) {
       </span>
       {!entry.isBillable && <span className="shrink-0 text-xs text-gray-400">non-billable</span>}
       <span className="w-14 shrink-0 text-right tabular-nums">
-        {entry.isRunning ? <span className="text-brand-orange">▶ running</span> : entry.minutesLabel}
+        {entry.isRunning ? <span className="text-brand-teal">▶ running</span> : entry.minutesLabel}
       </span>
       {editable ? (
         <>

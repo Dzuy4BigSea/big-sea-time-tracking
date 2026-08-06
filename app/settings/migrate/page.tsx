@@ -35,7 +35,7 @@ export default async function MigratePage() {
   return (
     <div>
       <div className="mb-1 flex items-baseline gap-3">
-        <Link href="/settings" className="text-sm text-gray-500 hover:text-brand-orange">Settings</Link>
+        <Link href="/settings" className="text-sm text-gray-500 hover:text-brand-teal">Settings</Link>
         <span className="text-gray-300">/</span>
         <h1 className="text-2xl font-semibold">Migrate from Harvest</h1>
       </div>
@@ -151,14 +151,14 @@ export default async function MigratePage() {
                           Download ({s.parts.length})
                         </summary>
                         <div className="mt-2 space-y-1">
-                          <a href={`/settings/migrate/snapshot/${s.id}`} className="block text-xs text-gray-600 hover:text-brand-orange">
+                          <a href={`/settings/migrate/snapshot/${s.id}`} className="block text-xs text-gray-600 hover:text-brand-teal">
                             ⤓ Manifest (checksums)
                           </a>
                           {s.parts.map((p) => (
                             <a
                               key={p.id}
                               href={`/settings/migrate/snapshot/${s.id}/part/${p.id}`}
-                              className="block text-xs text-gray-600 hover:text-brand-orange"
+                              className="block text-xs text-gray-600 hover:text-brand-teal"
                             >
                               ⤓ {p.resource}
                               {p.chunk ? ` ${p.chunk}` : ''} ({p.rowCount.toLocaleString()})

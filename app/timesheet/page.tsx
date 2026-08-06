@@ -113,9 +113,9 @@ export default async function TimesheetPage({
       </div>
 
       {running && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-brand-orange bg-orange-50 px-4 py-3">
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-brand-teal bg-brand-teal-50 px-4 py-3">
           <div className="text-sm">
-            <span className="font-medium text-brand-orange">▶ Timer running</span>
+            <span className="font-medium text-brand-teal">▶ Timer running</span>
             <span className="ml-2 text-gray-700">
               {running.project.code ? `[${running.project.code}] ` : ''}
               {running.project.name} · {running.task.name}
@@ -126,7 +126,7 @@ export default async function TimesheetPage({
           </div>
           <form action={stopTimerAction}>
             <input type="hidden" name="userId" value={userId} />
-            <button className="rounded bg-brand-orange px-3 py-1 text-sm font-medium text-white hover:opacity-90">
+            <button className="rounded bg-brand-teal px-3 py-1 text-sm font-medium text-white hover:opacity-90">
               ■ Stop
             </button>
           </form>
@@ -224,7 +224,7 @@ export default async function TimesheetPage({
 
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className="rounded border border-gray-200 bg-white px-3 py-1 text-gray-600 hover:text-brand-orange">
+    <Link href={href} className="rounded border border-gray-200 bg-white px-3 py-1 text-gray-600 hover:text-brand-teal">
       {children}
     </Link>
   )

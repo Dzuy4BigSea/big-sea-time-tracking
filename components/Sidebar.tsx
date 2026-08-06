@@ -56,7 +56,7 @@ export function Sidebar({
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-4">
       <div className="mb-6 flex items-center gap-2 px-2">
-        <span className="inline-block h-5 w-5 rounded bg-brand-orange" />
+        <span className="inline-block h-5 w-5 rounded bg-brand-teal" />
         <span className="text-lg font-semibold tracking-tight">Track2</span>
       </div>
       <nav className="flex-1 space-y-5">
@@ -75,7 +75,7 @@ export function Sidebar({
                     <Link
                       href={item.href}
                       className={`block rounded px-2 py-1.5 text-sm ${
-                        active ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-700 hover:bg-gray-50'
+                        active ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-700 hover:bg-gray-50'
                       } ${item.ready ? '' : 'text-gray-400'}`}
                     >
                       {item.label}
@@ -93,7 +93,7 @@ export function Sidebar({
           <Link
             href="/settings/integrations"
             className={`block rounded px-2 py-1.5 text-sm ${
-              pathname.startsWith('/settings/integrations') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+              pathname.startsWith('/settings/integrations') ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             ⧉ Integrations
@@ -101,7 +101,7 @@ export function Sidebar({
           <Link
             href="/settings/migrate"
             className={`block rounded px-2 py-1.5 text-sm ${
-              pathname.startsWith('/settings/migrate') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+              pathname.startsWith('/settings/migrate') ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             ⬇ Migrate
@@ -109,7 +109,7 @@ export function Sidebar({
           <Link
             href="/settings"
             className={`block rounded px-2 py-1.5 text-sm ${
-              pathname === '/settings' ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+              pathname === '/settings' ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             ⚙ Settings
@@ -122,7 +122,7 @@ export function Sidebar({
           <div className="px-2 text-sm font-medium text-gray-800">{userName}</div>
           <button
             onClick={() => signOut({ callbackUrl: '/login' })}
-            className="mt-1 px-2 text-xs text-gray-400 hover:text-brand-orange"
+            className="mt-1 px-2 text-xs text-gray-400 hover:text-brand-teal"
           >
             Sign out
           </button>

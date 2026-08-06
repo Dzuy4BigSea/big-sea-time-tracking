@@ -21,7 +21,7 @@ export default async function EditTaskPage({ params }: { params: { id: string } 
 
   return (
     <div>
-      <Link href="/tasks" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/tasks" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Tasks
       </Link>
       <h1 className="mb-4 mt-2 text-2xl font-semibold">Edit task</h1>

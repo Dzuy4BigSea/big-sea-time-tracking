@@ -86,7 +86,7 @@ export default async function TeamPage() {
                   <td className="px-4 py-3 text-right tabular-nums">{billableCents > 0 ? formatCents(billableCents) : '—'}</td>
                   {canManage && (
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/team/${u.id}/edit`} className="text-xs text-gray-500 hover:text-brand-orange">
+                      <Link href={`/team/${u.id}/edit`} className="text-xs text-gray-500 hover:text-brand-teal">
                         Edit
                       </Link>
                     </td>

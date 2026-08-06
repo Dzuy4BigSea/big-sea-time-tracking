@@ -78,7 +78,7 @@ export default async function RecurringPage() {
                   <div className="flex items-center gap-3">
                     <form action={toggleRecurringStatusAction}>
                       <input type="hidden" name="id" value={p.id} />
-                      <button className="text-xs text-gray-500 hover:text-brand-orange">{p.status === 'active' ? 'Pause' : 'Resume'}</button>
+                      <button className="text-xs text-gray-500 hover:text-brand-teal">{p.status === 'active' ? 'Pause' : 'Resume'}</button>
                     </form>
                     <form action={deleteRecurringAction}>
                       <input type="hidden" name="id" value={p.id} />

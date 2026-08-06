@@ -53,12 +53,12 @@ export default async function EstimatesPage() {
             {estimates.map((e) => (
               <tr key={e.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                 <td className="px-4 py-3">
-                  <Link href={`/estimates/${e.id}`} className="text-gray-700 hover:text-brand-orange">
+                  <Link href={`/estimates/${e.id}`} className="text-gray-700 hover:text-brand-teal">
                     {e.number ? `#${e.number}` : <span className="text-gray-400">Draft</span>}
                   </Link>
                 </td>
                 <td className="px-4 py-3 font-medium text-gray-900">
-                  <Link href={`/estimates/${e.id}`} className="hover:text-brand-orange">
+                  <Link href={`/estimates/${e.id}`} className="hover:text-brand-teal">
                     {e.client.name}
                   </Link>
                 </td>

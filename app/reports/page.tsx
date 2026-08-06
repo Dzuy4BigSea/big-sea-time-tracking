@@ -154,7 +154,7 @@ export default async function ReportsPage({
             <Link
               key={p}
               href={withParams({ period: p, anchor: p === 'all' ? null : undefined })}
-              className={`rounded px-3 py-1 ${period === p ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`rounded px-3 py-1 ${period === p ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               {p === 'week' ? 'This week' : p === 'month' ? 'This month' : 'All time'}
             </Link>
@@ -162,9 +162,9 @@ export default async function ReportsPage({
         </div>
         {period !== 'all' && (
           <div className="flex items-center gap-2 text-sm">
-            <Link href={withParams({ anchor: prevAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-orange">←</Link>
+            <Link href={withParams({ anchor: prevAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-teal">←</Link>
             <span className="rounded border border-gray-200 bg-white px-3 py-1">{rangeLabel}</span>
-            <Link href={withParams({ anchor: nextAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-orange">→</Link>
+            <Link href={withParams({ anchor: nextAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-teal">→</Link>
           </div>
         )}
       </div>
@@ -183,7 +183,7 @@ export default async function ReportsPage({
           <Link
             key={g.key}
             href={withParams({ group: g.key })}
-            className={`rounded-full px-3 py-1 ${g.key === group ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-500 hover:bg-gray-50'}`}
+            className={`rounded-full px-3 py-1 ${g.key === group ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-500 hover:bg-gray-50'}`}
           >
             {g.label}
           </Link>
@@ -206,7 +206,7 @@ export default async function ReportsPage({
               <tr key={r.key} className="border-b border-gray-100 last:border-0">
                 <td className="px-4 py-3 font-medium text-gray-900">
                   {r.href ? (
-                    <Link href={r.href} className="hover:text-brand-orange">
+                    <Link href={r.href} className="hover:text-brand-teal">
                       {r.label}
                     </Link>
                   ) : (

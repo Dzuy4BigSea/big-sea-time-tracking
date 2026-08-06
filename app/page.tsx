@@ -114,7 +114,7 @@ export default async function HomePage() {
         <Card title="Recurring & retainers">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
             <Stat label="Active recurring" value={String(recurring.length)} />
-            <Stat label="Due to generate" value={String(recurringDue)} accent={recurringDue > 0 ? 'text-brand-orange' : undefined} />
+            <Stat label="Due to generate" value={String(recurringDue)} accent={recurringDue > 0 ? 'text-brand-teal' : undefined} />
             <Stat label="Ongoing retainers" value={String(retainers.length)} />
             <Stat label="Retainer balance" value={formatCents(retainerBalance)} accent="text-brand-green" />
           </dl>
@@ -151,7 +151,7 @@ export default async function HomePage() {
                 <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="text-xs text-gray-400">{p.client.name}</div>
-                    <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+                    <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                       {p.code ? `[${p.code}] ` : ''}
                       {p.name}
                     </Link>

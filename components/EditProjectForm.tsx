@@ -136,7 +136,7 @@ export function EditProjectForm({ project }: { project: EditableProject }) {
 
       <div className="flex items-center gap-3">
         <Submit />
-        <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-orange">
+        <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-teal">
           Back to project
         </Link>
         {state.error && <span className="text-sm text-red-600">{state.error}</span>}

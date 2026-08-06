@@ -63,7 +63,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
 
   return (
     <div>
-      <Link href="/clients" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/clients" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Clients
       </Link>
 
@@ -83,7 +83,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat label="Projects" value={String(client.projects.length)} />
         <Stat label="Uninvoiced" value={formatCents(uninvoicedTotal, client.currency)} accent="text-brand-green" />
-        <Stat label="Outstanding A/R" value={formatCents(outstandingCents, client.currency)} accent="text-brand-orange" />
+        <Stat label="Outstanding A/R" value={formatCents(outstandingCents, client.currency)} accent="text-brand-teal" />
       </div>
 
       {client.address && (
@@ -102,7 +102,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 {ct.title && <span className="text-xs text-gray-400">{ct.title}</span>}
                 {ct.email && <span className="text-gray-500">{ct.email}</span>}
                 {ct.isInvoiceRecipient && (
-                  <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-orange">invoices</span>
+                  <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">invoices</span>
                 )}
               </li>
             ))}
@@ -124,7 +124,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             {projectRows.map((p) => (
               <tr key={p.id} className="border-b border-gray-100 last:border-0">
                 <td className="px-4 py-3">
-                  <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+                  <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                     {p.code ? `[${p.code}] ` : ''}
                     {p.name}
                   </Link>
@@ -164,7 +164,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             {client.invoices.map((i) => (
               <tr key={i.id} className="border-b border-gray-100 last:border-0">
                 <td className="px-4 py-3">
-                  <Link href={`/invoices/${i.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+                  <Link href={`/invoices/${i.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                     {i.number ? `#${i.number}` : 'Draft'}
                   </Link>
                   {i.subject && <div className="text-xs text-gray-400">{i.subject}</div>}

@@ -125,12 +125,12 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
                   <td className={`px-4 py-3 text-sm ${due.overdue ? 'font-medium text-red-600' : 'text-gray-500'}`}>{due.text}</td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(inv.issueDate)}</td>
                   <td className="px-4 py-3">
-                    <Link href={`/invoices/${inv.id}`} className="text-gray-700 hover:text-brand-orange">
+                    <Link href={`/invoices/${inv.id}`} className="text-gray-700 hover:text-brand-teal">
                       {inv.number ?? <span className="text-gray-400">Draft</span>}
                     </Link>
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/invoices/${inv.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+                    <Link href={`/invoices/${inv.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                       {inv.client.name}
                     </Link>
                     {inv.subject && <div className="text-xs text-gray-500">{inv.subject}</div>}

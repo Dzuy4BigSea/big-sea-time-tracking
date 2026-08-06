@@ -1,14 +1,53 @@
+/* Track2 — Big Sea brand skin. */
+
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;900&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   --bg: #ffffff;
-  --fg: #1a1a1a;
+  --fg: #0d2022; /* Big Sea ink */
+  --page-bg: #f7f8f8;
+
+  --brand-primary: #004348;
+  --brand-primary-hover: #00343a;
+  --brand-primary-tint: #e8f2f2;
+  --brand-ring: rgba(0, 67, 72, 0.18);
+
+  --brand-action: #047a44;
+  --brand-action-hover: #036538;
+
+  /* per-account overridable at runtime (Settings → Invoice appearance) */
+  --invoice-brand: #004348;
 }
 
+html,
 body {
-  color: var(--fg);
   background: var(--bg);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Poppins ships proportional figures; force tabular where numbers line up in columns. */
+.tabular-nums,
+table td,
+table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Poppins runs slightly wide; nudge tracking on dense caps text rather than shrinking. */
+.text-xs {
+  letter-spacing: 0.005em;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+::selection {
+  background: var(--brand-primary-tint);
 }

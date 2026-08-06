@@ -27,7 +27,7 @@ export default async function IntegrationsSettingsPage() {
   return (
     <div>
       <div className="mb-1 flex items-baseline gap-3">
-        <Link href="/settings" className="text-sm text-gray-500 hover:text-brand-orange">
+        <Link href="/settings" className="text-sm text-gray-500 hover:text-brand-teal">
           Settings
         </Link>
         <span className="text-gray-300">/</span>

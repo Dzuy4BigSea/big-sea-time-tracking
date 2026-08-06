@@ -112,7 +112,7 @@ function ClientGroup({
     <>
       <tr className="bg-gray-50">
         <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-          <Link href={`/clients/${clientId}`} className="hover:text-brand-orange">
+          <Link href={`/clients/${clientId}`} className="hover:text-brand-teal">
             {clientName}
           </Link>
         </td>
@@ -127,7 +127,7 @@ function ClientGroup({
         return (
           <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
             <td className="px-4 py-3">
-              <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-orange">
+              <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                 {p.code && <span className="text-gray-400">[{p.code}] </span>}
                 {p.name}
               </Link>

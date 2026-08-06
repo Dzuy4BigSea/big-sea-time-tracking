@@ -32,7 +32,7 @@ export default function LoginPage() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-2">
-          <span className="inline-block h-6 w-6 rounded bg-brand-orange" />
+          <span className="inline-block h-6 w-6 rounded bg-brand-teal" />
           <span className="text-xl font-semibold tracking-tight">Track2</span>
         </div>
         <h1 className="mb-1 text-lg font-semibold">Sign in</h1>

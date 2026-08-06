@@ -97,7 +97,7 @@ export function EditPersonForm({ person }: { person: EditablePerson }) {
 
       <div className="flex items-center gap-3">
         <Submit />
-        <Link href="/team" className="text-sm text-gray-500 hover:text-brand-orange">
+        <Link href="/team" className="text-sm text-gray-500 hover:text-brand-teal">
           Back to team
         </Link>
         {state.error && <span className="text-sm text-red-600">{state.error}</span>}

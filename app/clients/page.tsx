@@ -32,7 +32,7 @@ export default async function ClientsPage() {
           <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex items-baseline justify-between">
               <h2 className="font-semibold text-gray-900">
-                <Link href={`/clients/${c.id}`} className="hover:text-brand-orange">
+                <Link href={`/clients/${c.id}`} className="hover:text-brand-teal">
                   {c.name}
                 </Link>
               </h2>
@@ -41,7 +41,7 @@ export default async function ClientsPage() {
                   {c.currency} · {c._count.projects} project{c._count.projects === 1 ? '' : 's'}
                 </span>
                 {canManage && (
-                  <Link href={`/clients/${c.id}/edit`} className="text-gray-500 hover:text-brand-orange">
+                  <Link href={`/clients/${c.id}/edit`} className="text-gray-500 hover:text-brand-teal">
                     Edit
                   </Link>
                 )}
@@ -59,7 +59,7 @@ export default async function ClientsPage() {
                     {ct.title && <span className="text-xs text-gray-400">{ct.title}</span>}
                     {ct.email && <span className="text-gray-500">{ct.email}</span>}
                     {ct.isInvoiceRecipient && (
-                      <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-orange">
+                      <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">
                         invoices
                       </span>
                     )}

@@ -15,7 +15,7 @@ export function ReportsTabs({ active }: { active: string }) {
           href={t.href}
           className={`-mb-px border-b-2 px-3 py-2 text-sm ${
             t.label === active
-              ? 'border-brand-orange font-medium text-brand-orange'
+              ? 'border-brand-teal font-medium text-brand-teal'
               : 'border-transparent text-gray-500 hover:text-gray-800'
           }`}
         >

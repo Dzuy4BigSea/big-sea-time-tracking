@@ -34,7 +34,7 @@ export default async function EstimateDetailPage({ params }: { params: { id: str
 
   return (
     <div>
-      <Link href="/estimates" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/estimates" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Estimates
       </Link>
 

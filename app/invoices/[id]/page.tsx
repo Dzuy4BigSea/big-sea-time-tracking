@@ -47,7 +47,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
 
   return (
     <div>
-      <Link href="/invoices" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/invoices" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Invoices
       </Link>
 

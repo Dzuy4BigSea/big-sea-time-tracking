@@ -21,7 +21,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
 
   return (
     <div>
-      <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to project
       </Link>
       <h1 className="mb-4 mt-2 text-2xl font-semibold">Edit project</h1>

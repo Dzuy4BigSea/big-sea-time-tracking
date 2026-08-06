@@ -21,7 +21,7 @@ export default async function EditClientPage({ params }: { params: { id: string 
 
   return (
     <div>
-      <Link href="/clients" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/clients" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Clients
       </Link>
       <h1 className="mb-4 mt-2 text-2xl font-semibold">Edit client</h1>

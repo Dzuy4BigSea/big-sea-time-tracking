@@ -48,7 +48,7 @@ export function CategoryManager({ categories }: { categories: CategoryRow[] }) {
               </span>
               <form action={toggleCategoryAction}>
                 <input type="hidden" name="id" value={c.id} />
-                <button className="text-xs text-gray-400 hover:text-brand-orange">
+                <button className="text-xs text-gray-400 hover:text-brand-teal">
                   {c.isActive ? 'Archive' : 'Restore'}
                 </button>
               </form>

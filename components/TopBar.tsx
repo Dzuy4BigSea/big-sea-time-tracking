@@ -101,15 +101,15 @@ function RunningPill({ running }: { running: TopBarRunning }) {
   const clock = `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 
   return (
-    <div className="flex items-center gap-2 rounded-full bg-orange-50 py-1 pl-3 pr-1 text-sm">
+    <div className="flex items-center gap-2 rounded-full bg-brand-teal-50 py-1 pl-3 pr-1 text-sm">
       <span className="hidden max-w-[220px] truncate text-gray-600 sm:inline" title={`${running.projectLabel} · ${running.taskName}`}>
         {running.projectLabel} · {running.taskName}
       </span>
-      <span className="font-mono font-semibold tabular-nums text-brand-orange">{clock}</span>
+      <span className="font-mono font-semibold tabular-nums text-brand-teal">{clock}</span>
       <form action={stopTimerAction}>
         <button
           title="Stop timer"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-orange text-white hover:opacity-90"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-teal text-white hover:opacity-90"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
         </button>
@@ -162,7 +162,7 @@ export function TopBar({
           <div className="relative">
             <button
               onClick={() => toggle('timer')}
-              className="flex items-center gap-1.5 rounded-full bg-brand-orange px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+              className="flex items-center gap-1.5 rounded-full bg-brand-teal px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
               aria-haspopup="dialog"
               aria-expanded={panel === 'timer'}
             >

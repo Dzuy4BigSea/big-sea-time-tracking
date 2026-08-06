@@ -62,7 +62,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
 
   return (
     <div>
-      <Link href="/projects" className="text-sm text-gray-500 hover:text-brand-orange">
+      <Link href="/projects" className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to Projects
       </Link>
 
@@ -101,7 +101,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             {project.userAssignments.map((a) => (
               <span key={a.id} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
                 {a.user.firstName} {a.user.lastName}
-                {a.isProjectManager && <span className="ml-1 text-xs text-brand-orange">PM</span>}
+                {a.isProjectManager && <span className="ml-1 text-xs text-brand-teal">PM</span>}
               </span>
             ))}
             {project.userAssignments.length === 0 && <span className="text-sm text-gray-400">No one assigned yet.</span>}
@@ -115,12 +115,12 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                 <li key={a.id} className="flex items-center gap-3 px-4 py-2">
                   <span className="flex-1 font-medium text-gray-800">
                     {a.user.firstName} {a.user.lastName}
-                    {a.isProjectManager && <span className="ml-2 rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-brand-orange">PM</span>}
+                    {a.isProjectManager && <span className="ml-2 rounded-full bg-brand-teal-50 px-2 py-0.5 text-xs font-medium text-brand-teal">PM</span>}
                   </span>
                   <form action={toggleProjectManagerAction}>
                     <input type="hidden" name="projectId" value={project.id} />
                     <input type="hidden" name="userId" value={a.user.id} />
-                    <button className="text-xs text-gray-500 hover:text-brand-orange">
+                    <button className="text-xs text-gray-500 hover:text-brand-teal">
                       {a.isProjectManager ? 'Remove PM' : 'Make PM'}
                     </button>
                   </form>
@@ -178,7 +178,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                 </td>
                 <td className="px-4 py-3 text-gray-600">{e.task.name}</td>
                 <td className="px-4 py-3 text-right tabular-nums">
-                  {e.isRunning ? <span className="text-brand-orange">▶</span> : formatMinutes(e.minutes)}
+                  {e.isRunning ? <span className="text-brand-teal">▶</span> : formatMinutes(e.minutes)}
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-400">{e.isBillable ? e.lockState : 'non-billable'}</td>
               </tr>
