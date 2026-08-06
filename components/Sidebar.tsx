@@ -31,6 +31,7 @@ const NAV: Section[] = [
     heading: 'Bill',
     items: [
       { label: 'Invoices', href: '/invoices', ready: true, moduleKey: 'invoices' },
+      { label: 'Estimates', href: '/estimates', ready: true, moduleKey: 'estimates' },
       { label: 'Recurring', href: '/recurring', ready: true, moduleKey: 'invoices' },
       { label: 'Retainers', href: '/retainers', ready: true, moduleKey: 'invoices' },
     ],
