@@ -99,6 +99,14 @@ export function Sidebar({
             ⧉ Integrations
           </Link>
           <Link
+            href="/settings/migrate"
+            className={`block rounded px-2 py-1.5 text-sm ${
+              pathname.startsWith('/settings/migrate') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            ⬇ Migrate
+          </Link>
+          <Link
             href="/settings"
             className={`block rounded px-2 py-1.5 text-sm ${
               pathname === '/settings' ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'

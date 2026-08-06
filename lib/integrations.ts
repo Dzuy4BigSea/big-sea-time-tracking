@@ -39,10 +39,11 @@ export async function getConnectionViews(accountId: string): Promise<Record<stri
 /** Server-only: the connection row + decrypted secrets, for sync flows. Null if not connected. */
 export async function getConnectionWithSecrets(
   accountId: string,
-  provider: ProviderKey,
+  provider: ProviderKey | IntegrationProvider,
 ): Promise<{
   status: string
   externalOrgId: string | null
+  externalOrgName: string | null
   config: Record<string, unknown>
   secrets: Record<string, string>
 } | null> {
@@ -62,6 +63,7 @@ export async function getConnectionWithSecrets(
   return {
     status: r.status,
     externalOrgId: r.externalOrgId,
+    externalOrgName: r.externalOrgName,
     config: (r.config as Record<string, unknown> | null) ?? {},
     secrets,
   }

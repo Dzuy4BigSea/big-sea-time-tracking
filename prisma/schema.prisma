@@ -203,6 +203,7 @@ enum IntegrationProvider {
   asana
   stripe
   xero
+  harvest
 }
 
 enum IntegrationStatus {
@@ -276,6 +277,7 @@ model Account {
   auditLogs                AuditLog[]
   integrationConnections   IntegrationConnection[]
   integrationSyncLogs      IntegrationSyncLog[]
+  migrationSnapshots       MigrationSnapshot[]
 }
 
 // Feature flags (specs/11). 1:1 with Account.
@@ -951,4 +953,20 @@ model IntegrationSyncLog {
 
   @@index([accountId, provider])
   @@index([entityType, entityId])
+}
+
+// Raw source-data backup captured BEFORE any ETL into Track2 (specs/13). Immutable snapshot.
+model MigrationSnapshot {
+  id              String   @id @default(cuid())
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  source          String   @default("harvest")
+  status          String   @default("complete") // "complete" | "error"
+  entityCounts    Json? // { clients: 12, projects: 40, timeEntries: 3120, ... }
+  data            Json // raw payload per entity, exactly as pulled from the source API
+  errorMessage    String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([accountId])
 }
