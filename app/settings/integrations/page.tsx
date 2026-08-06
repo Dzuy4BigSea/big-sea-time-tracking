@@ -7,6 +7,7 @@ import { isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionViews } from '@/lib/integrations'
 import { PROVIDERS } from '@/lib/integration-registry'
 import { IntegrationForm } from '@/components/IntegrationForm'
+import { importAsanaAction } from '@/app/settings/integrations/actions'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -59,6 +60,16 @@ export default async function IntegrationsSettingsPage() {
                 config: v.config,
                 secretsSet: v.secretsSet,
               }}
+              extra={
+                def.key === 'asana' ? (
+                  <form action={importAsanaAction} className="flex items-center gap-3">
+                    <button className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50">
+                      Import projects &amp; people
+                    </button>
+                    <span className="text-xs text-gray-400">Idempotent — safe to re-run.</span>
+                  </form>
+                ) : undefined
+              }
             />
           )
         })}

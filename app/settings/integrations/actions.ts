@@ -1,12 +1,17 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { randomBytes } from 'node:crypto'
+import bcrypt from 'bcryptjs'
 import { Prisma, type IntegrationProvider } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { encryptSecret, isEncryptionConfigured } from '@/lib/crypto'
 import { providerDef, type ProviderKey } from '@/lib/integration-registry'
+import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
+import { listAsanaProjects, listAsanaUsers } from '@/modules/integrations/asanaClient'
+import { planProjectImport, planUserImport, splitName } from '@/modules/integrations/asanaImport'
 
 export type IntegrationState = { error?: string; ok?: boolean }
 
@@ -71,6 +76,79 @@ export async function saveIntegrationAction(_prev: IntegrationState, formData: F
 
   revalidatePath('/settings/integrations')
   return { ok: true }
+}
+
+/** Import projects + people from the connected Asana workspace (specs/14, AC-ASANA-001/002/004). */
+export async function importAsanaAction(): Promise<void> {
+  const actor = await requireIntegrationsAdmin()
+  if (!actor) return
+  const conn = await getConnectionWithSecrets(actor.accountId, 'asana')
+  const token = conn?.secrets.accessToken
+  const workspaceGid = String(conn?.config.workspaceGid ?? '')
+  if (!conn || conn.status !== 'connected' || !token || !workspaceGid) return
+
+  try {
+    // People
+    const asanaUsers = await listAsanaUsers(token, workspaceGid)
+    const existingUsers = await prisma.user.findMany({ where: { accountId: actor.accountId }, select: { id: true, email: true, asanaUserGid: true } })
+    const { toCreate: newUsers, toLink } = planUserImport(existingUsers, asanaUsers)
+    for (const u of newUsers) {
+      const { firstName, lastName } = splitName(u.name)
+      const email = (u.email ?? `${u.gid}@asana.imported`).toLowerCase()
+      await prisma.user
+        .create({
+          data: {
+            accountId: actor.accountId,
+            email,
+            passwordHash: bcrypt.hashSync(randomBytes(24).toString('hex'), 10), // unusable until a reset
+            firstName,
+            lastName,
+            asanaUserGid: u.gid,
+            permissionProfile: 'member',
+          },
+        })
+        .catch(() => {})
+    }
+    for (const u of toLink) {
+      const match = existingUsers.find((e) => u.email && e.email.toLowerCase() === u.email.toLowerCase())
+      if (match) await prisma.user.update({ where: { id: match.id }, data: { asanaUserGid: u.gid } }).catch(() => {})
+    }
+
+    // Projects — need a client to attach to. Use the configured client, else find/create a fallback.
+    let clientId = String(conn.config.defaultClientId ?? '')
+    const validClient = clientId
+      ? await prisma.client.findFirst({ where: { id: clientId, accountId: actor.accountId }, select: { id: true } })
+      : null
+    if (!validClient) {
+      const label = `${String(conn.config.workspaceName ?? 'Asana')} (imported)`
+      const fallback =
+        (await prisma.client.findFirst({ where: { accountId: actor.accountId, name: label }, select: { id: true } })) ??
+        (await prisma.client.create({ data: { accountId: actor.accountId, name: label } }))
+      clientId = fallback.id
+    }
+
+    const asanaProjects = await listAsanaProjects(token, workspaceGid)
+    const existingProjects = await prisma.project.findMany({ where: { accountId: actor.accountId, asanaProjectGid: { not: null } }, select: { asanaProjectGid: true } })
+    const existingGids = new Set(existingProjects.map((p) => p.asanaProjectGid as string))
+    const { toCreate: newProjects, toUpdate } = planProjectImport(existingGids, asanaProjects)
+    for (const p of newProjects) {
+      await prisma.project.create({ data: { accountId: actor.accountId, clientId, name: p.name, asanaProjectGid: p.gid } }).catch(() => {})
+    }
+    for (const p of toUpdate) {
+      await prisma.project.updateMany({ where: { accountId: actor.accountId, asanaProjectGid: p.gid }, data: { name: p.name } }).catch(() => {})
+    }
+
+    await prisma.integrationConnection.update({
+      where: { accountId_provider: { accountId: actor.accountId, provider: 'asana' } },
+      data: { lastSyncedAt: new Date() },
+    })
+    await logSync({ accountId: actor.accountId, provider: 'asana', direction: 'inbound', entityType: 'project', ok: true, message: `Imported ${newProjects.length} projects, ${newUsers.length} people` })
+  } catch (e) {
+    await logSync({ accountId: actor.accountId, provider: 'asana', direction: 'inbound', entityType: 'project', ok: false, message: (e as Error).message?.slice(0, 200) })
+  }
+  revalidatePath('/settings/integrations')
+  revalidatePath('/projects')
+  revalidatePath('/team')
 }
 
 export async function disconnectIntegrationAction(formData: FormData): Promise<void> {

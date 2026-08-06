@@ -28,7 +28,15 @@ export interface ConnectionViewProps {
   secretsSet: string[]
 }
 
-export function IntegrationForm({ def, view }: { def: ProviderDef; view: ConnectionViewProps }) {
+export function IntegrationForm({
+  def,
+  view,
+  extra,
+}: {
+  def: ProviderDef
+  view: ConnectionViewProps
+  extra?: React.ReactNode
+}) {
   const [state, formAction] = useFormState<IntegrationState, FormData>(saveIntegrationAction, {})
 
   return (
@@ -123,6 +131,7 @@ export function IntegrationForm({ def, view }: { def: ProviderDef; view: Connect
             {state.ok && <span className="text-sm text-brand-green">Saved ✓</span>}
           </div>
         </form>
+        {view.connected && extra && <div className="mt-3 border-t border-gray-100 pt-3">{extra}</div>}
       </div>
     </details>
   )

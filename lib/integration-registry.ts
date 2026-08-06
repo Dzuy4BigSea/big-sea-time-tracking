@@ -80,6 +80,7 @@ export const PROVIDERS: ProviderDef[] = [
     config: [
       { key: 'workspaceGid', label: 'Workspace GID', kind: 'text', placeholder: 'asana workspace gid', required: true },
       { key: 'workspaceName', label: 'Workspace name', kind: 'text', placeholder: 'Big Sea' },
+      { key: 'defaultClientId', label: 'Attach imported projects to client ID', kind: 'text', placeholder: 'optional — else an “Asana (imported)” client is used', help: 'Track2 client id imported Asana projects are created under.' },
       { key: 'autoImportNewProjects', label: 'Auto-import new projects', kind: 'toggle' },
     ],
     orgNameField: 'workspaceName',
