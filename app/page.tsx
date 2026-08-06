@@ -28,7 +28,7 @@ export default async function HomePage() {
   const lastMonthEnd = addDays(monthStart, -1)
   const farFuture = new Date(Date.UTC(9999, 0, 1))
 
-  const [minToday, minWeek, minMonth, minLastMonth, invoices, projects] = await Promise.all([
+  const [minToday, minWeek, minMonth, minLastMonth, invoices, recurring, retainers, projects] = await Promise.all([
     sumHours(accountId, today, today),
     sumHours(accountId, weekStart, farFuture),
     sumHours(accountId, monthStart, farFuture),
@@ -37,6 +37,11 @@ export default async function HomePage() {
       where: { accountId },
       select: { status: true, totalCents: true, paidCents: true, issueDate: true },
     }),
+    prisma.recurringInvoiceProfile.findMany({
+      where: { accountId, status: 'active' },
+      select: { nextIssueDate: true },
+    }),
+    prisma.retainer.findMany({ where: { accountId, status: 'ongoing' }, select: { balanceCents: true } }),
     prisma.project.findMany({
       where: { accountId },
       select: {
@@ -56,6 +61,9 @@ export default async function HomePage() {
   const invoicedThisMonth = invoices
     .filter((i) => i.issueDate && i.issueDate >= monthStart)
     .reduce((s, i) => s + i.totalCents, 0)
+
+  const recurringDue = recurring.filter((r) => r.nextIssueDate && utcMidnight(r.nextIssueDate) <= today).length
+  const retainerBalance = retainers.reduce((s, r) => s + r.balanceCents, 0)
 
   const activeProjects = projects
     .map((p) => {
@@ -93,6 +101,19 @@ export default async function HomePage() {
           <Link href="/invoices" className="mt-3 inline-block text-sm text-blue-600 hover:underline">
             Go to invoices →
           </Link>
+        </Card>
+
+        <Card title="Recurring & retainers">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <Stat label="Active recurring" value={String(recurring.length)} />
+            <Stat label="Due to generate" value={String(recurringDue)} accent={recurringDue > 0 ? 'text-brand-orange' : undefined} />
+            <Stat label="Ongoing retainers" value={String(retainers.length)} />
+            <Stat label="Retainer balance" value={formatCents(retainerBalance)} accent="text-brand-green" />
+          </dl>
+          <div className="mt-3 flex gap-4 text-sm">
+            <Link href="/recurring" className="text-blue-600 hover:underline">Recurring →</Link>
+            <Link href="/retainers" className="text-blue-600 hover:underline">Retainers →</Link>
+          </div>
         </Card>
       </div>
 
