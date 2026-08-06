@@ -8,4 +8,9 @@ export default defineConfig({
       '@': fileURLToPath(new URL('.', import.meta.url)),
     },
   },
+  test: {
+    // Integration tests (live DB) run via `npm run test:integration`, not the default suite.
+    exclude: ['**/node_modules/**', '**/*.integration.test.ts'],
+  },
 })
+
