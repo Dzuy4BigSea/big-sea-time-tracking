@@ -132,6 +132,42 @@ export async function createCategoryAction(_prev: SettingsState, formData: FormD
   return { ok: true }
 }
 
+const HEX = /^#[0-9a-fA-F]{6}$/
+
+export async function updateAppearanceAction(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
+  const actor = await requireSettingsAdmin()
+  if (!actor) return { error: 'You do not have permission to change invoice appearance.' }
+
+  const brandColor = String(formData.get('brandColor') ?? '').trim()
+  if (!HEX.test(brandColor)) return { error: 'Brand color must be a hex value like #004348.' }
+  const documentTitle = String(formData.get('documentTitle') ?? '').trim() || 'INVOICE'
+  const logoRaw = String(formData.get('logoFileUrl') ?? '').trim()
+  const logoFileUrl = logoRaw && /^https?:\/\//.test(logoRaw) ? logoRaw : null
+
+  const data = {
+    brandColor,
+    documentTitle,
+    logoFileUrl,
+    showDocumentTitle: formData.get('showDocumentTitle') === 'on',
+    showDescriptionCol: formData.get('showDescriptionCol') === 'on',
+    showQuantityCol: formData.get('showQuantityCol') === 'on',
+    showUnitPriceCol: formData.get('showUnitPriceCol') === 'on',
+    showAmountCol: formData.get('showAmountCol') === 'on',
+  }
+
+  try {
+    await prisma.invoiceAppearance.upsert({
+      where: { accountId: actor.accountId },
+      update: data,
+      create: { accountId: actor.accountId, ...data },
+    })
+  } catch {
+    return { error: 'Could not save invoice appearance.' }
+  }
+  revalidatePath('/settings')
+  return { ok: true }
+}
+
 export async function toggleCategoryAction(formData: FormData): Promise<void> {
   const actor = await requireSettingsAdmin()
   if (!actor) return

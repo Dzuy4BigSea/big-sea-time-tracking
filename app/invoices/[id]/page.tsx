@@ -6,12 +6,12 @@ import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
+import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
 import { requireUser } from '@/lib/session'
+import { getInvoiceAppearance } from '@/lib/appearance'
 
 export const dynamic = 'force-dynamic'
-
-const BRAND = '#004348' // Big Sea teal (until per-account InvoiceAppearance is wired)
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
   const { accountId } = await requireUser()
@@ -25,6 +25,9 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
     },
   })
   if (!invoice) notFound()
+
+  const appearance = await getInvoiceAppearance(accountId)
+  const BRAND = appearance.brandColor
 
   const badge = displayBadge(
     {
@@ -97,10 +100,18 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
       {/* Rendered invoice document */}
       <div className="rounded-lg border border-gray-200 bg-white p-8">
         <div className="flex items-start justify-between">
-          <div className="text-lg font-semibold tracking-tight">{invoice.account.name}</div>
-          <div className="text-2xl font-bold tracking-wide" style={{ color: BRAND }}>
-            INVOICE
+          <div className="flex items-center gap-3">
+            {appearance.logoFileUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={appearance.logoFileUrl} alt={`${invoice.account.name} logo`} className="h-10 w-auto" />
+            )}
+            <div className="text-lg font-semibold tracking-tight">{invoice.account.name}</div>
           </div>
+          {appearance.showDocumentTitle && (
+            <div className="text-2xl font-bold tracking-wide" style={{ color: BRAND }}>
+              {appearance.documentTitle}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 flex justify-between gap-8 text-sm">
@@ -134,26 +145,17 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         )}
 
         {/* Line items */}
-        <table className="mt-6 w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="py-2 font-medium">Description</th>
-              <th className="py-2 text-right font-medium">Qty</th>
-              <th className="py-2 text-right font-medium">Unit price</th>
-              <th className="py-2 text-right font-medium">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoice.lineItems.map((li) => (
-              <tr key={li.id} className="border-b border-gray-100">
-                <td className="py-2 pr-4">{li.description}</td>
-                <td className="py-2 text-right text-gray-600">{Number(li.quantity)}</td>
-                <td className="py-2 text-right text-gray-600">{formatCents(li.unitPriceCents, cur)}</td>
-                <td className="py-2 text-right">{formatCents(li.amountCents, cur)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <InvoiceLineItems
+          items={invoice.lineItems.map((li) => ({
+            id: li.id,
+            description: li.description,
+            quantity: Number(li.quantity),
+            unitPriceCents: li.unitPriceCents,
+            amountCents: li.amountCents,
+          }))}
+          appearance={appearance}
+          currency={cur}
+        />
 
         {/* Totals */}
         <div className="mt-4 flex justify-end">
@@ -165,7 +167,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
               <TotalRow label="Total" value={formatCents(invoice.totalCents, cur)} bold />
             </div>
             {invoice.paidCents > 0 && <TotalRow label="Paid" value={`−${formatCents(invoice.paidCents, cur)}`} />}
-            <TotalRow label="Amount due" value={formatCents(due, cur)} bold brand />
+            <TotalRow label="Amount due" value={formatCents(due, cur)} bold brandColor={BRAND} />
           </dl>
         </div>
 
@@ -214,11 +216,11 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-function TotalRow({ label, value, bold, brand }: { label: string; value: string; bold?: boolean; brand?: boolean }) {
+function TotalRow({ label, value, bold, brandColor }: { label: string; value: string; bold?: boolean; brandColor?: string }) {
   return (
     <div className={`flex justify-between ${bold ? 'font-semibold' : 'text-gray-600'}`}>
       <span>{label}</span>
-      <span style={brand ? { color: BRAND } : undefined}>{value}</span>
+      <span style={brandColor ? { color: brandColor } : undefined}>{value}</span>
     </div>
   )
 }

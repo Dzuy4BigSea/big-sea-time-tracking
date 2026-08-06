@@ -5,6 +5,8 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { PreferencesForm } from '@/components/PreferencesForm'
 import { ModulesForm } from '@/components/ModulesForm'
 import { CategoryManager } from '@/components/CategoryManager'
+import { AppearanceForm } from '@/components/AppearanceForm'
+import { getInvoiceAppearance } from '@/lib/appearance'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,10 +16,11 @@ export default async function SettingsPage() {
     redirect('/')
   }
 
-  const [account, moduleRow, categories] = await Promise.all([
+  const [account, moduleRow, categories, appearance] = await Promise.all([
     prisma.account.findUnique({ where: { id: accountId } }),
     prisma.module.findUnique({ where: { accountId } }),
     prisma.expenseCategory.findMany({ where: { accountId }, orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+    getInvoiceAppearance(accountId),
   ])
   if (!account) redirect('/')
 
@@ -61,6 +64,22 @@ export default async function SettingsPage() {
       <section className="mb-8">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Modules</h2>
         <ModulesForm modules={modules} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Invoice appearance</h2>
+        <AppearanceForm
+          values={{
+            brandColor: appearance.brandColor,
+            documentTitle: appearance.documentTitle,
+            logoFileUrl: appearance.logoFileUrl,
+            showDocumentTitle: appearance.showDocumentTitle,
+            showDescriptionCol: appearance.showDescriptionCol,
+            showQuantityCol: appearance.showQuantityCol,
+            showUnitPriceCol: appearance.showUnitPriceCol,
+            showAmountCol: appearance.showAmountCol,
+          }}
+        />
       </section>
 
       <section className="mb-8">

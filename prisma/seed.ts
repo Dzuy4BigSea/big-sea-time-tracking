@@ -408,6 +408,19 @@ async function seedAccountA() {
     ],
   })
   await prisma.senderAddress.create({ data: { accountId: ACCOUNT_A, name: 'Invoices', email: 'invoices@bigsea.demo', isDefault: true } })
+
+  // Invoice appearance — Big Sea teal; hide qty/unit-price columns (matches their live setup).
+  await prisma.invoiceAppearance.create({
+    data: {
+      accountId: ACCOUNT_A,
+      brandColor: '#004348',
+      documentTitle: 'INVOICE',
+      showQuantityCol: false,
+      showUnitPriceCol: false,
+      showAmountCol: true,
+      showDescriptionCol: true,
+    },
+  })
 }
 
 /** A second, minimal tenant — used to prove cross-account isolation (INV-5). */
