@@ -89,14 +89,24 @@ export function Sidebar({
       </nav>
 
       {showSettings && (
-        <Link
-          href="/settings"
-          className={`mt-4 block rounded px-2 py-1.5 text-sm ${
-            pathname.startsWith('/settings') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          ⚙ Settings
-        </Link>
+        <div className="mt-4 space-y-0.5">
+          <Link
+            href="/settings/integrations"
+            className={`block rounded px-2 py-1.5 text-sm ${
+              pathname.startsWith('/settings/integrations') ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            ⧉ Integrations
+          </Link>
+          <Link
+            href="/settings"
+            className={`block rounded px-2 py-1.5 text-sm ${
+              pathname === '/settings' ? 'bg-orange-50 font-medium text-brand-orange' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            ⚙ Settings
+          </Link>
+        </div>
       )}
 
       {userName && (
