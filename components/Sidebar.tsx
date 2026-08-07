@@ -74,7 +74,7 @@ export function Sidebar({
   const integrationsActive = pathname.startsWith('/settings/integrations')
 
   return (
-    <aside className="flex w-[238px] shrink-0">
+    <aside className="sticky top-0 flex h-screen w-[238px] shrink-0 self-start">
       <div className="w-3.5 flex-none" style={{ background: ROPE }} aria-hidden />
       <div className="flex min-w-0 flex-1 flex-col bg-brand-ink px-3 py-4">
         {/* Brand lockup */}
@@ -87,7 +87,7 @@ export function Sidebar({
           <div className="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Track2</div>
         </div>
 
-        <nav className="flex-1 space-y-4">
+        <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           {visibleNav.map((section, i) => (
             <div key={i}>
               {section.heading && (

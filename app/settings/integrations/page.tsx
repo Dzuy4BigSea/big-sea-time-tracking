@@ -111,7 +111,7 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
                 )}
               </div>
             </div>
-            <BrandConsoleForm entity={selected} />
+            <BrandConsoleForm key={selected.id} entity={selected} />
             <p className="mt-3 text-sm text-gray-500">
               Tailor this company&apos;s invoice language and email wording under{' '}
               <Link href={`/invoices/configure?company=${selected.id}`} className="text-brand-teal hover:underline">Invoices → Configure</Link>.
