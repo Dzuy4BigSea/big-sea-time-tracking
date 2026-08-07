@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 const TABS = [
   { label: 'Time', href: '/reports' },
+  { label: 'Expenses', href: '/reports/expenses' },
   { label: 'Profitability', href: '/reports/profitability' },
   { label: 'Receivables', href: '/reports/receivables' },
 ]

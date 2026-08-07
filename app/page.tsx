@@ -31,7 +31,7 @@ export default async function HomePage() {
   const lastMonthEnd = addDays(monthStart, -1)
   const farFuture = new Date(Date.UTC(9999, 0, 1))
 
-  const [minToday, minYesterday, minWeek, minLastWeek, minMonth, minLastMonth, invoices, recurring, retainers, projects] =
+  const [minToday, minYesterday, minWeek, minLastWeek, minMonth, minLastMonth, invoices, recurring, retainers, projects, uninvTime, uninvExpenses, capacityAgg] =
     await Promise.all([
       sumHours(accountId, today, today),
       sumHours(accountId, yesterday, yesterday),
@@ -41,7 +41,7 @@ export default async function HomePage() {
       sumHours(accountId, lastMonthStart, lastMonthEnd),
     prisma.invoice.findMany({
       where: { accountId },
-      select: { status: true, totalCents: true, paidCents: true, issueDate: true },
+      select: { status: true, totalCents: true, paidCents: true, issueDate: true, dueDate: true },
     }),
     prisma.recurringInvoiceProfile.findMany({
       where: { accountId, status: 'active' },
@@ -60,6 +60,15 @@ export default async function HomePage() {
         timeEntries: { select: { minutes: true, spentDate: true } },
       },
     }),
+    prisma.timeEntry.findMany({
+      where: { accountId, isBillable: true, isRunning: false, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
+      select: { minutes: true, billableRateCents: true },
+    }),
+    prisma.expense.findMany({
+      where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
+      select: { totalCents: true, markupPercent: true },
+    }),
+    prisma.user.aggregate({ where: { accountId, isActive: true }, _sum: { capacityHoursPerWeek: true } }),
   ])
 
   const outstanding = invoices.filter((i) => i.status === 'open').reduce((s, i) => s + (i.totalCents - i.paidCents), 0)
@@ -70,6 +79,16 @@ export default async function HomePage() {
 
   const recurringDue = recurring.filter((r) => r.nextIssueDate && utcMidnight(r.nextIssueDate) <= today).length
   const retainerBalance = retainers.reduce((s, r) => s + r.balanceCents, 0)
+
+  // KPI widgets.
+  const overdueCents = invoices
+    .filter((i) => i.status === 'open' && i.dueDate && utcMidnight(i.dueDate) < today)
+    .reduce((s, i) => s + (i.totalCents - i.paidCents), 0)
+  const uninvoicedCents =
+    uninvTime.reduce((s, e) => s + (e.billableRateCents ? Math.round((e.minutes / 60) * e.billableRateCents) : 0), 0) +
+    uninvExpenses.reduce((s, e) => s + Math.round(e.totalCents * (1 + (e.markupPercent ? Number(e.markupPercent) : 0) / 100)), 0)
+  const capacityHours = Number(capacityAgg._sum.capacityHoursPerWeek ?? 0)
+  const utilization = capacityHours > 0 ? Math.round((minWeek / 60 / capacityHours) * 100) : null
 
   const activeProjects = projects
     .map((p) => {
@@ -84,6 +103,30 @@ export default async function HomePage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-semibold">Dashboard</h1>
+
+      {/* KPI widgets */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/invoices?view=all" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
+          <div className="text-xs uppercase tracking-wide text-gray-400">Uninvoiced</div>
+          <div className="mt-1 text-2xl font-semibold text-brand-green">{formatCents(uninvoicedCents)}</div>
+          <div className="mt-0.5 text-xs text-gray-400">billable time + expenses waiting</div>
+        </Link>
+        <Link href="/reports/receivables" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
+          <div className="text-xs uppercase tracking-wide text-gray-400">Overdue</div>
+          <div className={`mt-1 text-2xl font-semibold ${overdueCents > 0 ? 'text-red-600' : 'text-gray-900'}`}>{formatCents(overdueCents)}</div>
+          <div className="mt-0.5 text-xs text-gray-400">past due, unpaid</div>
+        </Link>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-400">Outstanding A/R</div>
+          <div className="mt-1 text-2xl font-semibold">{formatCents(outstanding)}</div>
+          <div className="mt-0.5 text-xs text-gray-400">all open invoices</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-400">Utilization this week</div>
+          <div className="mt-1 text-2xl font-semibold">{utilization != null ? `${utilization}%` : '—'}</div>
+          <div className="mt-0.5 text-xs text-gray-400">{hrs(minWeek)}h of {capacityHours || '—'}h capacity</div>
+        </div>
+      </div>
 
       <div className="mb-6 grid gap-4 md:grid-cols-2">
         <Card title="Time summary">
