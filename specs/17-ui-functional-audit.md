@@ -24,7 +24,7 @@ prioritize — it is the tracker the project was missing.
 | Team | ✅ | member detail hub built (2026-08-07): Basic info, Rates (billable+cost), Assigned projects (+manages +assign-to-all), Assigned people, Permissions (granular overrides, enforced), Security. Still pending: email-based invite/resend (needs email provider) |
 | Reports | 🟡 | only Time/Profitability/Receivables; no Expenses/utilization report; export + period only on Time |
 | Activity log | ❌ 🗄️ | `AuditLog` model exists but is **never written or displayed** anywhere |
-| Notifications / emails | ❌ | no reminder/digest settings; "Send invoice" flips status but sends no actual email |
+| Notifications / emails | 🟡 | SendGrid pipeline built (2026-08-07) — invoice send/resend now emails the client, per-entity sender; remaining sends (receipts, reminders, digests, invites, password reset) reuse it — follow-ups |
 
 ---
 
