@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { startTimerAction, stopTimerAction } from '@/app/timesheet/actions'
 import type { TopBarProject, TopBarRunning } from '@/lib/topbar'
 import { TimeEntryModal } from '@/components/TimeEntryModal'
+import { GlobalSearch } from '@/components/GlobalSearch'
 
 // Route prefix → section title shown on the left of the bar.
 const TITLES: { prefix: string; title: string }[] = [
@@ -152,10 +153,14 @@ export function TopBar({
   const toggle = (p: Panel) => setPanel((cur) => (cur === p ? null : p))
 
   return (
-    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
-      <h2 className="text-sm font-semibold text-gray-700">{titleFor(pathname)}</h2>
+    <div className="sticky top-0 z-20 flex items-center gap-4 border-b border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
+      <h2 className="hidden shrink-0 text-sm font-semibold text-gray-700 lg:block">{titleFor(pathname)}</h2>
 
-      <div className="flex items-center gap-2" ref={ref}>
+      <div className="flex flex-1 justify-center">
+        <GlobalSearch />
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2" ref={ref}>
         {running ? (
           <RunningPill running={running} />
         ) : (
