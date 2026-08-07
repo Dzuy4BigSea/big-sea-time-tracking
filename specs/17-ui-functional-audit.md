@@ -8,11 +8,16 @@ prioritize — it is the tracker the project was missing.
 
 ---
 
+> **Update 2026-08-07:** the invoice-detail gaps below are now **built** — edit invoice + blank
+> composer, activity/history log, Actions menu (write-off / duplicate / resend / manual Xero copy),
+> and print/PDF. Rows kept for history; see the ✅ notes. Remaining open areas: timesheet approval,
+> expense edit/receipts, per-project rates, team detail/permissions (next), reports depth.
+
 ## Summary — biggest gaps
 | Area | State | Headline gaps |
 |---|---|---|
-| Invoice detail | 🟡 | no **edit invoice**, no **PDF/preview/print**, no **history/activity log**, no Actions menu, no write-off/duplicate/resend/reminder |
-| Invoice create | 🟡 | only "generate from tracked time"; no blank/manual composer, no line-item editing |
+| Invoice detail | ✅ | edit, history log, Actions menu, write-off/duplicate/resend/manual-Xero, print/PDF all shipped (2026-08-07); reminder-email still pending (needs email provider) |
+| Invoice create | ✅ | blank/manual composer + line-item editing shipped; "generate from tracked time" still available |
 | Timesheet approval | ❌ 🗄️ | `Timesheet` model exists but **no submit/approve UI or code path** at all |
 | Expenses | 🟡 | create-only — no **edit/delete**, no **receipt upload** UI (field exists) |
 | Project detail | 🟡 | no **per-person / per-task rates** UI, no budget-vs-actual bar, no task assignment UI, no archive |
