@@ -42,3 +42,48 @@ export function renderInvoiceSentEmail(v: {
     ${cta}`
   return { subject: `Invoice ${v.invoiceNumber} from ${v.fromName}`, html: shell('Invoice', body) }
 }
+
+/** Payment-received receipt (spec 15). */
+export function renderPaymentReceiptEmail(v: {
+  fromName: string
+  clientName: string
+  invoiceNumber: string
+  amountPaid: string
+  paidDate: string
+  method: string
+}): { subject: string; html: string } {
+  const body = `
+    <h1 style="margin:0 0 6px;font-size:24px;color:#0d2022;">Payment received</h1>
+    <p style="margin:0 0 18px;font-size:15px;color:#3f4a4b;line-height:24px;">Thanks, ${esc(v.clientName)} — invoice ${esc(v.invoiceNumber)} is settled. Nothing further needed.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px;"><tr><td style="padding:18px 22px;">
+      <div style="font-size:11px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase;color:#047a44;">Paid in full</div>
+      <div style="font-size:30px;font-weight:bold;color:#047a44;">${esc(v.amountPaid)}</div>
+      <div style="font-size:13px;color:#605f56;margin-top:6px;">Invoice ${esc(v.invoiceNumber)} · ${esc(v.paidDate)} · ${esc(v.method)}</div>
+    </td></tr></table>
+    <p style="margin:16px 0 0;font-size:13px;color:#605f56;">Keep this email for your records — it doubles as the receipt.</p>`
+  return { subject: `Payment received — invoice ${v.invoiceNumber}`, html: shell('Receipt', body) }
+}
+
+/** Overdue payment reminder (spec 15 E3). */
+export function renderOverdueReminderEmail(v: {
+  fromName: string
+  clientName: string
+  invoiceNumber: string
+  amountDue: string
+  dueDate: string
+  daysOverdue: number
+  payUrl: string | null
+  invoiceUrl: string
+}): { subject: string; html: string } {
+  const cta = v.payUrl
+    ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#c9342c;"><a href="${v.payUrl}" style="display:block;padding:13px 28px;color:#fff;font-size:15px;font-weight:bold;text-decoration:none;">Pay ${esc(v.amountDue)}</a></td></tr></table>`
+    : `<a href="${v.invoiceUrl}" style="color:#004348;font-weight:bold;">View the invoice</a>`
+  const body = `
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#ffecea;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:bold;color:#c9342c;">${v.daysOverdue} days past due</td></tr></table>
+    <h1 style="margin:14px 0 6px;font-size:24px;color:#0d2022;">Invoice ${esc(v.invoiceNumber)}</h1>
+    <p style="margin:0 0 18px;font-size:15px;color:#3f4a4b;line-height:24px;">Hi ${esc(v.clientName)} — a friendly nudge that this was due on ${esc(v.dueDate)}. If it's already in your payment run, thank you — please ignore.</p>
+    <div style="font-size:11px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase;color:#605f56;">Amount due</div>
+    <div style="font-size:30px;font-weight:bold;color:#c9342c;margin-bottom:16px;">${esc(v.amountDue)}</div>
+    ${cta}`
+  return { subject: `Reminder: invoice ${v.invoiceNumber} is ${v.daysOverdue} days past due`, html: shell('Payment reminder', body) }
+}

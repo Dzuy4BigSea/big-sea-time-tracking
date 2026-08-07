@@ -17,6 +17,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { headers } from 'next/headers'
 import { sendEmail } from '@/modules/email/send'
 import { renderInvoiceSentEmail } from '@/modules/email/templates'
+import { sendReceipt, sendReminder } from '@/modules/email/invoiceEmails'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -102,6 +103,8 @@ export async function recordPaymentAction(_prev: PaymentState, formData: FormDat
   }
 
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: `Payment recorded — ${formatCents(amountCents)} (${safeMethod.replace('_', ' ')})` })
+  const receiptSummary = await sendReceipt(accountId, invoiceId, amountCents, safeMethod, paidOn).catch(() => null)
+  if (receiptSummary) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: receiptSummary })
   await copyPaymentToXero(accountId, invoiceId).catch(() => {}) // best-effort accounting sync
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
@@ -215,6 +218,17 @@ export async function resendInvoiceAction(formData: FormData): Promise<void> {
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
   await emailInvoice(accountId, invoiceId, userId).catch(() => {}) // re-email the client (best-effort)
   await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
+  revalidatePath(`/invoices/${invoiceId}`)
+}
+
+/** Manually send an overdue-payment reminder to the client (spec 15 E3). */
+export async function sendReminderAction(formData: FormData): Promise<void> {
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) return
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  const summary = await sendReminder(accountId, invoiceId, baseUrl()).catch(() => 'Reminder failed')
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary })
   revalidatePath(`/invoices/${invoiceId}`)
 }
 

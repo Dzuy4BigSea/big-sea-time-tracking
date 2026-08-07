@@ -15,6 +15,7 @@ import {
   duplicateInvoiceAction,
   copyToXeroAction,
   resendInvoiceAction,
+  sendReminderAction,
 } from '@/app/invoices/actions'
 import { deletePaymentAction } from '@/app/invoices/actions'
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
@@ -146,6 +147,9 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
             Actions <span className="text-xs">▾</span>
           </summary>
           <div className="absolute left-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+            {invoice.status === 'open' && invoice.dueDate && invoice.dueDate < new Date() && (
+              <MenuForm action={sendReminderAction} invoiceId={invoice.id} label="Send payment reminder" />
+            )}
             {invoice.status === 'open' && <MenuForm action={markDraftAction} invoiceId={invoice.id} label="Mark as draft" />}
             {(invoice.status === 'open' || invoice.status === 'paid') && (
               <MenuForm action={copyToXeroAction} invoiceId={invoice.id} label="Copy to Xero" />

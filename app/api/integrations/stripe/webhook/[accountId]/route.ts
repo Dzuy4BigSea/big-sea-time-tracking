@@ -5,6 +5,7 @@ import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { copyPaymentToXero } from '@/modules/integrations/xeroSync'
 import { writeAudit } from '@/lib/audit'
 import { formatCents } from '@/lib/format'
+import { sendReceipt } from '@/modules/email/invoiceEmails'
 
 export const dynamic = 'force-dynamic'
 
@@ -72,6 +73,9 @@ export async function POST(request: Request, { params }: { params: { accountId: 
     })
     await logSync({ accountId, provider: 'stripe', direction: 'inbound', entityType: 'payment', entityId: invoice.id, externalId: p.chargeId, ok: true })
     await writeAudit({ accountId, actorUserId: null, entityType: 'invoice', entityId: invoice.id, action: 'update', summary: `Paid online via Stripe — ${formatCents(p.amountReceivedCents)}` })
+    // Email the client a receipt (best-effort).
+    const receiptSummary = await sendReceipt(accountId, invoice.id, p.amountReceivedCents, 'card', new Date()).catch(() => null)
+    if (receiptSummary) await writeAudit({ accountId, actorUserId: null, entityType: 'invoice', entityId: invoice.id, action: 'update', summary: receiptSummary })
     // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort).
     await copyPaymentToXero(accountId, invoice.id).catch(() => {})
   } catch (e) {
