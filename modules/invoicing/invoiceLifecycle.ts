@@ -129,6 +129,26 @@ export async function deleteInvoice(prisma: PrismaClient, invoiceId: string) {
   })
 }
 
+/** Write off an open invoice (open → written_off). Linked entries stay locked (they were billed). */
+export async function writeOffInvoice(prisma: PrismaClient, invoiceId: string) {
+  const inv = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: {
+      status: true,
+      totalCents: true,
+      paidCents: true,
+      number: true,
+      sentAt: true,
+      _count: { select: { lineItems: true } },
+    },
+  })
+  applyInvoiceAction(
+    { status: inv.status as StoredStatus, totalCents: inv.totalCents, paidCents: inv.paidCents, lineItemCount: inv._count.lineItems, sentAt: inv.sentAt, number: inv.number },
+    'write_off',
+  )
+  return prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'written_off' } })
+}
+
 export async function markInvoiceDraft(prisma: PrismaClient, invoiceId: string) {
   const inv = await prisma.invoice.findUniqueOrThrow({
     where: { id: invoiceId },

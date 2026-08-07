@@ -6,7 +6,8 @@ import type { PaymentMethod } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { generateInvoice } from '@/modules/invoicing/generateInvoice'
-import { sendInvoice, markInvoiceDraft, deleteInvoice } from '@/modules/invoicing/invoiceLifecycle'
+import { sendInvoice, markInvoiceDraft, deleteInvoice, writeOffInvoice } from '@/modules/invoicing/invoiceLifecycle'
+import { Prisma } from '@prisma/client'
 import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xeroSync'
 import { parseYmd } from '@/lib/week'
 import { requireUser } from '@/lib/session'
@@ -101,6 +102,92 @@ export async function markDraftAction(formData: FormData): Promise<void> {
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Reverted to draft' })
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
+}
+
+export async function writeOffInvoiceAction(formData: FormData): Promise<void> {
+  const { accountId, userId } = await requireUser()
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  try {
+    await writeOffInvoice(prisma, invoiceId)
+  } catch {
+    return
+  }
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice written off' })
+  revalidatePath(`/invoices/${invoiceId}`)
+  revalidatePath('/invoices')
+}
+
+/** Manually (re)copy an invoice to Xero — the Actions-menu counterpart to the auto-copy on send. */
+export async function copyToXeroAction(formData: FormData): Promise<void> {
+  const { accountId, userId } = await requireUser()
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  const xeroId = await copyInvoiceToXero(accountId, invoiceId).catch(() => null)
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: xeroId ? 'Copied to Xero' : 'Xero copy failed (not connected?)' })
+  revalidatePath(`/invoices/${invoiceId}`)
+}
+
+/** Re-mark a sent invoice as sent (re-share). No state change; records activity + re-syncs Xero. */
+export async function resendInvoiceAction(formData: FormData): Promise<void> {
+  const { accountId, userId } = await requireUser()
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { status: true } })
+  if (!inv || (inv.status !== 'open' && inv.status !== 'paid')) return
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
+  await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
+  revalidatePath(`/invoices/${invoiceId}`)
+}
+
+/** Duplicate an invoice as a new draft (copies header + line items; new number/token, unpaid). */
+export async function duplicateInvoiceAction(formData: FormData): Promise<void> {
+  const { accountId, userId } = await requireUser()
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  const src = await prisma.invoice.findFirst({
+    where: { id: invoiceId, accountId },
+    include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+  })
+  if (!src) return
+  const copy = await prisma.invoice.create({
+    data: {
+      accountId,
+      clientId: src.clientId,
+      entityId: src.entityId,
+      status: 'draft',
+      currency: src.currency,
+      paymentTerm: src.paymentTerm,
+      subject: src.subject,
+      poNumber: src.poNumber,
+      notes: src.notes,
+      terms: src.terms,
+      subtotalCents: src.subtotalCents,
+      discountPercent: src.discountPercent,
+      discountCents: src.discountCents,
+      tax1Name: src.tax1Name,
+      tax1Percent: src.tax1Percent,
+      tax2Name: src.tax2Name,
+      tax2Percent: src.tax2Percent,
+      taxCents: src.taxCents,
+      totalCents: src.totalCents,
+      lineItems: {
+        create: src.lineItems.map((li) => ({
+          accountId,
+          kind: li.kind,
+          description: li.description,
+          quantity: li.quantity as unknown as Prisma.Decimal,
+          unitPriceCents: li.unitPriceCents,
+          amountCents: li.amountCents,
+          taxable: li.taxable,
+          sortOrder: li.sortOrder,
+        })),
+      },
+    },
+  })
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: copy.id, action: 'create', summary: `Duplicated from ${src.number ?? 'draft'}` })
+  revalidatePath('/invoices')
+  redirect(`/invoices/${copy.id}`)
 }
 
 export async function deleteInvoiceAction(formData: FormData): Promise<void> {

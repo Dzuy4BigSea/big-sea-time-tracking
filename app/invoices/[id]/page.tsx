@@ -7,7 +7,15 @@ import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } f
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
-import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/invoices/actions'
+import {
+  sendInvoiceAction,
+  markDraftAction,
+  deleteInvoiceAction,
+  writeOffInvoiceAction,
+  duplicateInvoiceAction,
+  copyToXeroAction,
+  resendInvoiceAction,
+} from '@/app/invoices/actions'
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
@@ -86,31 +94,19 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
       )}
 
       {/* Action bar */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {invoice.status === 'draft' && (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {invoice.status === 'draft' ? (
           <form action={sendInvoiceAction}>
             <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
-              Send invoice
-            </button>
+            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Send invoice</button>
           </form>
-        )}
-        {invoice.status === 'open' && (
-          <form action={markDraftAction}>
+        ) : (
+          <form action={resendInvoiceAction}>
             <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Mark as draft
-            </button>
+            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Resend invoice</button>
           </form>
         )}
-        {invoice.status === 'draft' && (
-          <form action={deleteInvoiceAction}>
-            <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600">
-              Delete draft
-            </button>
-          </form>
-        )}
+
         {invoice.publicToken && invoice.status !== 'draft' && (
           <a
             href={`/i/${invoice.publicToken}`}
@@ -121,14 +117,29 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
             View client link ↗
           </a>
         )}
-        {invoice.lineItems.length > 0 && (
-          <form action={createRecurringFromInvoiceAction}>
-            <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Create recurring
-            </button>
-          </form>
-        )}
+
+        {/* Actions ▾ dropdown (spec 17) — a JS-free <details> menu */}
+        <details className="relative">
+          <summary className="flex cursor-pointer list-none items-center gap-1 rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            Actions <span className="text-xs">▾</span>
+          </summary>
+          <div className="absolute left-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+            {invoice.status === 'open' && <MenuForm action={markDraftAction} invoiceId={invoice.id} label="Mark as draft" />}
+            {(invoice.status === 'open' || invoice.status === 'paid') && (
+              <MenuForm action={copyToXeroAction} invoiceId={invoice.id} label="Copy to Xero" />
+            )}
+            <MenuForm action={duplicateInvoiceAction} invoiceId={invoice.id} label="Duplicate" />
+            {invoice.lineItems.length > 0 && (
+              <MenuForm action={createRecurringFromInvoiceAction} invoiceId={invoice.id} label="Create recurring" />
+            )}
+            {invoice.status === 'open' && (
+              <MenuForm action={writeOffInvoiceAction} invoiceId={invoice.id} label="Write off invoice" danger />
+            )}
+            {invoice.status === 'draft' && (
+              <MenuForm action={deleteInvoiceAction} invoiceId={invoice.id} label="Delete draft" danger />
+            )}
+          </div>
+        </details>
       </div>
 
       {/* Rendered invoice document */}
@@ -257,6 +268,30 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         </div>
       )}
     </div>
+  )
+}
+
+function MenuForm({
+  action,
+  invoiceId,
+  label,
+  danger,
+}: {
+  action: (formData: FormData) => void | Promise<void>
+  invoiceId: string
+  label: string
+  danger?: boolean
+}) {
+  return (
+    <form action={action}>
+      <input type="hidden" name="invoiceId" value={invoiceId} />
+      <button
+        type="submit"
+        className={`block w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'}`}
+      >
+        {label}
+      </button>
+    </form>
   )
 }
 
