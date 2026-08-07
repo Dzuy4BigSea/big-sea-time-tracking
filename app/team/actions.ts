@@ -124,6 +124,142 @@ export async function updatePersonPermissionsAction(_prev: EditPersonState, form
   return { ok: true }
 }
 
+// ---- Assigned projects tab (specs/17) -------------------------------------
+
+async function teamAdmin() {
+  const actor = await requireUser()
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_people')) return null
+  return actor
+}
+
+/** Toggle "assigned to all projects" (and future). Enabling assigns to every current project. */
+export async function setAssignedToAllAction(formData: FormData): Promise<void> {
+  const actor = await teamAdmin()
+  if (!actor) return
+  const id = String(formData.get('id') ?? '')
+  const enable = String(formData.get('value') ?? '') === 'on'
+  const user = await prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } })
+  if (!user) return
+  await prisma.user.update({ where: { id }, data: { assignedToAllProjects: enable } })
+  if (enable) {
+    const projects = await prisma.project.findMany({ where: { accountId: actor.accountId }, select: { id: true } })
+    for (const p of projects) {
+      await prisma.projectUserAssignment.upsert({
+        where: { projectId_userId: { projectId: p.id, userId: id } },
+        create: { accountId: actor.accountId, projectId: p.id, userId: id, isActive: true },
+        update: { isActive: true },
+      })
+    }
+  }
+  revalidatePath(`/team/${id}`)
+}
+
+export async function assignProjectToPersonAction(formData: FormData): Promise<void> {
+  const actor = await teamAdmin()
+  if (!actor) return
+  const id = String(formData.get('id') ?? '')
+  const projectId = String(formData.get('projectId') ?? '')
+  const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
+  const user = await prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } })
+  if (!project || !user) return
+  await prisma.projectUserAssignment.upsert({
+    where: { projectId_userId: { projectId, userId: id } },
+    create: { accountId: actor.accountId, projectId, userId: id, isActive: true },
+    update: { isActive: true },
+  })
+  revalidatePath(`/team/${id}`)
+}
+
+/** Remove from a project — soft-deactivate if they have tracked time there, else delete the row. */
+export async function unassignProjectFromPersonAction(formData: FormData): Promise<void> {
+  const actor = await teamAdmin()
+  if (!actor) return
+  const id = String(formData.get('id') ?? '')
+  const projectId = String(formData.get('projectId') ?? '')
+  const hasTime = await prisma.timeEntry.count({ where: { userId: id, projectId, accountId: actor.accountId } })
+  if (hasTime > 0) {
+    await prisma.projectUserAssignment.updateMany({ where: { projectId, userId: id }, data: { isActive: false } })
+  } else {
+    await prisma.projectUserAssignment.deleteMany({ where: { projectId, userId: id } })
+  }
+  // Removing from any single project also turns off the "all projects" flag.
+  await prisma.user.update({ where: { id }, data: { assignedToAllProjects: false } }).catch(() => {})
+  revalidatePath(`/team/${id}`)
+}
+
+export async function toggleManagesProjectAction(formData: FormData): Promise<void> {
+  const actor = await teamAdmin()
+  if (!actor) return
+  const id = String(formData.get('id') ?? '')
+  const projectId = String(formData.get('projectId') ?? '')
+  const asg = await prisma.projectUserAssignment.findUnique({ where: { projectId_userId: { projectId, userId: id } }, select: { isProjectManager: true } })
+  if (!asg) return
+  await prisma.projectUserAssignment.update({ where: { projectId_userId: { projectId, userId: id } }, data: { isProjectManager: !asg.isProjectManager } })
+  revalidatePath(`/team/${id}`)
+}
+
+// ---- Rates tab (specs/03/17) ----------------------------------------------
+
+const rateCents = (raw: FormDataEntryValue | null): number | null => {
+  const n = Number(String(raw ?? '').replace(/[$,\s]/g, ''))
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null
+}
+
+/** Add an effective-dated billable or cost rate for a person. `kind` = 'billable' | 'cost'. */
+export async function addPersonRateAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const actor = { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }
+  if (!can(actor, 'set_rates')) return { error: 'You do not have permission to set rates.' }
+  const id = String(formData.get('id') ?? '')
+  const kind = String(formData.get('kind') ?? '')
+  const cents = rateCents(formData.get('rate'))
+  const startRaw = String(formData.get('startDate') ?? '').trim()
+  const startDate = startRaw ? new Date(`${startRaw}T00:00:00.000Z`) : null
+  if (cents == null) return { error: 'Enter a valid rate.' }
+  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!user) return { error: 'Person not found.' }
+  if (kind === 'cost') {
+    await prisma.personCostRate.create({ data: { accountId, userId: id, hourlyRateCents: cents, startDate } })
+  } else {
+    await prisma.personBillableRate.create({ data: { accountId, userId: id, hourlyRateCents: cents, startDate } })
+  }
+  revalidatePath(`/team/${id}`)
+  return { ok: true }
+}
+
+// ---- Security tab (specs/17) ----------------------------------------------
+
+export async function updatePersonSecurityAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
+  const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {
+    return { error: 'You do not have permission to change security settings.' }
+  }
+  const id = String(formData.get('id') ?? '')
+  const newPassword = String(formData.get('newPassword') ?? '')
+  const isActive = formData.get('isActive') === 'on'
+  const email = String(formData.get('email') ?? '').toLowerCase().trim()
+  if (newPassword && newPassword.length < 8) return { error: 'New password must be at least 8 characters.' }
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Enter a valid email.' }
+  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true, email: true } })
+  if (!user) return { error: 'Person not found.' }
+  if (id === selfId && !isActive) return { error: 'You can’t deactivate your own account.' }
+  try {
+    await prisma.user.update({
+      where: { id },
+      data: {
+        isActive,
+        ...(email && email !== user.email ? { email } : {}),
+        ...(newPassword ? { passwordHash: bcrypt.hashSync(newPassword, 10) } : {}),
+      },
+    })
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') return { error: 'That email is already used in this account.' }
+    return { error: 'Could not save.' }
+  }
+  revalidatePath(`/team/${id}`)
+  return { ok: true }
+}
+
 export async function updatePersonAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
   const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {

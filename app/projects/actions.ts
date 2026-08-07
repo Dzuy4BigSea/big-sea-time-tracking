@@ -89,6 +89,18 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
     await prisma.projectUserAssignment.create({
       data: { accountId, projectId, userId, isProjectManager: true },
     })
+
+    // Honor "assigned to all projects" people (specs/17) — auto-add them to this new project.
+    const allProjectUsers = await prisma.user.findMany({
+      where: { accountId, assignedToAllProjects: true, id: { not: userId } },
+      select: { id: true },
+    })
+    if (allProjectUsers.length > 0) {
+      await prisma.projectUserAssignment.createMany({
+        data: allProjectUsers.map((u) => ({ accountId, projectId, userId: u.id })),
+        skipDuplicates: true,
+      })
+    }
   } catch {
     return { error: 'Could not create the project.' }
   }

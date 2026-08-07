@@ -18,8 +18,18 @@ import {
   type Capability,
 } from '@/modules/shared/permissions'
 import { listEntities } from '@/lib/entities'
+import { formatCents, formatDate } from '@/lib/format'
+import { ymd } from '@/lib/week'
 import { PersonBasicForm } from '@/components/PersonBasicForm'
 import { PermissionsForm } from '@/components/PermissionsForm'
+import { PersonSecurityForm } from '@/components/PersonSecurityForm'
+import { AddRateForm } from '@/components/AddRateForm'
+import {
+  setAssignedToAllAction,
+  assignProjectToPersonAction,
+  unassignProjectFromPersonAction,
+  toggleManagesProjectAction,
+} from '@/app/team/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,7 +58,7 @@ export default async function TeamMemberPage({
       where: { id: params.id, accountId },
       select: {
         id: true, firstName: true, lastName: true, email: true, type: true,
-        capacityHoursPerWeek: true, homeEntityId: true, isActive: true,
+        capacityHoursPerWeek: true, homeEntityId: true, isActive: true, assignedToAllProjects: true,
         permissionProfile: true, permissionOverrides: true,
         homeEntity: { select: { code: true, name: true } },
       },
@@ -61,6 +71,52 @@ export default async function TeamMemberPage({
   const fullName = `${person.firstName} ${person.lastName}`.trim()
   const initials = `${person.firstName[0] ?? ''}${person.lastName[0] ?? ''}`.toUpperCase()
   const entityOpts = entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))
+  const actor = { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }
+  const canSetRates = can(actor, 'set_rates')
+  const canViewCost = can(actor, 'view_cost_rates')
+
+  // Per-tab data (fetched only for the active tab).
+  const projectsData =
+    tab === 'projects'
+      ? await Promise.all([
+          prisma.projectUserAssignment.findMany({
+            where: { userId: person.id, isActive: true },
+            include: { project: { select: { id: true, name: true, client: { select: { name: true } } } } },
+          }),
+          prisma.project.findMany({
+            where: { accountId, userAssignments: { none: { userId: person.id, isActive: true } } },
+            select: { id: true, name: true, client: { select: { name: true } } },
+            orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
+            take: 500,
+          }),
+        ]).then(([assignments, addable]) => ({ assignments, addable }))
+      : null
+
+  const ratesData =
+    tab === 'rates'
+      ? await Promise.all([
+          prisma.personBillableRate.findMany({ where: { userId: person.id }, orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }] }),
+          canViewCost
+            ? prisma.personCostRate.findMany({ where: { userId: person.id }, orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }] })
+            : Promise.resolve([]),
+        ]).then(([billable, cost]) => ({ billable, cost }))
+      : null
+
+  const peopleData =
+    tab === 'people'
+      ? await (async () => {
+          const mine = await prisma.projectUserAssignment.findMany({ where: { userId: person.id, isActive: true }, select: { projectId: true } })
+          const ids = mine.map((m) => m.projectId)
+          if (ids.length === 0) return [] as { id: string; name: string }[]
+          const others = await prisma.projectUserAssignment.findMany({
+            where: { projectId: { in: ids }, userId: { not: person.id }, isActive: true },
+            select: { user: { select: { id: true, firstName: true, lastName: true } } },
+          })
+          const seen = new Map<string, { id: string; name: string }>()
+          for (const o of others) seen.set(o.user.id, { id: o.user.id, name: `${o.user.firstName} ${o.user.lastName}`.trim() })
+          return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+        })()
+      : null
 
   return (
     <div>
@@ -125,14 +181,149 @@ export default async function TeamMemberPage({
             />
           )}
 
-          {(tab === 'rates' || tab === 'projects' || tab === 'people' || tab === 'security') && (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-500">
-              <div className="mb-1 font-medium text-gray-700">{TABS.find((t) => t.key === tab)!.label}</div>
-              This tab is coming next. Basic info and Permissions are ready now.
+          {tab === 'security' && (
+            <PersonSecurityForm person={{ id: person.id, email: person.email, isActive: person.isActive }} />
+          )}
+
+          {tab === 'rates' && ratesData && (
+            <div className="space-y-6">
+              <div className="rounded-lg border border-gray-200 bg-white p-5">
+                <h2 className="mb-1 text-sm font-semibold text-gray-800">Billable rate</h2>
+                <p className="mb-3 text-xs text-gray-500">The hourly rate used when this person’s time is billed at the person level.</p>
+                <RateHistory rows={ratesData.billable} />
+                {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="billable" todayYmd={ymd(new Date())} /></div>}
+              </div>
+              {canViewCost ? (
+                <div className="rounded-lg border border-gray-200 bg-white p-5">
+                  <h2 className="mb-1 text-sm font-semibold text-gray-800">Internal cost rate</h2>
+                  <p className="mb-3 text-xs text-gray-500">What this person costs the business per hour (used for profitability). Admin-only.</p>
+                  <RateHistory rows={ratesData.cost} />
+                  {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="cost" todayYmd={ymd(new Date())} /></div>}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">Internal cost rates are visible to administrators only.</div>
+              )}
+            </div>
+          )}
+
+          {tab === 'projects' && projectsData && (
+            <div className="space-y-4">
+              {person.assignedToAllProjects ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-brand-teal-50 bg-brand-teal-50 p-4 text-sm text-brand-teal">
+                  <span><strong>{person.firstName}</strong> is assigned to all projects — and all future ones.</span>
+                  <form action={setAssignedToAllAction}>
+                    <input type="hidden" name="id" value={person.id} />
+                    <input type="hidden" name="value" value="off" />
+                    <button className="rounded border border-brand-teal px-3 py-1 text-xs font-medium text-brand-teal hover:bg-white">Disable</button>
+                  </form>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-gray-500">Assign this person to the projects they can track time to.</p>
+                  <form action={setAssignedToAllAction}>
+                    <input type="hidden" name="id" value={person.id} />
+                    <input type="hidden" name="value" value="on" />
+                    <button className="rounded border border-brand-green px-3 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50">Assign to all projects</button>
+                  </form>
+                </div>
+              )}
+
+              {/* Assigned list */}
+              <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
+                      <th className="px-4 py-2 font-medium">Project</th>
+                      <th className="px-4 py-2 text-center font-medium">Manages</th>
+                      <th className="px-4 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projectsData.assignments.map((a) => (
+                      <tr key={a.id} className="border-b border-gray-100 last:border-0">
+                        <td className="px-4 py-2">
+                          <span className="text-gray-400">{a.project.client.name} · </span>
+                          <Link href={`/projects/${a.project.id}`} className="text-gray-800 hover:text-brand-teal">{a.project.name}</Link>
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          <form action={toggleManagesProjectAction}>
+                            <input type="hidden" name="id" value={person.id} />
+                            <input type="hidden" name="projectId" value={a.project.id} />
+                            <button className={`rounded px-2 py-0.5 text-xs font-medium ${a.isProjectManager ? 'bg-brand-teal-50 text-brand-teal' : 'border border-gray-300 text-gray-500 hover:bg-gray-50'}`}>
+                              {a.isProjectManager ? 'Manager ✓' : 'Make manager'}
+                            </button>
+                          </form>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <form action={unassignProjectFromPersonAction}>
+                            <input type="hidden" name="id" value={person.id} />
+                            <input type="hidden" name="projectId" value={a.project.id} />
+                            <button className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600">Remove</button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                    {projectsData.assignments.length === 0 && (
+                      <tr><td colSpan={3} className="px-4 py-4 text-center text-gray-400">Not assigned to any projects yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Add a project */}
+              {!person.assignedToAllProjects && projectsData.addable.length > 0 && (
+                <form action={assignProjectToPersonAction} className="flex items-end gap-2">
+                  <input type="hidden" name="id" value={person.id} />
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Add a project</span>
+                    <select name="projectId" className="min-w-72 rounded border border-gray-300 px-2 py-1.5 text-sm">
+                      {projectsData.addable.map((p) => (
+                        <option key={p.id} value={p.id}>{p.client.name} · {p.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add</button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {tab === 'people' && peopleData && (
+            <div className="rounded-lg border border-gray-200 bg-white p-5">
+              <h2 className="mb-1 text-sm font-semibold text-gray-800">People they work with</h2>
+              <p className="mb-3 text-xs text-gray-500">Teammates assigned to the same projects.</p>
+              {peopleData.length === 0 ? (
+                <p className="text-sm text-gray-400">No shared projects yet.</p>
+              ) : (
+                <ul className="flex flex-wrap gap-2">
+                  {peopleData.map((p) => (
+                    <li key={p.id}>
+                      <Link href={`/team/${p.id}`} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700 hover:bg-brand-teal-50 hover:text-brand-teal">{p.name}</Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+function RateHistory({ rows }: { rows: { id: string; hourlyRateCents: number; startDate: Date | null }[] }) {
+  if (rows.length === 0) return <p className="text-sm text-gray-400">No rate set yet.</p>
+  return (
+    <ul className="divide-y divide-gray-100 text-sm">
+      {rows.map((r, i) => (
+        <li key={r.id} className="flex items-center justify-between py-1.5">
+          <span className={i === 0 ? 'font-medium text-gray-800' : 'text-gray-500'}>
+            {formatCents(r.hourlyRateCents)}/h
+            {i === 0 && <span className="ml-2 text-[11px] uppercase tracking-wide text-brand-teal">current</span>}
+          </span>
+          <span className="text-xs text-gray-400">{r.startDate ? `from ${formatDate(r.startDate)}` : 'all time'}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
