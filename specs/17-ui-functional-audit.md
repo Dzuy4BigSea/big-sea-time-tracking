@@ -151,3 +151,65 @@ Big Sea actually uses invoicing heavily, so the highest-leverage gaps are on the
 7. Timesheet submit/approve (only if Big Sea turns the module on).
 
 Deferred/aligned with other specs: multi-brand routing (spec 16), notifications/email sending (needs an email provider — spec 15 groundwork).
+
+---
+
+# Fidelity re-audit — 2026-08-07 (current state, post invoices + team + entities)
+
+A full second-pass audit of every screen group against the Harvest target in specs 03–12/15.
+Invoices, team-member detail, and multi-brand are now **built**; this pass catalogs what remains,
+separating **correctness bugs** (cheap, worth fixing regardless) from **feature gaps**.
+
+## A. Correctness bugs / inconsistencies — quick wins
+These are wrong today, not just missing. Small fixes, high trust value.
+
+| # | Bug | Where | Note |
+|---|---|---|---|
+| B1 | Generated invoice line items are `taxable: false`, so header tax % silently yields **$0 tax** until each line is re-checked | `modules/invoicing/generateInvoice.ts:139` | real money bug for tax accounts |
+| B2 | `generateInvoice` pulls **all** of a client's billable entries with no currency/project/date filter → mixed-currency clients sum wrong (AC-INV-018) | `modules/invoicing/generateInvoice.ts:29-48` | correctness + missing date/project entry point |
+| B3 | Public invoice view never stamps `lastViewedAt` (AC-INV-016) | `app/i/[token]/page.tsx:19-31` | "viewed" signal never recorded |
+| B4 | Week start hard-coded to Monday, ignores `account.weekStartsOn` | `app/timesheet/page.tsx:33`, `lib/week.ts` | wrong for Sunday-start |
+| B5 | Modal "Start timer" ignores the chosen date — always logs to today | `modules/time/timer.ts:27` vs `TimeEntryModal` | back-dated timer misfiles |
+| B6 | CSV export has no currency column (AC-RPT-006) | `app/reports/export/route.ts:59` | non-compliant export |
+| B7 | Delete-invoice audit hard-codes "Draft deleted" even for sent invoices | `app/invoices/actions.ts` (delete) | wrong history label |
+| B8 | `EditProjectForm` collapses any budget method other than hours_total/fee_total to `none` on load | `components/EditProjectForm.tsx:53-55` | silent downgrade |
+| B9 | Stale dev copy "Read-only week view · scoped to a demo user until auth lands" | `app/timesheet/page.tsx:104` | now false |
+| B10 | Archived projects/clients/tasks leak into list queries (no `archivedAt` filter) | `app/projects/page.tsx:39`, `app/clients/page.tsx:15` | once archive exists |
+
+## B. Feature gaps — prioritized
+
+**P1 — core money / data correctness**
+1. **Outbound email: none exists.** "Send invoice" only flips status; all of spec 15 (E1–E7: receipts, past-due reminders, digests, timesheet-past-due, budget alerts, sign-in codes) unimplemented; no provider, no cron. Models (`InvoiceMessageTemplate`, `SenderAddress`, `InvoiceLabels`, `timesheetReminderRule`) exist but nothing reads them. **Unblocks:** invoice send/reminders, per-entity sender (spec 16), team email invites.
+2. **Per-project person/task rate overrides — no UI.** `billableRateMethod` offers person/task but nothing sets `ProjectUserAssignment.hourlyRateCents` / `ProjectTaskAssignment.hourlyRateCents`; those billing modes silently fall back to defaults.
+3. **Delete a recorded payment (AC-INV-011)** and **delete a sent invoice (AC-INV-013b)** — backend + state machine support both; no UI wires either (+ no confirm dialog on numbered docs).
+
+**P2 — everyday workflows**
+4. **Expense edit / delete + receipt upload + unit/mileage entry.** Create-only today; `receiptFileUrl` import-only; flat amount only (AC-EXP-002/003/006 unreachable).
+5. **Timesheet submit / approve / reopen** — the whole `Timesheet` model + `timesheetApproval` module is dead code; toggling the module does nothing (off at Big Sea, so spec-compliant as default, but unbuildable-on).
+6. **Client contact management** — only one contact at create; no add/edit/remove, no phone fields, no change-invoice-recipient.
+7. **Archive / restore** for projects, clients, tasks (schema-ready; no action or "view archived").
+
+**P3 — invoicing depth + configure**
+8. **Invoice Configure suite** — Default values, Messages/templates, **Field-label map** (`InvoiceLabels`), Sender addresses, Item-type management: models exist, no UI.
+9. **Composer**: per-line Item Type + Linked-project, online-payment toggle, currency control.
+10. **Estimates**: no public `/e/[token]` route (token issued, unviewable); single-line create only; no line-item editor.
+11. **Recurring**: no per-profile auto-send (always drafts).
+
+**P4 — reports + dashboard**
+12. **Reports coverage ~half**: no standalone Uninvoiced, Invoiced (days-to-pay), Payments, Expenses, or Team-utilization reports; no Saved reports. No filters, custom date ranges, or charts; CSV only on Time.
+13. **Dashboard widgets**: uninvoiced / overdue / capacity-utilization + top-right quick actions.
+
+**P5 — settings + chrome fidelity**
+14. Preferences: timesheet deadline + reminder rule, account owner, number/currency format.
+15. Per-user notification/unsubscribe settings; account-level tax-rate registry; roles admin / sign-in security page.
+16. Appearance form under-exposes schema (banner, background, snail-mail, item-type column, company-branding toggle).
+17. List chrome across screens: Actions ▾ / Import / Export / search / filters / segmented controls; invoicing tab shell + issued-per-year chart.
+
+## C. Recommended build order
+1. **Correctness bugs B1–B6** (a single cleanup pass — cheap, high trust).
+2. **Email provider + core sends** (P1.1) — the biggest unlock; pair with the Configure Messages UI (P3.8).
+3. **Delete payment / delete sent invoice** (P1.3).
+4. **Per-project rates UI** (P1.2).
+5. **Expense edit/delete + receipts** (P2.4), then **archive/restore** (P2.7) and **client contacts** (P2.6).
+6. **Timesheet approval** (P2.5) only if Big Sea plans to enable the module.
+7. Reports depth + dashboard widgets (P4), then remaining configure/settings/chrome (P3/P5).
