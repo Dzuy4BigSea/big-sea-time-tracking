@@ -16,6 +16,28 @@ export interface ConnectionView {
   secretsSet: string[]
 }
 
+export interface DetailedConnectionView extends ConnectionView {
+  entityId: string | null
+}
+
+/** Every stored connection row as a safe view (incl. entityId) — for the per-entity settings UI. */
+export async function getConnectionViewsDetailed(accountId: string): Promise<DetailedConnectionView[]> {
+  const rows = await prisma.integrationConnection.findMany({ where: { accountId } })
+  return rows.map((r) => {
+    const secrets = (r.secretsEnc as Record<string, string> | null) ?? {}
+    return {
+      provider: r.provider as ProviderKey,
+      entityId: r.entityId,
+      status: r.status,
+      connected: r.status === 'connected',
+      externalOrgName: r.externalOrgName ?? null,
+      lastSyncedAt: r.lastSyncedAt ?? null,
+      config: (r.config as Record<string, unknown> | null) ?? {},
+      secretsSet: Object.keys(secrets).filter((k) => !!secrets[k]),
+    }
+  })
+}
+
 export async function getConnectionViews(accountId: string): Promise<Record<string, ConnectionView>> {
   const rows = await prisma.integrationConnection.findMany({ where: { accountId } })
   const byProvider = new Map(rows.map((r) => [r.provider as string, r]))

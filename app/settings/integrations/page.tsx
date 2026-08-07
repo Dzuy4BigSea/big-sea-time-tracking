@@ -1,16 +1,34 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { isEncryptionConfigured } from '@/lib/crypto'
-import { getConnectionViews } from '@/lib/integrations'
+import { getConnectionViewsDetailed, type DetailedConnectionView } from '@/lib/integrations'
+import { listEntities } from '@/lib/entities'
 import { PROVIDERS } from '@/lib/integration-registry'
-import { IntegrationForm } from '@/components/IntegrationForm'
+import { IntegrationForm, type ConnectionViewProps } from '@/components/IntegrationForm'
 import { importAsanaAction } from '@/app/settings/integrations/actions'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
+
+// Providers that connect PER business entity (own Stripe account / Xero org). Others are shared.
+const ENTITY_SCOPED = new Set(['stripe', 'xero'])
+
+const EMPTY_VIEW: ConnectionViewProps = {
+  status: 'disconnected',
+  connected: false,
+  externalOrgName: null,
+  lastSyncedAt: null,
+  config: {},
+  secretsSet: [],
+}
+const toViewProps = (v: DetailedConnectionView | undefined): ConnectionViewProps =>
+  v
+    ? { status: v.status, connected: v.connected, externalOrgName: v.externalOrgName, lastSyncedAt: v.lastSyncedAt ? v.lastSyncedAt.toISOString() : null, config: v.config, secretsSet: v.secretsSet }
+    : EMPTY_VIEW
 
 export default async function IntegrationsSettingsPage() {
   const { accountId, permissionProfile } = await requireUser()
@@ -18,11 +36,17 @@ export default async function IntegrationsSettingsPage() {
     redirect('/')
   }
 
-  const [views, recentLogs] = await Promise.all([
-    getConnectionViews(accountId),
+  const [detailed, entities, recentLogs] = await Promise.all([
+    getConnectionViewsDetailed(accountId),
+    listEntities(accountId),
     prisma.integrationSyncLog.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' }, take: 15 }),
   ])
   const encOk = isEncryptionConfigured()
+  // Lookup by `${provider}:${entityId ?? ''}`.
+  const byKey = new Map(detailed.map((v) => [`${v.provider}:${v.entityId ?? ''}`, v]))
+  const h = headers()
+  const base = `${h.get('x-forwarded-proto') ?? 'https'}://${h.get('x-forwarded-host') ?? h.get('host') ?? ''}`
+  const stripeWebhookUrl = `${base}/api/integrations/stripe/webhook/${accountId}`
 
   return (
     <div>
@@ -45,32 +69,55 @@ export default async function IntegrationsSettingsPage() {
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-5">
         {PROVIDERS.map((def) => {
-          const v = views[def.key]
+          if (!ENTITY_SCOPED.has(def.key)) {
+            // Shared, account-wide connection (Asana, Harvest, …).
+            return (
+              <IntegrationForm
+                key={def.key}
+                def={def}
+                view={toViewProps(byKey.get(`${def.key}:`))}
+                extra={
+                  def.key === 'asana' ? (
+                    <form action={importAsanaAction} className="flex items-center gap-3">
+                      <button className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50">
+                        Import projects &amp; people
+                      </button>
+                      <span className="text-xs text-gray-400">Idempotent — safe to re-run. Shared across all companies.</span>
+                    </form>
+                  ) : undefined
+                }
+              />
+            )
+          }
+          // Entity-scoped: one connection per business entity (own Stripe account / Xero org).
           return (
-            <IntegrationForm
-              key={def.key}
-              def={def}
-              view={{
-                status: v.status,
-                connected: v.connected,
-                externalOrgName: v.externalOrgName,
-                lastSyncedAt: v.lastSyncedAt ? v.lastSyncedAt.toISOString() : null,
-                config: v.config,
-                secretsSet: v.secretsSet,
-              }}
-              extra={
-                def.key === 'asana' ? (
-                  <form action={importAsanaAction} className="flex items-center gap-3">
-                    <button className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50">
-                      Import projects &amp; people
-                    </button>
-                    <span className="text-xs text-gray-400">Idempotent — safe to re-run.</span>
-                  </form>
-                ) : undefined
-              }
-            />
+            <div key={def.key}>
+              <div className="mb-1.5 flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold text-gray-800">{def.name}</h2>
+                <span className="text-xs text-gray-400">one per company</span>
+              </div>
+              <div className="space-y-2">
+                {entities.map((ent) => (
+                  <IntegrationForm
+                    key={`${def.key}:${ent.id}`}
+                    def={def}
+                    entityId={ent.id}
+                    entityLabel={ent.name}
+                    view={toViewProps(byKey.get(`${def.key}:${ent.id}`))}
+                    hint={
+                      def.key === 'stripe' ? (
+                        <span>
+                          In this company&apos;s Stripe dashboard, add a webhook endpoint pointing to{' '}
+                          <code className="break-all">{stripeWebhookUrl}</code> and paste its signing secret above.
+                        </span>
+                      ) : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </div>
           )
         })}
       </div>

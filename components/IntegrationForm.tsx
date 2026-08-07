@@ -32,10 +32,18 @@ export function IntegrationForm({
   def,
   view,
   extra,
+  entityId,
+  entityLabel,
+  hint,
 }: {
   def: ProviderDef
   view: ConnectionViewProps
   extra?: React.ReactNode
+  /** When set, this form connects the provider for a specific business entity (specs/16). */
+  entityId?: string
+  entityLabel?: string
+  /** Optional note under the header (e.g. the per-entity Stripe webhook URL). */
+  hint?: React.ReactNode
 }) {
   const [state, formAction] = useFormState<IntegrationState, FormData>(saveIntegrationAction, {})
 
@@ -44,6 +52,11 @@ export function IntegrationForm({
       <summary className="flex cursor-pointer items-center justify-between px-4 py-3">
         <span className="flex items-center gap-3">
           <span className="font-medium text-gray-900">{def.name}</span>
+          {entityLabel && (
+            <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-teal">
+              {entityLabel}
+            </span>
+          )}
           <span className="text-xs text-gray-400">{def.category}</span>
           {view.connected ? (
             <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
@@ -58,8 +71,10 @@ export function IntegrationForm({
 
       <div className="border-t border-gray-100 p-4">
         <p className="mb-3 text-sm text-gray-500">{def.description}</p>
+        {hint && <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 text-xs text-gray-600">{hint}</div>}
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="provider" value={def.key} />
+          {entityId && <input type="hidden" name="entityId" value={entityId} />}
 
           {def.secrets.length > 0 && (
             <div className="space-y-3">
