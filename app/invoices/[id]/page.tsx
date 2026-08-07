@@ -12,6 +12,7 @@ import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
+import { listAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +34,8 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   const appearance = applyEntityBranding(await getInvoiceAppearance(accountId), invoice.entity)
   const BRAND = appearance.brandColor
   const fromName = invoice.entity?.name ?? invoice.account.name
+  const activity = await listAudit(accountId, 'invoice', invoice.id)
+  const latest = activity[0]
 
   const badge = displayBadge(
     {
@@ -68,6 +71,19 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
         </div>
       </div>
+
+      {latest && (
+        <p className="mb-4 text-sm text-gray-500">
+          Latest activity: <span className="text-gray-700">{latest.summary}</span>
+          {latest.actorName ? ` · ${latest.actorName}` : ''} · {formatDate(latest.createdAt)}
+          {activity.length > 1 && (
+            <>
+              {' · '}
+              <a href="#history" className="text-brand-teal hover:underline">View history</a>
+            </>
+          )}
+        </p>
+      )}
 
       {/* Action bar */}
       <div className="mb-4 flex flex-wrap gap-2">
@@ -221,6 +237,25 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           </ul>
         )}
       </div>
+
+      {/* Activity / history (spec 17) */}
+      {activity.length > 0 && (
+        <div id="history" className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">History</h2>
+          <ol className="rounded-lg border border-gray-200 bg-white text-sm">
+            {activity.map((a) => (
+              <li key={a.id} className="flex items-start gap-3 border-b border-gray-100 px-4 py-2.5 last:border-0">
+                <span className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-brand-teal" />
+                <span className="flex-1 text-gray-700">{a.summary}</span>
+                <span className="whitespace-nowrap text-xs text-gray-400">
+                  {a.actorName ? `${a.actorName} · ` : ''}
+                  {formatDate(a.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,6 +3,8 @@ import { listConnectionsWithSecrets, logSync } from '@/lib/integrations'
 import { verifyStripeWebhook, parseStripePaymentEvent } from '@/modules/integrations/stripeWebhook'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { copyPaymentToXero } from '@/modules/integrations/xeroSync'
+import { writeAudit } from '@/lib/audit'
+import { formatCents } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,6 +71,7 @@ export async function POST(request: Request, { params }: { params: { accountId: 
       note: 'Paid online via Stripe',
     })
     await logSync({ accountId, provider: 'stripe', direction: 'inbound', entityType: 'payment', entityId: invoice.id, externalId: p.chargeId, ok: true })
+    await writeAudit({ accountId, actorUserId: null, entityType: 'invoice', entityId: invoice.id, action: 'update', summary: `Paid online via Stripe — ${formatCents(p.amountReceivedCents)}` })
     // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort).
     await copyPaymentToXero(accountId, invoice.id).catch(() => {})
   } catch (e) {
