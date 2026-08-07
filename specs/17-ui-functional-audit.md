@@ -21,7 +21,7 @@ prioritize — it is the tracker the project was missing.
 | Timesheet approval | ❌ 🗄️ | `Timesheet` model exists but **no submit/approve UI or code path** at all |
 | Expenses | 🟡 | create-only — no **edit/delete**, no **receipt upload** UI (field exists) |
 | Project detail | 🟡 | no **per-person / per-task rates** UI, no budget-vs-actual bar, no task assignment UI, no archive |
-| Team | 🟡 | "Invite" creates account directly (no email invite/resend); no cost/bill **rate** UI; no member detail |
+| Team | ✅ | member detail hub built (2026-08-07): Basic info, Rates (billable+cost), Assigned projects (+manages +assign-to-all), Assigned people, Permissions (granular overrides, enforced), Security. Still pending: email-based invite/resend (needs email provider) |
 | Reports | 🟡 | only Time/Profitability/Receivables; no Expenses/utilization report; export + period only on Time |
 | Activity log | ❌ 🗄️ | `AuditLog` model exists but is **never written or displayed** anywhere |
 | Notifications / emails | ❌ | no reminder/digest settings; "Send invoice" flips status but sends no actual email |
