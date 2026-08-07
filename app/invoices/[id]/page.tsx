@@ -107,6 +107,15 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           </form>
         )}
 
+        {invoice.status !== 'paid' && invoice.status !== 'written_off' && invoice.status !== 'closed' && (
+          <a
+            href={`/invoices/${invoice.id}/edit`}
+            className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Edit invoice
+          </a>
+        )}
+
         {invoice.publicToken && invoice.status !== 'draft' && (
           <a
             href={`/i/${invoice.publicToken}`}

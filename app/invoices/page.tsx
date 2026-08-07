@@ -4,6 +4,7 @@ import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceStat
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 import { generateInvoiceAction } from '@/app/invoices/actions'
+import { createBlankInvoiceAction } from '@/app/invoices/[id]/edit/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 
@@ -73,6 +74,10 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { n
         </label>
         <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
           Generate draft
+        </button>
+        <span className="pb-1.5 text-xs text-gray-300">or</span>
+        <button formAction={createBlankInvoiceAction} className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50">
+          New blank invoice
         </button>
         {searchParams.nothing && <span className="text-sm text-gray-500">No uninvoiced time or expenses for that client.</span>}
       </form>
