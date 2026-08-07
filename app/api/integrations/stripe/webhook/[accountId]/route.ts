@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
+import { listConnectionsWithSecrets, logSync } from '@/lib/integrations'
 import { verifyStripeWebhook, parseStripePaymentEvent } from '@/modules/integrations/stripeWebhook'
 import { recordPayment } from '@/modules/invoicing/recordPayment'
 import { copyPaymentToXero } from '@/modules/integrations/xeroSync'
@@ -16,14 +16,17 @@ export async function POST(request: Request, { params }: { params: { accountId: 
   const raw = await request.text()
   const sig = request.headers.get('stripe-signature')
 
-  const conn = await getConnectionWithSecrets(accountId, 'stripe')
-  const webhookSecret = conn?.secrets.webhookSecret
-  if (!conn || conn.status !== 'connected' || !webhookSecret) {
+  // Each business entity can have its own Stripe account + signing secret (specs/16). One webhook URL
+  // per Track2 account receives events from all of them; identify the sender by trying each entity's
+  // signing secret and using the one that verifies.
+  const conns = (await listConnectionsWithSecrets(accountId, 'stripe')).filter((c) => c.status === 'connected' && c.secrets.webhookSecret)
+  if (conns.length === 0) {
     return new Response('Stripe not connected', { status: 400 })
   }
 
   const nowSec = Math.floor(Date.now() / 1000)
-  if (!verifyStripeWebhook(raw, sig, webhookSecret, nowSec)) {
+  const verified = conns.some((c) => verifyStripeWebhook(raw, sig, c.secrets.webhookSecret, nowSec))
+  if (!verified) {
     return new Response('Invalid signature', { status: 400 }) // AC-STRIPE-004
   }
 

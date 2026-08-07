@@ -22,6 +22,22 @@ export async function getEntity(accountId: string, entityId: string | null | und
 }
 
 /**
+ * The effective entity id for a stored invoice: its own stamp, else the client's designation, else
+ * the account default. Used by Stripe/Xero routing so payments land in the right company's account.
+ */
+export async function entityIdForInvoice(accountId: string, invoiceId: string): Promise<string | null> {
+  const inv = await prisma.invoice.findFirst({
+    where: { id: invoiceId, accountId },
+    select: { entityId: true, client: { select: { entityId: true } } },
+  })
+  if (!inv) return null
+  if (inv.entityId) return inv.entityId
+  if (inv.client?.entityId) return inv.client.entityId
+  const def = await getDefaultEntity(accountId)
+  return def?.id ?? null
+}
+
+/**
  * Resolve the effective entity for an invoice: its own stamp, else the client's designation, else the
  * account default. Returns the full entity row (or null if the account has no entities yet).
  */

@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
+import { entityIdForInvoice } from '@/lib/entities'
 import { createCheckoutSession } from '@/modules/integrations/stripeClient'
 
 function baseUrl(): string {
@@ -23,7 +24,9 @@ export async function startStripeCheckoutAction(formData: FormData): Promise<voi
   })
   if (!invoice || invoice.status !== 'open') return
 
-  const conn = await getConnectionWithSecrets(invoice.accountId, 'stripe')
+  // Route to the invoice's business entity's Stripe account (specs/16); falls back to shared.
+  const entityId = await entityIdForInvoice(invoice.accountId, invoice.id)
+  const conn = await getConnectionWithSecrets(invoice.accountId, 'stripe', entityId)
   const secretKey = conn?.secrets.secretKey
   if (!conn || conn.status !== 'connected' || !secretKey) return
 
@@ -39,7 +42,7 @@ export async function startStripeCheckoutAction(formData: FormData): Promise<voi
       productName: `Invoice ${invoice.number ?? ''} — ${invoice.account.name}`.trim(),
       successUrl: `${base}/i/${token}?paid=1`,
       cancelUrl: `${base}/i/${token}`,
-      metadata: { invoiceId: invoice.id, accountId: invoice.accountId },
+      metadata: { invoiceId: invoice.id, accountId: invoice.accountId, entityId: entityId ?? '' },
       methods: { card: !!conn.config.creditCardEnabled, ach: !!conn.config.achEnabled },
     })
     url = session.url

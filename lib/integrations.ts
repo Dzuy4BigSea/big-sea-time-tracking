@@ -62,22 +62,52 @@ export async function getConnectionWithSecrets(
     : null
   if (!r) r = await prisma.integrationConnection.findFirst({ where: { accountId, provider: p, entityId: null } })
   if (!r) return null
-  const encMap = (r.secretsEnc as Record<string, string> | null) ?? {}
-  const secrets: Record<string, string> = {}
-  for (const [k, v] of Object.entries(encMap)) {
-    try {
-      secrets[k] = decryptSecret(v)
-    } catch {
-      // Skip undecryptable values (e.g. key rotated) rather than throwing.
-    }
-  }
   return {
     status: r.status,
     externalOrgId: r.externalOrgId,
     externalOrgName: r.externalOrgName,
     config: (r.config as Record<string, unknown> | null) ?? {},
-    secrets,
+    secrets: decryptSecretMap(r.secretsEnc),
   }
+}
+
+/** Decrypt a stored secrets map, skipping values that fail (e.g. key rotated). */
+function decryptSecretMap(secretsEnc: unknown): Record<string, string> {
+  const encMap = (secretsEnc as Record<string, string> | null) ?? {}
+  const secrets: Record<string, string> = {}
+  for (const [k, v] of Object.entries(encMap)) {
+    try {
+      secrets[k] = decryptSecret(v)
+    } catch {
+      /* skip undecryptable */
+    }
+  }
+  return secrets
+}
+
+/**
+ * All connections for a provider across the account (shared + every entity), with decrypted secrets.
+ * Used by the Stripe webhook, which must verify an incoming event against whichever entity's Stripe
+ * account signed it (specs/16).
+ */
+export async function listConnectionsWithSecrets(
+  accountId: string,
+  provider: ProviderKey | IntegrationProvider,
+): Promise<Array<{
+  entityId: string | null
+  status: string
+  externalOrgId: string | null
+  config: Record<string, unknown>
+  secrets: Record<string, string>
+}>> {
+  const rows = await prisma.integrationConnection.findMany({ where: { accountId, provider: provider as IntegrationProvider } })
+  return rows.map((r) => ({
+    entityId: r.entityId,
+    status: r.status,
+    externalOrgId: r.externalOrgId,
+    config: (r.config as Record<string, unknown> | null) ?? {},
+    secrets: decryptSecretMap(r.secretsEnc),
+  }))
 }
 
 export function isProviderConnected(view: ConnectionView | undefined): boolean {

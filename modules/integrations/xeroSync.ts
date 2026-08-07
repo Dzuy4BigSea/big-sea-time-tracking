@@ -1,6 +1,7 @@
 import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
+import { entityIdForInvoice } from '@/lib/entities'
 import { toXeroInvoice, toXeroPayment, centsToMajor } from '@/modules/integrations/xeroMap'
 
 const XERO_API = 'https://api.xero.com/api.xro/2.0'
@@ -32,7 +33,9 @@ async function xeroFetch(
  * No-op (returns null) when Xero is not connected. Idempotent: updates when xeroInvoiceId is set.
  */
 export async function copyInvoiceToXero(accountId: string, invoiceId: string): Promise<string | null> {
-  const conn = await getConnectionWithSecrets(accountId, 'xero')
+  // Route to the invoice's business entity's Xero organisation (specs/16); falls back to shared.
+  const entityId = await entityIdForInvoice(accountId, invoiceId)
+  const conn = await getConnectionWithSecrets(accountId, 'xero', entityId)
   const accessToken = conn?.secrets.accessToken
   const tenantId = String(conn?.config.tenantId ?? '')
   if (!conn || conn.status !== 'connected' || !accessToken || !tenantId) return null
@@ -90,7 +93,8 @@ export async function copyInvoiceToXero(accountId: string, invoiceId: string): P
  * (specs/14, AC-XERO-004). No-op when Xero disconnected or "do not copy payments" (no account).
  */
 export async function copyPaymentToXero(accountId: string, invoiceId: string): Promise<void> {
-  const conn = await getConnectionWithSecrets(accountId, 'xero')
+  const entityId = await entityIdForInvoice(accountId, invoiceId)
+  const conn = await getConnectionWithSecrets(accountId, 'xero', entityId)
   const accessToken = conn?.secrets.accessToken
   const tenantId = String(conn?.config.tenantId ?? '')
   const accountCode = String(conn?.config.paymentAccountCode ?? '')

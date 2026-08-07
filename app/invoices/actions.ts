@@ -56,9 +56,13 @@ export async function generateInvoiceAction(formData: FormData): Promise<void> {
   const clientId = String(formData.get('clientId') ?? '')
   if (!clientId) return
   // Guard: the client must belong to the actor's account.
-  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { accountId: true } })
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { accountId: true, entityId: true } })
   if (!client || client.accountId !== accountId) return
   const invoice = await generateInvoice(prisma, { accountId, clientId })
+  // Stamp the business entity from the client so routing (sender/branding/Stripe/Xero) is fixed (specs/16).
+  if (invoice && client.entityId) {
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { entityId: client.entityId } }).catch(() => {})
+  }
   revalidatePath('/invoices')
   // redirect() throws NEXT_REDIRECT — keep it outside any try/catch.
   redirect(invoice ? `/invoices/${invoice.id}` : '/invoices?nothing=1')
