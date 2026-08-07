@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
+import { SiteFooter } from '@/components/SiteFooter'
 import { auth } from '@/auth'
 import { getTopBarData } from '@/lib/topbar'
 import { getModules, DEFAULT_MODULES } from '@/lib/modules'
@@ -47,14 +48,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
             modules={modules}
           />
-          <main className="flex-1 overflow-x-auto">
+          <main className="flex min-h-screen flex-1 flex-col overflow-x-auto">
             <TopBar
               projects={topBar.projects}
               running={topBar.running}
               canManageInvoices={can({ permissionProfile: profile }, 'manage_invoices')}
               today={today}
             />
-            <div className="mx-auto max-w-6xl px-8 py-6">{children}</div>
+            <div className="mx-auto w-full max-w-6xl flex-1 px-8 py-6">{children}</div>
+            <SiteFooter />
           </main>
         </div>
       </body>
