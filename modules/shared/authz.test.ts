@@ -8,9 +8,34 @@ import { describe, it, expect } from 'vitest'
 import {
   can,
   isCapabilityScoped,
+  computeOverrides,
+  baseHas,
+  ALL_CAPABILITIES,
   type Capability,
   type PermissionProfile,
 } from './permissions'
+
+describe('computeOverrides (Permissions tab)', () => {
+  it('returns no overrides when checked === profile defaults', () => {
+    const base = ALL_CAPABILITIES.filter((c) => baseHas('project_manager', c))
+    expect(computeOverrides('project_manager', base)).toEqual({})
+  })
+  it('records a grant for a capability above the profile', () => {
+    const base = ALL_CAPABILITIES.filter((c) => baseHas('member', c))
+    expect(computeOverrides('member', [...base, 'manage_invoices'])).toEqual({ grant: ['manage_invoices'] })
+  })
+  it('records a revoke for a capability removed from the profile', () => {
+    const base = ALL_CAPABILITIES.filter((c) => baseHas('administrator', c))
+    const without = base.filter((c) => c !== 'view_cost_rates')
+    expect(computeOverrides('administrator', without)).toEqual({ revoke: ['view_cost_rates'] })
+  })
+  it('round-trips through can(): computed overrides reproduce the checked set', () => {
+    const checked: Capability[] = ['track_own_time', 'manage_invoices', 'run_account_reports']
+    const ov = computeOverrides('member', checked)
+    const effective = ALL_CAPABILITIES.filter((c) => can({ permissionProfile: 'member', permissionOverrides: ov }, c))
+    expect(new Set(effective)).toEqual(new Set(checked))
+  })
+})
 
 const ALL_CAPS: Capability[] = [
   'edit_account_settings',

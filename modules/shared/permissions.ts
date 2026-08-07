@@ -116,3 +116,90 @@ export function can(actor: Actor, capability: Capability): boolean {
 export function isCapabilityScoped(actor: Actor, capability: Capability): boolean {
   return SCOPED_FOR[actor.permissionProfile]?.has(capability) ?? false
 }
+
+// ---------------------------------------------------------------------------
+// Metadata + override math for the team-member Permissions tab (specs/16/17)
+// ---------------------------------------------------------------------------
+
+export const ALL_PROFILES: PermissionProfile[] = [
+  'administrator',
+  'executive_manager',
+  'accounting',
+  'people_admin',
+  'project_manager',
+  'member',
+]
+
+export const PROFILE_LABELS: Record<PermissionProfile, string> = {
+  administrator: 'Administrator',
+  executive_manager: 'Executive Manager',
+  accounting: 'Accounting',
+  people_admin: 'People Admin',
+  project_manager: 'Project Manager',
+  member: 'Member',
+}
+
+export const PROFILE_DESCRIPTIONS: Record<PermissionProfile, string> = {
+  administrator: 'Full access to everything, including account settings and rates.',
+  executive_manager: 'Manages projects, people, clients, invoices and reports — no account settings.',
+  accounting: 'Clients, invoices, billable rates and reports.',
+  people_admin: 'Manages team members and approves time.',
+  project_manager: 'Manages their own projects, clients and tasks; approves their teams’ time.',
+  member: 'Tracks their own time and expenses on assigned projects.',
+}
+
+/** Ordered capability list, grouped for the Permissions tab (Harvest-style ability toggles). */
+export const CAPABILITY_GROUPS: { heading: string; capabilities: Capability[] }[] = [
+  { heading: 'Projects & clients', capabilities: ['manage_projects', 'manage_tasks', 'manage_clients'] },
+  { heading: 'Time', capabilities: ['track_own_time', 'view_edit_others_time', 'approve_timesheets'] },
+  { heading: 'People', capabilities: ['manage_people'] },
+  { heading: 'Money & reports', capabilities: ['manage_invoices', 'view_billable_rates', 'view_cost_rates', 'set_rates', 'run_account_reports'] },
+  { heading: 'Account', capabilities: ['edit_account_settings'] },
+]
+
+export const ALL_CAPABILITIES: Capability[] = CAPABILITY_GROUPS.flatMap((g) => g.capabilities)
+
+export const CAPABILITY_LABELS: Record<Capability, string> = {
+  edit_account_settings: 'Manage account settings',
+  manage_people: 'Manage team members',
+  view_billable_rates: 'See billable rates & amounts',
+  view_cost_rates: 'See internal cost rates',
+  set_rates: 'Set people’s rates',
+  manage_clients: 'Manage clients',
+  manage_projects: 'Create & edit projects',
+  manage_tasks: 'Manage tasks',
+  track_own_time: 'Track own time & expenses',
+  view_edit_others_time: 'See & edit others’ time',
+  approve_timesheets: 'Approve timesheets',
+  manage_invoices: 'Manage invoices, estimates & payments',
+  run_account_reports: 'Run account-wide reports',
+}
+
+/** Whether a base profile grants a capability (before overrides) — for rendering defaults. */
+export function baseHas(profile: PermissionProfile, capability: Capability): boolean {
+  return PROFILE_CAPABILITIES[profile].has(capability)
+}
+
+/** Whether a base profile grants the capability only within a scope (e.g. own projects). */
+export function baseScoped(profile: PermissionProfile, capability: Capability): boolean {
+  return SCOPED_FOR[profile]?.has(capability) ?? false
+}
+
+/**
+ * Given a chosen profile and the set of capabilities an admin ticked, derive the minimal
+ * grant/revoke overrides vs. the profile's defaults. Pure + testable.
+ */
+export function computeOverrides(profile: PermissionProfile, checked: Capability[]): PermissionOverrides {
+  const on = new Set(checked)
+  const grant: Capability[] = []
+  const revoke: Capability[] = []
+  for (const cap of ALL_CAPABILITIES) {
+    const base = baseHas(profile, cap)
+    if (on.has(cap) && !base) grant.push(cap)
+    if (!on.has(cap) && base) revoke.push(cap)
+  }
+  const out: PermissionOverrides = {}
+  if (grant.length) out.grant = grant
+  if (revoke.length) out.revoke = revoke
+  return out
+}
