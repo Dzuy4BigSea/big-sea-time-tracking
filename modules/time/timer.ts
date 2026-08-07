@@ -13,7 +13,7 @@ const toDateOnly = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMo
 /** Start a timer for the user; stops any already-running timer first (finalizing its minutes). */
 export async function startTimer(
   prisma: PrismaClient,
-  input: { userId: string; projectId: string; taskId: string; now: Date },
+  input: { userId: string; projectId: string; taskId: string; now: Date; spentDate?: Date },
 ) {
   const running = await prisma.timeEntry.findFirst({
     where: { userId: input.userId, isRunning: true },
@@ -24,7 +24,8 @@ export async function startTimer(
     input.now,
   )
 
-  const spentDate = toDateOnly(input.now)
+  // The entry is dated to the chosen day (defaults to today); the timer still runs live from now.
+  const spentDate = toDateOnly(input.spentDate ?? input.now)
   const { accountId, isBillable, billableRateCents } = await resolveEntryRate(prisma, {
     userId: input.userId,
     projectId: input.projectId,

@@ -28,7 +28,7 @@ export async function GET() {
       lockState: true,
       user: { select: { firstName: true, lastName: true } },
       task: { select: { name: true } },
-      project: { select: { name: true, code: true, client: { select: { name: true } } } },
+      project: { select: { name: true, code: true, client: { select: { name: true, currency: true } } } },
     },
     orderBy: [{ spentDate: 'asc' }],
   })
@@ -51,12 +51,13 @@ export async function GET() {
       e.isBillable ? 'yes' : 'no',
       e.billableRateCents != null ? (e.billableRateCents / 100).toFixed(2) : '',
       amountCents ? (amountCents / 100).toFixed(2) : '',
+      e.project.client.currency,
       status,
     ]
   })
 
   const csv = toCsv(
-    ['Date', 'Client', 'Project', 'Task', 'Person', 'Notes', 'Hours', 'Billable', 'Rate', 'Amount', 'Status'],
+    ['Date', 'Client', 'Project', 'Task', 'Person', 'Notes', 'Hours', 'Billable', 'Rate', 'Amount', 'Currency', 'Status'],
     rows,
   )
   return csvResponse('time-report.csv', csv)

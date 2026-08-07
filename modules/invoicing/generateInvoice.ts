@@ -100,8 +100,8 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
 
   const totals = computeTotals({
     lineItems: [
-      ...lineItems.map((li) => ({ amountCents: li.amountCents, taxable: false })),
-      ...expenseItems.map((li) => ({ amountCents: li.amountCents, taxable: false })),
+      ...lineItems.map((li) => ({ amountCents: li.amountCents, taxable: true })),
+      ...expenseItems.map((li) => ({ amountCents: li.amountCents, taxable: true })),
     ],
   })
 
@@ -137,7 +137,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
           quantity: li.quantityHours,
           unitPriceCents: li.unitPriceCents,
           amountCents: li.amountCents,
-          taxable: false,
+          taxable: true,
           sortOrder: sortOrder++,
         },
       })
@@ -161,7 +161,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
           quantity: 1,
           unitPriceCents: ei.amountCents,
           amountCents: ei.amountCents,
-          taxable: false,
+          taxable: true,
           sortOrder: sortOrder++,
         },
       })

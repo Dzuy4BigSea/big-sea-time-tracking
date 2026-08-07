@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { formatMinutes } from '@/modules/shared/duration'
-import { startOfWeekMonday, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
+import { startOfWeek, addDays, ymd, parseYmd, sameDay } from '@/lib/week'
 import { TimeEntryButton } from '@/components/TimeEntryButton'
 import { EntryRow } from '@/components/EntryRow'
 import { stopTimerAction } from '@/app/timesheet/actions'
@@ -13,7 +13,7 @@ const timeFmt = (d: Date) =>
 
 export const dynamic = 'force-dynamic'
 
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const dow = (d: Date) => new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(d)
 
 export default async function TimesheetPage({
   searchParams,
@@ -22,7 +22,11 @@ export default async function TimesheetPage({
 }) {
   const { userId, accountId } = await requireUser()
   await requireModule(accountId, 'timeTracking')
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } })
+  const [user, account] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } }),
+    prisma.account.findUnique({ where: { id: accountId }, select: { weekStartsOn: true } }),
+  ])
+  const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
 
   // Default to the week containing the user's most recent entry, so there's data to see.
   let anchor = parseYmd(searchParams.week)
@@ -30,12 +34,12 @@ export default async function TimesheetPage({
     const latest = await prisma.timeEntry.aggregate({ where: { userId }, _max: { spentDate: true } })
     anchor = latest._max.spentDate ?? new Date()
   }
-  const monday = startOfWeekMonday(anchor)
-  const sunday = addDays(monday, 6)
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+  const weekStart = startOfWeek(anchor, weekStartsOn)
+  const weekEnd = addDays(weekStart, 6)
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
   const entries = await prisma.timeEntry.findMany({
-    where: { userId, spentDate: { gte: monday, lte: sunday } },
+    where: { userId, spentDate: { gte: weekStart, lte: weekEnd } },
     include: { project: { select: { name: true, code: true } }, task: { select: { name: true } } },
   })
 
@@ -89,8 +93,8 @@ export default async function TimesheetPage({
   const dayTotals = days.map((_, i) => rowList.reduce((s, r) => s + r.perDay[i], 0))
   const weekTotal = dayTotals.reduce((s, n) => s + n, 0)
 
-  const prevWeek = ymd(addDays(monday, -7))
-  const nextWeek = ymd(addDays(monday, 7))
+  const prevWeek = ymd(addDays(weekStart, -7))
+  const nextWeek = ymd(addDays(weekStart, 7))
 
   return (
     <div>
@@ -101,13 +105,13 @@ export default async function TimesheetPage({
         </span>
       </div>
       <p className="mb-4 text-xs text-gray-400">
-        Read-only week view · scoped to a demo user until auth lands · live from Supabase
+        Your week · live from Supabase
       </p>
 
       <div className="mb-4 flex items-center gap-2 text-sm">
         <NavLink href={`/timesheet?week=${prevWeek}&user=${userId}`}>← Prev</NavLink>
         <span className="rounded border border-gray-200 bg-white px-3 py-1">
-          {formatRange(monday, sunday)}
+          {formatRange(weekStart, weekEnd)}
         </span>
         <NavLink href={`/timesheet?week=${nextWeek}&user=${userId}`}>Next →</NavLink>
       </div>
@@ -134,7 +138,7 @@ export default async function TimesheetPage({
       )}
 
       <div className="mb-4">
-        <TimeEntryButton projects={projectOptions} defaultDate={ymd(monday)} />
+        <TimeEntryButton projects={projectOptions} defaultDate={ymd(weekStart)} />
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
@@ -144,7 +148,7 @@ export default async function TimesheetPage({
               <th className="px-4 py-3 text-left font-medium">Project / Task</th>
               {days.map((d, i) => (
                 <th key={i} className="px-2 py-3 text-right font-medium">
-                  {WEEKDAYS[i]}
+                  {dow(days[i])}
                   <div className="font-normal normal-case text-gray-300">{d.getUTCMonth() + 1}/{d.getUTCDate()}</div>
                 </th>
               ))}

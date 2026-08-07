@@ -6,6 +6,15 @@ export function startOfWeekMonday(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - sinceMonday))
 }
 
+/** Start of the week honoring the account preference ('monday' | 'sunday'). */
+export function startOfWeek(d: Date, weekStartsOn: 'monday' | 'sunday' = 'monday'): Date {
+  if (weekStartsOn === 'sunday') {
+    const day = d.getUTCDay() // 0=Sun
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day))
+  }
+  return startOfWeekMonday(d)
+}
+
 export function addDays(d: Date, n: number): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n))
 }

@@ -194,6 +194,7 @@ export async function deleteInvoiceAction(formData: FormData): Promise<void> {
   const { accountId, userId } = await requireUser()
   const invoiceId = String(formData.get('invoiceId') ?? '')
   if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  const before = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { number: true } })
   let deleted = false
   try {
     await deleteInvoice(prisma, invoiceId)
@@ -201,7 +202,9 @@ export async function deleteInvoiceAction(formData: FormData): Promise<void> {
   } catch {
     deleted = false
   }
-  if (deleted) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'delete', summary: 'Draft deleted' })
+  if (deleted) {
+    await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'delete', summary: before?.number ? `Invoice ${before.number} deleted` : 'Draft deleted' })
+  }
   revalidatePath('/invoices')
   if (deleted) redirect('/invoices')
 }

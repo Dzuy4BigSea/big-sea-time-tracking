@@ -39,7 +39,8 @@ export async function startTimerAction(formData: FormData): Promise<void> {
   const taskId = String(formData.get('taskId') ?? '')
   const notes = String(formData.get('notes') ?? '').trim() || null
   if (!projectId || !taskId) return
-  const entry = await startTimer(prisma, { userId, projectId, taskId, now: new Date() })
+  const spentDate = parseYmd(String(formData.get('spentDate') ?? '')) ?? undefined
+  const entry = await startTimer(prisma, { userId, projectId, taskId, now: new Date(), spentDate })
   if (notes && entry) await prisma.timeEntry.update({ where: { id: entry.id }, data: { notes } })
   revalidatePath('/timesheet')
   revalidatePath('/', 'layout') // refresh the global top-bar timer state
