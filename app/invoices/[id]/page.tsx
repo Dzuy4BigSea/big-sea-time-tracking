@@ -116,6 +116,15 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           </a>
         )}
 
+        <a
+          href={`/print/${invoice.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Print / PDF ↗
+        </a>
+
         {invoice.publicToken && invoice.status !== 'draft' && (
           <a
             href={`/i/${invoice.publicToken}`}

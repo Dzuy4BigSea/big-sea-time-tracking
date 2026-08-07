@@ -13,8 +13,8 @@ export const metadata: Metadata = {
   description: 'Track2 — time tracking + invoicing',
 }
 
-// Routes that render bare (no sidebar / no session chrome) — e.g. the public invoice view.
-const BARE_PREFIXES = ['/i/']
+// Routes that render bare (no sidebar / no session chrome) — the public invoice view + print views.
+const BARE_PREFIXES = ['/i/', '/print/']
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = headers().get('x-pathname') ?? ''

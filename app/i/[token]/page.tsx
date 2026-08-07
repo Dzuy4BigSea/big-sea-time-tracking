@@ -7,6 +7,7 @@ import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } f
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
+import { PrintButton } from '@/components/PrintButtons'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,14 +89,17 @@ export default async function PublicInvoicePage({
           <div className="font-serif text-3xl font-semibold" style={{ color: BRAND }}>
             {formatCents(due, cur)}
           </div>
-          {canPayOnline && (
-            <form action={startStripeCheckoutAction} className="mt-2">
-              <input type="hidden" name="token" value={params.token} />
-              <button className="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
-                Pay {formatCents(due, cur)}
-              </button>
-            </form>
-          )}
+          <div className="no-print mt-2 flex items-center justify-end gap-2">
+            <PrintButton className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50" />
+            {canPayOnline && (
+              <form action={startStripeCheckoutAction}>
+                <input type="hidden" name="token" value={params.token} />
+                <button className="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+                  Pay {formatCents(due, cur)}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
 
