@@ -32,7 +32,7 @@ const SECTIONS = [
   { key: 'senders', label: 'Sender addresses' },
 ]
 
-export default async function ConfigurePage({ searchParams }: { searchParams: { section?: string } }) {
+export default async function ConfigurePage({ searchParams }: { searchParams: { section?: string; company?: string } }) {
   const actor = await requireUser()
   await requireModule(actor.accountId, 'invoices')
   const canEdit = can(
@@ -41,12 +41,26 @@ export default async function ConfigurePage({ searchParams }: { searchParams: { 
   )
   const section = SECTIONS.some((s) => s.key === searchParams.section) ? searchParams.section! : 'labels'
 
+  const entities = await prisma.businessEntity.findMany({
+    where: { accountId: actor.accountId, isActive: true },
+    orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+    select: { id: true, name: true, code: true },
+  })
+  // Scope for language editing: '' = account default, else a company id.
+  const scope = entities.some((e) => e.id === searchParams.company) ? searchParams.company! : ''
+  const scopeId = scope || null
+
   const [labels, messages, itemTypes, senders] = await Promise.all([
-    getInvoiceLabels(actor.accountId),
-    Promise.all(MESSAGE_KINDS.map(async (m) => ({ ...m, template: await getMessageTemplate(actor.accountId, m.kind) }))),
+    getInvoiceLabels(actor.accountId, scopeId),
+    Promise.all(MESSAGE_KINDS.map(async (m) => ({ ...m, template: await getMessageTemplate(actor.accountId, m.kind, scopeId) }))),
     prisma.itemType.findMany({ where: { accountId: actor.accountId }, orderBy: [{ isSystemDefault: 'desc' }, { name: 'asc' }] }),
     prisma.senderAddress.findMany({ where: { accountId: actor.accountId }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
   ])
+  const qp = (over: Record<string, string>) => {
+    const p = new URLSearchParams({ section, ...(scope ? { company: scope } : {}), ...over })
+    return `/invoices/configure?${p.toString()}`
+  }
+  const languageSection = section === 'labels' || section === 'messages'
 
   return (
     <div>
@@ -77,7 +91,7 @@ export default async function ConfigurePage({ searchParams }: { searchParams: { 
           {SECTIONS.map((s) => (
             <Link
               key={s.key}
-              href={`/invoices/configure?section=${s.key}`}
+              href={`/invoices/configure?section=${s.key}${scope ? `&company=${scope}` : ''}`}
               className={`rounded px-3 py-1.5 text-sm ${s.key === section ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               {s.label}
@@ -86,17 +100,38 @@ export default async function ConfigurePage({ searchParams }: { searchParams: { 
         </nav>
 
         <div className="min-w-0">
+          {/* Company scope selector — only meaningful for the language sections */}
+          {languageSection && entities.length > 1 && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+              <span className="pl-1 text-xs uppercase tracking-wide text-gray-400">Editing for</span>
+              <Link href={qp({ company: '' })} className={`rounded-full px-3 py-1 text-sm ${!scope ? 'bg-brand-teal text-white' : 'border border-gray-300 text-gray-600 hover:bg-white'}`}>
+                All companies (default)
+              </Link>
+              {entities.map((e) => (
+                <Link key={e.id} href={qp({ company: e.id })} className={`rounded-full px-3 py-1 text-sm ${scope === e.id ? 'bg-brand-teal text-white' : 'border border-gray-300 text-gray-600 hover:bg-white'}`}>
+                  {e.name}
+                </Link>
+              ))}
+            </div>
+          )}
+
           {section === 'labels' && (
-            <Section title="Field labels" desc="Rename the text your clients see on the invoice document.">
-              <InvoiceLabelsForm labels={labels} />
+            <Section
+              title="Field labels"
+              desc={scope ? 'Overrides for this company only — blank fields inherit the account labels.' : 'Rename the text your clients see on the invoice document.'}
+            >
+              <InvoiceLabelsForm key={scope || 'account'} labels={labels} entityId={scope || undefined} />
             </Section>
           )}
 
           {section === 'messages' && (
-            <Section title="Messages" desc="The emails sent with invoices, reminders, and receipts. Placeholders are filled in per invoice.">
+            <Section
+              title="Messages"
+              desc={scope ? 'Email wording for this company only — blank fields inherit the account messages.' : 'The emails sent with invoices, reminders, and receipts. Placeholders are filled in per invoice.'}
+            >
               <div className="space-y-4">
                 {messages.map((m) => (
-                  <InvoiceMessageForm key={m.kind} kind={m.kind} label={m.label} description={m.description} placeholders={m.placeholders} template={m.template} />
+                  <InvoiceMessageForm key={`${scope}:${m.kind}`} kind={m.kind} label={m.label} description={m.description} placeholders={m.placeholders} template={m.template} entityId={scope || undefined} />
                 ))}
               </div>
             </Section>

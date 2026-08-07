@@ -13,10 +13,11 @@ function Save() {
   )
 }
 
-export function InvoiceLabelsForm({ labels }: { labels: InvoiceLabelSet }) {
+export function InvoiceLabelsForm({ labels, entityId }: { labels: InvoiceLabelSet; entityId?: string }) {
   const [state, action] = useFormState(saveLabelsAction, {} as ConfigState)
   return (
     <form action={action} className="space-y-4">
+      {entityId && <input type="hidden" name="entityId" value={entityId} />}
       <p className="text-sm text-gray-500">
         Rename the labels shown on the invoice your client sees. Leave a field blank to use the default.
       </p>

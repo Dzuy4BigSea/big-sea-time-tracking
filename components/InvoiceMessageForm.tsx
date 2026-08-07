@@ -19,17 +19,20 @@ export function InvoiceMessageForm({
   description,
   placeholders,
   template,
+  entityId,
 }: {
   kind: string
   label: string
   description: string
   placeholders: string[]
   template: MessageTemplate
+  entityId?: string
 }) {
   const [state, action] = useFormState(saveMessageAction, {} as ConfigState)
   return (
     <form action={action} className="rounded-lg border border-gray-200 bg-white p-4">
       <input type="hidden" name="kind" value={kind} />
+      {entityId && <input type="hidden" name="entityId" value={entityId} />}
       <div className="mb-1 text-sm font-semibold text-gray-800">{label}</div>
       <p className="mb-3 text-xs text-gray-500">{description}</p>
       <label className="mb-3 flex flex-col gap-1">
