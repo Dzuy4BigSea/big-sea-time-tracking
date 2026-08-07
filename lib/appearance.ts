@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { resolveBranding } from '@/modules/entities/resolveEntity'
 
 export interface InvoiceAppearanceView {
   brandColor: string
@@ -23,6 +24,22 @@ export const DEFAULT_APPEARANCE: InvoiceAppearanceView = {
   showQuantityCol: false,
   showUnitPriceCol: false,
   showAmountCol: true,
+}
+
+/**
+ * Overlay a business entity's branding (color / logo / title) on the account appearance (specs/16).
+ * Blank entity fields fall through to the account default; column toggles stay account-level.
+ */
+export function applyEntityBranding(
+  appearance: InvoiceAppearanceView,
+  entity: { brandColor?: string | null; logoFileUrl?: string | null; documentTitle?: string | null } | null | undefined,
+): InvoiceAppearanceView {
+  const b = resolveBranding(entity, {
+    brandColor: appearance.brandColor,
+    logoFileUrl: appearance.logoFileUrl,
+    documentTitle: appearance.documentTitle,
+  })
+  return { ...appearance, ...b }
 }
 
 export async function getInvoiceAppearance(accountId: string): Promise<InvoiceAppearanceView> {

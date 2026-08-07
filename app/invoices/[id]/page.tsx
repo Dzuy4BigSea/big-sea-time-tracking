@@ -11,7 +11,7 @@ import { sendInvoiceAction, markDraftAction, deleteInvoiceAction } from '@/app/i
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
-import { getInvoiceAppearance } from '@/lib/appearance'
+import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,14 +23,16 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
     include: {
       client: true,
       account: true,
+      entity: true,
       lineItems: { orderBy: { sortOrder: 'asc' } },
       payments: { orderBy: { paidOn: 'asc' } },
     },
   })
   if (!invoice) notFound()
 
-  const appearance = await getInvoiceAppearance(accountId)
+  const appearance = applyEntityBranding(await getInvoiceAppearance(accountId), invoice.entity)
   const BRAND = appearance.brandColor
+  const fromName = invoice.entity?.name ?? invoice.account.name
 
   const badge = displayBadge(
     {
@@ -56,6 +58,11 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>
           {BADGE_LABEL[badge]}
         </span>
+        {invoice.entity && (
+          <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-teal" title={`Billed as ${invoice.entity.name}`}>
+            {invoice.entity.code}
+          </span>
+        )}
         <div className="ml-auto text-right">
           <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
           <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
@@ -114,9 +121,9 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           <div className="flex items-center gap-3">
             {appearance.logoFileUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={appearance.logoFileUrl} alt={`${invoice.account.name} logo`} className="h-10 w-auto" />
+              <img src={appearance.logoFileUrl} alt={`${fromName} logo`} className="h-10 w-auto" />
             )}
-            <div className="text-lg font-semibold tracking-tight">{invoice.account.name}</div>
+            <div className="text-lg font-semibold tracking-tight">{fromName}</div>
           </div>
           {appearance.showDocumentTitle && (
             <div className="text-2xl font-bold tracking-wide" style={{ color: BRAND }}>

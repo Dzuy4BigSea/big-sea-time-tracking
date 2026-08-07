@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
-import { getInvoiceAppearance } from '@/lib/appearance'
+import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
 
@@ -22,6 +22,7 @@ async function loadInvoice(token: string) {
     include: {
       client: true,
       account: true,
+      entity: true,
       lineItems: { orderBy: { sortOrder: 'asc' } },
       payments: { orderBy: { paidOn: 'asc' } },
     },
@@ -39,15 +40,17 @@ export default async function PublicInvoicePage({
   // Only sent invoices are shareable. Drafts have no publicToken, so this also covers them.
   if (!invoice || invoice.status === 'draft') notFound()
 
-  const appearance = await getInvoiceAppearance(invoice.accountId)
+  const appearance = applyEntityBranding(await getInvoiceAppearance(invoice.accountId), invoice.entity)
   const BRAND = appearance.brandColor
+  const fromName = invoice.entity?.name ?? invoice.account.name
 
-  // Online payment (Stripe) — only when connected and there's a balance to pay.
+  // Online payment (Stripe) — only when the invoice entity's Stripe (or shared) is connected (specs/16).
   const balanceDue = invoice.totalCents - invoice.paidCents
+  const effectiveEntityId = invoice.entityId ?? invoice.client.entityId ?? null
   const stripeConn =
     invoice.status === 'open' && balanceDue > 0
       ? await prisma.integrationConnection.findFirst({
-          where: { accountId: invoice.accountId, provider: 'stripe', status: 'connected' },
+          where: { accountId: invoice.accountId, provider: 'stripe', status: 'connected', OR: [{ entityId: effectiveEntityId }, { entityId: null }] },
           select: { id: true },
         })
       : null
@@ -74,7 +77,7 @@ export default async function PublicInvoicePage({
         <div>
           <div className="text-xs uppercase tracking-wide text-gray-400">Invoice {invoice.number ?? ''} from</div>
           <div className="text-lg font-semibold" style={{ color: BRAND }}>
-            {invoice.account.name}
+            {fromName}
           </div>
         </div>
         <div className="text-right">
@@ -107,7 +110,7 @@ export default async function PublicInvoicePage({
         {/* Brand header band */}
         <div className="flex items-center justify-between px-8 py-6 text-white" style={{ background: BRAND }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logotype-white.svg" alt={invoice.account.name} className="h-8 w-auto" />
+          <img src={appearance.logoFileUrl ?? '/brand/logotype-white.svg'} alt={fromName} className="h-8 w-auto" />
           {appearance.showDocumentTitle && (
             <div className="text-xl font-bold uppercase tracking-[0.14em]">{appearance.documentTitle}</div>
           )}
