@@ -80,7 +80,9 @@ export function Sidebar({
         {/* Brand lockup */}
         <div className="px-2 pb-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logotype-white.svg" alt="Big Sea" className="block h-auto w-[86px]" />
+          <Link href="/" aria-label="Go to dashboard">
+            <img src="/brand/logotype-white.svg" alt="Big Sea" className="block h-auto w-[86px]" />
+          </Link>
           <div className="my-2.5 h-0.5 w-8 bg-brand-lime" />
           <div className="text-[12px] font-semibold uppercase tracking-[0.16em] text-brand-lime">Track2</div>
         </div>

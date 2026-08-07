@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { NewProjectForm } from '@/components/NewProjectForm'
 import { EntityChip } from '@/components/EntitySelect'
+import { ClickableRow } from '@/components/ClickableRow'
 import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
@@ -130,7 +131,7 @@ function ClientGroup({
         )
         const badge = TYPE_BADGE[p.projectType] ?? TYPE_BADGE.non_billable
         return (
-          <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+          <ClickableRow key={p.id} href={`/projects/${p.id}`} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
             <td className="px-4 py-3">
               <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                 {p.code && <span className="text-gray-400">[{p.code}] </span>}
@@ -146,7 +147,7 @@ function ClientGroup({
             <td className="px-4 py-3 text-right text-gray-600">{hours(spentMinutes)}h</td>
             <td className="px-4 py-3 text-right">{billableCents > 0 ? formatCents(billableCents) : '—'}</td>
             <td className="px-4 py-3 text-right text-gray-600">{budgetLabel(p.budgetMethod, p.budgetValue)}</td>
-          </tr>
+          </ClickableRow>
         )
       })}
     </>
