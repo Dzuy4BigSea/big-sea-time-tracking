@@ -24,6 +24,7 @@ import 'server-only'
 
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
+import { writeAudit } from '@/lib/audit'
 
 type HRow = Record<string, any>
 
@@ -56,6 +57,8 @@ const cents = (v: any): number => (v == null || v === '' ? 0 : Math.round(Number
 const centsOrNull = (v: any): number | null => (v == null || v === '' ? null : Math.round(Number(v) * 100))
 const minutesFromHours = (v: any): number => (v == null ? 0 : Math.round(Number(v) * 60))
 const dateOnly = (v: any): Date | null => (v ? new Date(`${String(v).slice(0, 10)}T00:00:00.000Z`) : null)
+const ts = (v: any): Date | null => { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d }
+const usd = (c: number): string => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const sid = (v: any): string | null => (v == null ? null : String(v))
 const trailingInt = (s: any): number | null => {
   const m = String(s ?? '').match(/(\d+)\s*$/)
@@ -395,6 +398,7 @@ const STAGES: Stage[] = [
       }
       const lineItems: HRow[] = Array.isArray(inv.line_items) ? inv.line_items : []
       const local = getLocal(maps, 'invoice', hid)
+      const isNew = !local
       let invoiceId = local
       if (local) {
         if (!dryRun) {
@@ -438,6 +442,25 @@ const STAGES: Stage[] = [
           else {
             const pid = (await prisma.payment.create({ data: { accountId, ...payData } })).id
             await recordMap(maps, payEntity, payHid, pid, dryRun, accountId)
+          }
+        }
+
+        // Reconstruct the activity/history timeline from the invoice's own timestamps (spec 17).
+        // Only on first import (isNew) so re-runs don't duplicate entries. Back-dated via `at`.
+        if (isNew) {
+          const num = data.number ?? '(draft)'
+          const createdAt = ts(inv.created_at) ?? data.issueDate ?? new Date()
+          await writeAudit({ accountId, entityType: 'invoice', entityId: invoiceId, action: 'create', summary: `Imported from Harvest — invoice ${num}`, at: createdAt })
+          const sentAt = ts(inv.sent_at)
+          if (sentAt) await writeAudit({ accountId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice sent to client', at: sentAt })
+          if (paid > 0) {
+            const paidAt = ts(inv.paid_at) ?? dateOnly(inv.paid_date) ?? sentAt ?? createdAt
+            await writeAudit({ accountId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: `Payment recorded — ${usd(paid)}`, at: paidAt! })
+          }
+          const closedAt = ts(inv.closed_at)
+          if (closedAt) {
+            const verb = data.status === 'written_off' ? 'Written off' : 'Closed'
+            await writeAudit({ accountId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: verb, at: closedAt })
           }
         }
       }
@@ -528,7 +551,7 @@ async function ensureAssignments(ctx: Ctx, projectId: string, taskId: string, us
 export async function runImportBatch(
   accountId: string,
   snapshotId: string,
-  opts: { dryRun: boolean; cursor?: ImportCursor | null; stopAfter?: string },
+  opts: { dryRun: boolean; cursor?: ImportCursor | null; stopAfter?: string; fromEntity?: string },
 ): Promise<ImportBatchResult> {
   const snap = await prisma.migrationSnapshot.findFirst({ where: { id: snapshotId, accountId }, select: { entityCounts: true } })
   if (!snap) return { ok: false, message: 'Snapshot not found.', dryRun: opts.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
@@ -541,9 +564,14 @@ export async function runImportBatch(
   const maxStageIndex = stopIdx >= 0 ? stopIdx : STAGES.length - 1
   const fullRun = maxStageIndex === STAGES.length - 1
 
+  // Optional start stage — lets a pass skip already-imported stages (e.g. run only expense→invoice→
+  // estimate without re-touching the bulk-imported time entries).
+  const fromIdx = opts.fromEntity ? STAGES.findIndex((s) => s.entity === opts.fromEntity) : 0
+  const startStage = fromIdx >= 0 ? fromIdx : 0
+
   const maps = await loadMaps(accountId)
   const dryRun = opts.dryRun
-  let stageIndex = opts.cursor?.stageIndex ?? 0
+  let stageIndex = opts.cursor?.stageIndex ?? startStage
   let partIndex = opts.cursor?.partIndex ?? 0
   let offset = opts.cursor?.offset ?? 0
 

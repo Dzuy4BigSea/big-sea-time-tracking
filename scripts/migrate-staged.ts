@@ -17,10 +17,13 @@ import { prisma } from '@/lib/prisma'
 import { runImportBatch, getImportableSnapshot, IMPORT_RESOURCES, type ImportCursor } from '@/modules/migration/importer'
 import { reconcile, formatReconTable, type ReconInput } from '@/modules/migration/reconcile'
 
-const PHASES: Record<string, { stopAfter?: string; label: string }> = {
+const PHASES: Record<string, { fromEntity?: string; stopAfter?: string; label: string }> = {
   team: { stopAfter: 'expense_category', label: 'Team + foundation (clients, contacts, tasks, users, categories)' },
   projects: { stopAfter: 'project', label: 'Projects (+ everything before)' },
   timesheets: { stopAfter: 'time_entry', label: 'Timesheets / time entries (+ everything before)' },
+  // Billing runs ONLY expense→invoice→estimate (fromEntity) so it never re-touches the bulk-imported
+  // time entries. Invoices carry reconstructed activity/history from their timestamps.
+  billing: { fromEntity: 'expense', label: 'Billing — expenses, invoices (+ activity/status), estimates' },
   full: { stopAfter: undefined, label: 'Full import (+ expenses, invoices, estimates)' },
 }
 
@@ -57,7 +60,9 @@ async function main() {
     : await getImportableSnapshot(accountId)
   if (!snap) throw new Error('No importable snapshot found for this account.')
 
-  const runStages = STAGE_ORDER.slice(0, phase.stopAfter ? STAGE_ORDER.indexOf(phase.stopAfter) + 1 : STAGE_ORDER.length)
+  const fromIdx = phase.fromEntity ? STAGE_ORDER.indexOf(phase.fromEntity) : 0
+  const toIdx = phase.stopAfter ? STAGE_ORDER.indexOf(phase.stopAfter) + 1 : STAGE_ORDER.length
+  const runStages = STAGE_ORDER.slice(fromIdx, toIdx)
   console.log(`\n▶ Phase: ${phaseName} — ${phase.label}`)
   console.log(`  account=${accountId}  snapshot=${snap.id} (${snap.status})  mode=${apply ? 'APPLY (writes)' : 'DRY RUN'}`)
   console.log(`  stages this phase: ${runStages.join(' → ')}\n`)
@@ -69,7 +74,7 @@ async function main() {
   const allNotes: string[] = []
   let batches = 0
   for (;;) {
-    const r = await runImportBatch(accountId, snap.id, { dryRun: !apply, cursor, stopAfter: phase.stopAfter })
+    const r = await runImportBatch(accountId, snap.id, { dryRun: !apply, cursor, stopAfter: phase.stopAfter, fromEntity: phase.fromEntity })
     if (!r.ok) throw new Error(r.message ?? 'import batch failed')
     batches++
     processed += r.processedThisBatch

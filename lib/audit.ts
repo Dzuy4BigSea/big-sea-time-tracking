@@ -15,6 +15,8 @@ export async function writeAudit(input: {
   action: AuditAction
   summary: string
   detail?: Record<string, unknown>
+  /** Override the entry timestamp — used when back-dating imported historical events. */
+  at?: Date
 }): Promise<void> {
   try {
     await prisma.auditLog.create({
@@ -25,6 +27,7 @@ export async function writeAudit(input: {
         entityId: input.entityId,
         action: input.action,
         after: { summary: input.summary, ...(input.detail ?? {}) } as Prisma.InputJsonValue,
+        ...(input.at ? { createdAt: input.at } : {}),
       },
     })
   } catch {
