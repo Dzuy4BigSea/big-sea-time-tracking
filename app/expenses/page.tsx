@@ -5,13 +5,17 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { NewExpenseForm } from '@/components/NewExpenseForm'
 import { NewCategoryForm } from '@/components/NewCategoryForm'
+import { ConfirmSubmit } from '@/components/ConfirmSubmit'
+import { deleteExpenseAction } from '@/app/expenses/actions'
+import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ExpensesPage() {
-  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'expenseTracking')
   const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')
+  const canOthers = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'view_edit_others_time')
 
   const [expenses, projects, categories] = await Promise.all([
     prisma.expense.findMany({
@@ -21,6 +25,7 @@ export default async function ExpensesPage() {
         category: { select: { name: true } },
         user: { select: { firstName: true, lastName: true } },
       },
+      // userId + lockState drive per-row edit/delete permission below.
       orderBy: { spentDate: 'desc' },
     }),
     prisma.project.findMany({
@@ -63,10 +68,13 @@ export default async function ExpensesPage() {
               <th className="px-4 py-3 font-medium">Billable</th>
               <th className="px-4 py-3 text-right font-medium">Amount</th>
               <th className="px-4 py-3 text-right font-medium">Billed (w/ markup)</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
-            {expenses.map((e) => (
+            {expenses.map((e) => {
+              const editable = (e.userId === userId || canOthers) && e.lockState !== 'invoiced'
+              return (
               <tr key={e.id} className="border-b border-gray-100 last:border-0">
                 <td className="px-4 py-3 text-gray-600">{formatDate(e.spentDate)}</td>
                 <td className="px-4 py-3">
@@ -92,11 +100,30 @@ export default async function ExpensesPage() {
                   {e.isBillable ? formatCents(withMarkup(e)) : '—'}
                   {e.markupPercent ? <span className="ml-1 text-xs text-gray-400">+{Number(e.markupPercent)}%</span> : null}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2 text-xs">
+                    {e.receiptFileUrl && (
+                      <a href={e.receiptFileUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
+                    )}
+                    {e.lockState === 'invoiced' ? (
+                      <span className="text-gray-300" title="Invoiced — locked">🔒</span>
+                    ) : editable ? (
+                      <>
+                        <Link href={`/expenses/${e.id}/edit`} className="text-gray-500 hover:text-brand-teal">Edit</Link>
+                        <form action={deleteExpenseAction}>
+                          <input type="hidden" name="id" value={e.id} />
+                          <ConfirmSubmit message="Delete this expense?" className="text-gray-400 hover:text-red-600">✕</ConfirmSubmit>
+                        </form>
+                      </>
+                    ) : null}
+                  </div>
+                </td>
               </tr>
-            ))}
+              )
+            })}
             {expenses.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   No expenses yet.
                 </td>
               </tr>

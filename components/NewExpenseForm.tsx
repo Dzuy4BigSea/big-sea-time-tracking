@@ -92,6 +92,9 @@ export function NewExpenseForm({
             <input type="checkbox" name="isBillable" defaultChecked /> Billable
           </label>
         </div>
+        <Field label="Receipt URL (optional)">
+          <input name="receiptFileUrl" type="url" placeholder="https://…link to the receipt" className={`${input} w-full max-w-md`} />
+        </Field>
         <div className="flex items-center gap-3">
           <Submit />
           {state.error && <span className="text-sm text-red-600">{state.error}</span>}

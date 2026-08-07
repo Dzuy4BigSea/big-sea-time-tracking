@@ -26,6 +26,7 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
   const markupPercent = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : null
   const isBillable = formData.get('isBillable') === 'on'
   const notes = String(formData.get('notes') ?? '').trim() || null
+  const receiptFileUrl = String(formData.get('receiptFileUrl') ?? '').trim() || null
 
   if (!projectId) return { error: 'Pick a project.' }
   if (!categoryId) return { error: 'Pick a category.' }
@@ -52,6 +53,7 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
         markupPercent,
         isBillable,
         notes,
+        receiptFileUrl,
       },
     })
   } catch {
@@ -60,6 +62,62 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
 
   revalidatePath('/expenses')
   return { ok: true }
+}
+
+export type EditExpenseState = { error?: string; ok?: boolean }
+
+/** Editable by the owner, or anyone who can edit others' time. Blocked once invoiced (AC-EXP-003). */
+async function expenseGuard(expenseId: string) {
+  const actor = await requireUser()
+  const exp = await prisma.expense.findFirst({ where: { id: expenseId, accountId: actor.accountId }, select: { userId: true, lockState: true } })
+  if (!exp) return null
+  const isOwner = exp.userId === actor.userId
+  const canOthers = can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'view_edit_others_time')
+  if (!isOwner && !canOthers) return null
+  if (exp.lockState === 'invoiced') return null // locked once billed
+  return actor
+}
+
+export async function updateExpenseAction(_prev: EditExpenseState, formData: FormData): Promise<EditExpenseState> {
+  const id = String(formData.get('id') ?? '')
+  const actor = await expenseGuard(id)
+  if (!actor) return { error: 'Not found, locked (invoiced), or not permitted.' }
+  const projectId = String(formData.get('projectId') ?? '')
+  const categoryId = String(formData.get('categoryId') ?? '')
+  const spentDate = parseYmd(String(formData.get('spentDate') ?? ''))
+  const totalCents = centsFrom(formData.get('amount'))
+  const markupRaw = Number(String(formData.get('markup') ?? '').replace(/[%\s]/g, ''))
+  const markupPercent = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : null
+  if (!spentDate) return { error: 'Pick a valid date.' }
+  if (!totalCents) return { error: 'Enter an amount like 42.50.' }
+  const [project, category] = await Promise.all([
+    prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } }),
+    prisma.expenseCategory.findFirst({ where: { id: categoryId, accountId: actor.accountId }, select: { id: true } }),
+  ])
+  if (!project || !category) return { error: 'Project or category not found.' }
+  await prisma.expense.update({
+    where: { id },
+    data: {
+      projectId,
+      categoryId,
+      spentDate,
+      totalCents,
+      markupPercent,
+      isBillable: formData.get('isBillable') === 'on',
+      notes: String(formData.get('notes') ?? '').trim() || null,
+      receiptFileUrl: String(formData.get('receiptFileUrl') ?? '').trim() || null,
+    },
+  })
+  revalidatePath('/expenses')
+  return { ok: true }
+}
+
+export async function deleteExpenseAction(formData: FormData): Promise<void> {
+  const id = String(formData.get('id') ?? '')
+  const actor = await expenseGuard(id)
+  if (!actor) return
+  await prisma.expense.deleteMany({ where: { id, accountId: actor.accountId } })
+  revalidatePath('/expenses')
 }
 
 /** Categories are an account setting — only admins/settings-managers create them. */
