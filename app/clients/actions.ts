@@ -103,3 +103,66 @@ export async function updateClientAction(_prev: EditClientState, formData: FormD
   revalidatePath('/clients')
   return { ok: true }
 }
+
+async function clientAdmin(clientId: string) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')) return null
+  const client = await prisma.client.findFirst({ where: { id: clientId, accountId }, select: { id: true } })
+  return client ? accountId : null
+}
+
+/** Add a contact to a client (specs/12 — client contact management). */
+export async function addContactAction(formData: FormData): Promise<void> {
+  const clientId = String(formData.get('clientId') ?? '')
+  const accountId = await clientAdmin(clientId)
+  if (!accountId) return
+  const firstName = String(formData.get('firstName') ?? '').trim()
+  const lastName = String(formData.get('lastName') ?? '').trim()
+  if (!firstName && !lastName) return
+  await prisma.clientContact.create({
+    data: {
+      accountId,
+      clientId,
+      firstName: firstName || '—',
+      lastName,
+      title: String(formData.get('title') ?? '').trim() || null,
+      email: String(formData.get('email') ?? '').trim() || null,
+      phoneOffice: String(formData.get('phoneOffice') ?? '').trim() || null,
+      phoneMobile: String(formData.get('phoneMobile') ?? '').trim() || null,
+      isInvoiceRecipient: formData.get('isInvoiceRecipient') === 'on',
+    },
+  })
+  revalidatePath(`/clients/${clientId}`)
+}
+
+export async function deleteContactAction(formData: FormData): Promise<void> {
+  const clientId = String(formData.get('clientId') ?? '')
+  const accountId = await clientAdmin(clientId)
+  if (!accountId) return
+  await prisma.clientContact.deleteMany({ where: { id: String(formData.get('contactId') ?? ''), clientId, accountId } })
+  revalidatePath(`/clients/${clientId}`)
+}
+
+export async function toggleInvoiceRecipientAction(formData: FormData): Promise<void> {
+  const clientId = String(formData.get('clientId') ?? '')
+  const accountId = await clientAdmin(clientId)
+  if (!accountId) return
+  const id = String(formData.get('contactId') ?? '')
+  const c = await prisma.clientContact.findFirst({ where: { id, clientId, accountId }, select: { isInvoiceRecipient: true } })
+  if (!c) return
+  await prisma.clientContact.update({ where: { id }, data: { isInvoiceRecipient: !c.isInvoiceRecipient } })
+  revalidatePath(`/clients/${clientId}`)
+}
+
+/** Archive or restore a client (specs/03). */
+export async function setClientArchivedAction(formData: FormData): Promise<void> {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')) return
+  const id = String(formData.get('id') ?? '')
+  const archived = String(formData.get('archived') ?? '') === 'on'
+  const client = await prisma.client.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!client) return
+  await prisma.client.update({ where: { id }, data: { isActive: !archived, archivedAt: archived ? new Date() : null } })
+  revalidatePath('/clients')
+  revalidatePath(`/clients/${id}`)
+}

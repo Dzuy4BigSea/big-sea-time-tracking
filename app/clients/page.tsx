@@ -8,12 +8,13 @@ import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ClientsPage() {
+export default async function ClientsPage({ searchParams }: { searchParams: { archived?: string } }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')
+  const showArchived = searchParams.archived === '1'
   const [clients, entities] = await Promise.all([
     prisma.client.findMany({
-      where: { accountId },
+      where: { accountId, ...(showArchived ? {} : { isActive: true }) },
       include: {
         contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
         entity: { select: { code: true, name: true } },
@@ -27,10 +28,17 @@ export default async function ClientsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-semibold">Clients</h1>
-      <p className="mb-6 text-sm text-gray-500">
-        Live from Supabase · {clients.length} client{clients.length === 1 ? '' : 's'}
-      </p>
+      <div className="mb-6 flex items-baseline justify-between">
+        <div>
+          <h1 className="mb-1 text-2xl font-semibold">Clients</h1>
+          <p className="text-sm text-gray-500">
+            Live from Supabase · {clients.length} {showArchived ? 'archived ' : ''}client{clients.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        <Link href={showArchived ? '/clients' : '/clients?archived=1'} className="text-sm text-gray-500 hover:text-brand-teal">
+          {showArchived ? '← Active clients' : 'View archived'}
+        </Link>
+      </div>
 
       {canManage && <NewClientForm entities={entityOpts} />}
 

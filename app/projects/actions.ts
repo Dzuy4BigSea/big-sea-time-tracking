@@ -226,6 +226,17 @@ export async function unassignUserFromProjectAction(formData: FormData): Promise
   revalidatePath(`/projects/${projectId}`)
 }
 
+/** Archive or restore a project (specs/03 — archive, never hard-delete in-use records). */
+export async function setProjectArchivedAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const archived = String(formData.get('archived') ?? '') === 'on'
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  await prisma.project.update({ where: { id: projectId }, data: { isActive: !archived, archivedAt: archived ? new Date() : null } })
+  revalidatePath('/projects')
+  revalidatePath(`/projects/${projectId}`)
+}
+
 // ── Per-project rate overrides + task assignments (specs/03, AC-PROJ-002/003) ──
 
 /** Set (or clear) a person's per-project hourly rate override. */

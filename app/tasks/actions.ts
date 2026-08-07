@@ -35,6 +35,18 @@ export async function createTaskAction(_prev: NewTaskState, formData: FormData):
   return { ok: true }
 }
 
+/** Archive or restore a task (specs/03 — archive in-use tasks rather than delete). */
+export async function setTaskArchivedAction(formData: FormData): Promise<void> {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')) return
+  const id = String(formData.get('id') ?? '')
+  const archived = String(formData.get('archived') ?? '') === 'on'
+  const task = await prisma.task.findFirst({ where: { id, accountId }, select: { id: true } })
+  if (!task) return
+  await prisma.task.update({ where: { id }, data: { isActive: !archived, archivedAt: archived ? new Date() : null } })
+  revalidatePath('/tasks')
+}
+
 export async function updateTaskAction(_prev: EditTaskState, formData: FormData): Promise<EditTaskState> {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')) {

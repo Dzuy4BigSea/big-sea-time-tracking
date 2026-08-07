@@ -33,12 +33,13 @@ function budgetLabel(method: string, value: number | null): string {
 
 const hours = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({ searchParams }: { searchParams: { archived?: string } }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')
+  const showArchived = searchParams.archived === '1'
   const [projects, clients, entities] = await Promise.all([
     prisma.project.findMany({
-      where: { accountId },
+      where: { accountId, ...(showArchived ? {} : { isActive: true }) },
       include: {
         client: true,
         entity: { select: { code: true, name: true } },
@@ -60,10 +61,17 @@ export default async function ProjectsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-semibold">Projects</h1>
-      <p className="mb-6 text-sm text-gray-500">
-        Live from Supabase · {projects.length} project{projects.length === 1 ? '' : 's'}
-      </p>
+      <div className="mb-6 flex items-baseline justify-between">
+        <div>
+          <h1 className="mb-1 text-2xl font-semibold">Projects</h1>
+          <p className="text-sm text-gray-500">
+            Live from Supabase · {projects.length} {showArchived ? 'archived ' : ''}project{projects.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        <Link href={showArchived ? '/projects' : '/projects?archived=1'} className="text-sm text-gray-500 hover:text-brand-teal">
+          {showArchived ? '← Active projects' : 'View archived'}
+        </Link>
+      </div>
 
       {canManage && <NewProjectForm clients={clients} entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
 

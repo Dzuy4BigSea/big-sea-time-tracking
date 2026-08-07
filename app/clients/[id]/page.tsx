@@ -6,8 +6,12 @@ import { formatMinutes } from '@/modules/shared/duration'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { setClientArchivedAction, addContactAction, deleteContactAction, toggleInvoiceRecipientAction } from '@/app/clients/actions'
+import { ConfirmSubmit } from '@/components/ConfirmSubmit'
 
 export const dynamic = 'force-dynamic'
+
+const inp = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
 const STATUS_STYLE: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -70,13 +74,20 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
       <div className="mb-4 mt-2 flex items-center gap-3">
         <h1 className="text-2xl font-semibold">{client.name}</h1>
         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{client.currency}</span>
+        {!client.isActive && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Archived</span>}
         {canManage && (
-          <Link
-            href={`/clients/${client.id}/edit`}
-            className="ml-auto rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Edit client
-          </Link>
+          <div className="ml-auto flex items-center gap-2">
+            <Link href={`/clients/${client.id}/edit`} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
+              Edit client
+            </Link>
+            <form action={setClientArchivedAction}>
+              <input type="hidden" name="id" value={client.id} />
+              <input type="hidden" name="archived" value={client.isActive ? 'on' : 'off'} />
+              <button className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
+                {client.isActive ? 'Archive' : 'Restore'}
+              </button>
+            </form>
+          </div>
         )}
       </div>
 
@@ -90,25 +101,48 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         <div className="mb-6 whitespace-pre-line text-sm text-gray-500">{client.address}</div>
       )}
 
-      {client.contacts.length > 0 && (
-        <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-gray-700">Contacts</h2>
-          <ul className="space-y-1 rounded-lg border border-gray-200 bg-white p-4 text-sm">
+      <div className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold text-gray-700">Contacts</h2>
+        <div className="rounded-lg border border-gray-200 bg-white">
+          <ul className="divide-y divide-gray-100 text-sm">
             {client.contacts.map((ct) => (
-              <li key={ct.id} className="flex items-center gap-2">
-                <span className="font-medium text-gray-800">
-                  {ct.firstName} {ct.lastName}
-                </span>
+              <li key={ct.id} className="flex flex-wrap items-center gap-2 px-4 py-2">
+                <span className="font-medium text-gray-800">{ct.firstName} {ct.lastName}</span>
                 {ct.title && <span className="text-xs text-gray-400">{ct.title}</span>}
                 {ct.email && <span className="text-gray-500">{ct.email}</span>}
-                {ct.isInvoiceRecipient && (
-                  <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">invoices</span>
+                {(ct.phoneOffice || ct.phoneMobile) && <span className="text-xs text-gray-400">{ct.phoneOffice ?? ct.phoneMobile}</span>}
+                {ct.isInvoiceRecipient && <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">invoices</span>}
+                {canManage && (
+                  <span className="ml-auto flex items-center gap-2 text-xs">
+                    <form action={toggleInvoiceRecipientAction}>
+                      <input type="hidden" name="clientId" value={client.id} />
+                      <input type="hidden" name="contactId" value={ct.id} />
+                      <button className="text-gray-500 hover:text-brand-teal">{ct.isInvoiceRecipient ? 'Unset recipient' : 'Set as recipient'}</button>
+                    </form>
+                    <form action={deleteContactAction}>
+                      <input type="hidden" name="clientId" value={client.id} />
+                      <input type="hidden" name="contactId" value={ct.id} />
+                      <ConfirmSubmit message={`Remove ${ct.firstName} ${ct.lastName}?`} className="text-gray-400 hover:text-red-600">✕</ConfirmSubmit>
+                    </form>
+                  </span>
                 )}
               </li>
             ))}
+            {client.contacts.length === 0 && <li className="px-4 py-3 text-gray-400">No contacts yet.</li>}
           </ul>
+          {canManage && (
+            <form action={addContactAction} className="flex flex-wrap items-end gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3">
+              <input type="hidden" name="clientId" value={client.id} />
+              <input name="firstName" placeholder="First name" className={`${inp} w-32`} />
+              <input name="lastName" placeholder="Last name" className={`${inp} w-32`} />
+              <input name="email" type="email" placeholder="Email" className={`${inp} w-52`} />
+              <input name="phoneOffice" placeholder="Phone" className={`${inp} w-36`} />
+              <label className="flex items-center gap-1.5 pb-2 text-sm text-gray-600"><input type="checkbox" name="isInvoiceRecipient" /> Invoice recipient</label>
+              <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add contact</button>
+            </form>
+          )}
         </div>
-      )}
+      </div>
 
       <h2 className="mb-2 text-sm font-semibold text-gray-700">Projects</h2>
       <div className="mb-6 overflow-hidden rounded-lg border border-gray-200 bg-white">

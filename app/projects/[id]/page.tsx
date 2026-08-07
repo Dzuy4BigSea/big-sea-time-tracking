@@ -14,6 +14,7 @@ import {
   removeTaskFromProjectAction,
   toggleProjectTaskBillableAction,
   setProjectTaskRateAction,
+  setProjectArchivedAction,
 } from '@/app/projects/actions'
 
 export const dynamic = 'force-dynamic'
@@ -96,13 +97,20 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
           {TYPE_LABEL[project.projectType] ?? project.projectType}
         </span>
+        {!project.isActive && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Archived</span>}
         {canManage && (
-          <Link
-            href={`/projects/${project.id}/edit`}
-            className="ml-auto rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Edit project
-          </Link>
+          <div className="ml-auto flex items-center gap-2">
+            <Link href={`/projects/${project.id}/edit`} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
+              Edit project
+            </Link>
+            <form action={setProjectArchivedAction}>
+              <input type="hidden" name="projectId" value={project.id} />
+              <input type="hidden" name="archived" value={project.isActive ? 'on' : 'off'} />
+              <button className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600 hover:bg-gray-50">
+                {project.isActive ? 'Archive' : 'Restore'}
+              </button>
+            </form>
+          </div>
         )}
       </div>
 
