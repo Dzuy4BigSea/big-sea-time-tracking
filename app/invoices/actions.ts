@@ -12,7 +12,10 @@ import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xer
 import { parseYmd } from '@/lib/week'
 import { requireUser } from '@/lib/session'
 import { writeAudit } from '@/lib/audit'
-import { formatCents } from '@/lib/format'
+import { formatCents, formatDate } from '@/lib/format'
+import { headers } from 'next/headers'
+import { sendEmail } from '@/modules/email/send'
+import { renderInvoiceSentEmail } from '@/modules/email/templates'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -22,6 +25,55 @@ const METHODS: PaymentMethod[] = ['cash', 'check', 'bank_transfer', 'card', 'oth
 async function ownsInvoice(invoiceId: string, accountId: string): Promise<boolean> {
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { accountId: true } })
   return !!inv && inv.accountId === accountId
+}
+
+function baseUrl(): string {
+  const h = headers()
+  const proto = h.get('x-forwarded-proto') ?? 'https'
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
+  return `${proto}://${host}`
+}
+
+/**
+ * Email a sent invoice to the client's invoice recipient via SendGrid (specs/15/16). Best-effort:
+ * records the outcome to the activity log and never throws into the caller. From-address is the
+ * invoice entity's sender (Cordelia vs Big Sea), resolved inside sendEmail.
+ */
+async function emailInvoice(accountId: string, invoiceId: string, actorUserId: string): Promise<void> {
+  const inv = await prisma.invoice.findFirst({
+    where: { id: invoiceId, accountId },
+    include: { client: { include: { contacts: true } }, account: { select: { name: true } }, entity: { select: { name: true } } },
+  })
+  if (!inv || !inv.publicToken) return
+  const recipient =
+    inv.client.contacts.find((c) => c.isInvoiceRecipient && c.email)?.email ??
+    inv.client.contacts.find((c) => c.email)?.email ??
+    null
+  if (!recipient) {
+    await writeAudit({ accountId, actorUserId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Not emailed — no invoice-recipient contact on file' })
+    return
+  }
+  const link = `${baseUrl()}/i/${inv.publicToken}`
+  const due = inv.totalCents - inv.paidCents
+  const { subject, html } = renderInvoiceSentEmail({
+    fromName: inv.entity?.name ?? inv.account.name,
+    clientName: inv.client.name,
+    invoiceNumber: inv.number ?? '',
+    amountDue: formatCents(due, inv.currency),
+    issueDate: formatDate(inv.issueDate),
+    dueDate: formatDate(inv.dueDate),
+    payUrl: due > 0 ? link : null,
+    invoiceUrl: link,
+  })
+  const r = await sendEmail(accountId, { to: recipient, subject, html, entityId: inv.entityId })
+  await writeAudit({
+    accountId,
+    actorUserId,
+    entityType: 'invoice',
+    entityId: invoiceId,
+    action: 'update',
+    summary: r.ok ? `Emailed to ${recipient}` : r.skipped ? `Email not sent — ${r.message}` : `Email failed — ${r.message}`,
+  })
 }
 
 export async function recordPaymentAction(_prev: PaymentState, formData: FormData): Promise<PaymentState> {
@@ -84,6 +136,7 @@ export async function sendInvoiceAction(formData: FormData): Promise<void> {
     return
   }
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: wasSent?.sentAt ? 'Invoice resent' : 'Invoice sent' })
+  await emailInvoice(accountId, invoiceId, userId).catch(() => {}) // email the client (best-effort)
   const xeroId = await copyInvoiceToXero(accountId, invoiceId).catch(() => null) // auto-copy to Xero on send (best-effort)
   if (xeroId) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Copied to Xero' })
   revalidatePath(`/invoices/${invoiceId}`)
@@ -136,6 +189,7 @@ export async function resendInvoiceAction(formData: FormData): Promise<void> {
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { status: true } })
   if (!inv || (inv.status !== 'open' && inv.status !== 'paid')) return
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
+  await emailInvoice(accountId, invoiceId, userId).catch(() => {}) // re-email the client (best-effort)
   await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
   revalidatePath(`/invoices/${invoiceId}`)
 }

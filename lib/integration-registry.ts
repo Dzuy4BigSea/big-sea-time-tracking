@@ -4,7 +4,7 @@
  * non-secret config. The setup UI and the save action are both driven by this.
  */
 
-export type ProviderKey = 'stripe' | 'xero' | 'asana'
+export type ProviderKey = 'stripe' | 'xero' | 'asana' | 'sendgrid'
 export type FieldKind = 'secret' | 'text' | 'toggle'
 
 export interface ProviderField {
@@ -84,6 +84,22 @@ export const PROVIDERS: ProviderDef[] = [
       { key: 'autoImportNewProjects', label: 'Auto-import new projects', kind: 'toggle' },
     ],
     orgNameField: 'workspaceName',
+  },
+  {
+    key: 'sendgrid',
+    name: 'SendGrid',
+    category: 'Email',
+    description: 'Send transactional email — invoices, receipts, reminders, and team invites — via SendGrid.',
+    docsUrl: 'https://app.sendgrid.com/settings/api_keys',
+    secrets: [
+      { key: 'apiKey', label: 'API key', kind: 'secret', placeholder: 'SG.…', required: true, help: 'SendGrid → Settings → API Keys → Create (Mail Send permission).' },
+    ],
+    config: [
+      { key: 'fromEmail', label: 'Default from address', kind: 'text', placeholder: 'billing@bigsea.co', required: true, help: 'Must be a verified sender / domain in SendGrid. Per-company senders override this (specs/16).' },
+      { key: 'fromName', label: 'Default from name', kind: 'text', placeholder: 'Big Sea' },
+      { key: 'replyTo', label: 'Reply-to address', kind: 'text', placeholder: 'hello@bigsea.co' },
+    ],
+    orgNameField: 'fromEmail',
   },
 ]
 

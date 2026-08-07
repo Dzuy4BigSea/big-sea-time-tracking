@@ -204,6 +204,7 @@ enum IntegrationProvider {
   stripe
   xero
   harvest
+  sendgrid
 }
 
 enum IntegrationStatus {
