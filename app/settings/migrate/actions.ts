@@ -41,25 +41,24 @@ export async function saveHarvestCredsAction(_prev: MigrateState, formData: Form
   if (token) secretsEnc.accessToken = encryptSecret(token)
   else if (existing?.secrets.accessToken) secretsEnc.accessToken = encryptSecret(existing.secrets.accessToken)
 
-  await prisma.integrationConnection.upsert({
-    where: { accountId_provider: { accountId: actor.accountId, provider: 'harvest' } },
-    update: {
-      secretsEnc: secretsEnc as Prisma.InputJsonValue,
-      config: { harvestAccountId } as Prisma.InputJsonValue,
-      status: 'connected',
-      externalOrgName: check.name ?? null,
-      connectedByUserId: actor.userId,
-    },
-    create: {
-      accountId: actor.accountId,
-      provider: 'harvest',
-      secretsEnc: secretsEnc as Prisma.InputJsonValue,
-      config: { harvestAccountId } as Prisma.InputJsonValue,
-      status: 'connected',
-      externalOrgName: check.name ?? null,
-      connectedByUserId: actor.userId,
-    },
+  // Harvest is account-wide (shared, entityId null). Manual upsert — a nullable member of a compound
+  // unique can't be targeted by upsert/findUnique.
+  const existingHarvest = await prisma.integrationConnection.findFirst({
+    where: { accountId: actor.accountId, provider: 'harvest', entityId: null },
+    select: { id: true },
   })
+  const harvestData = {
+    secretsEnc: secretsEnc as Prisma.InputJsonValue,
+    config: { harvestAccountId } as Prisma.InputJsonValue,
+    status: 'connected' as const,
+    externalOrgName: check.name ?? null,
+    connectedByUserId: actor.userId,
+  }
+  if (existingHarvest) {
+    await prisma.integrationConnection.update({ where: { id: existingHarvest.id }, data: harvestData })
+  } else {
+    await prisma.integrationConnection.create({ data: { accountId: actor.accountId, provider: 'harvest', entityId: null, ...harvestData } })
+  }
   revalidatePath('/settings/migrate')
   return { ok: true }
 }
@@ -226,8 +225,8 @@ async function executeBackupBatch(
   })
 
   if (finished && status === 'complete' && meta.startedAt) {
-    await prisma.integrationConnection.update({
-      where: { accountId_provider: { accountId: actor.accountId, provider: 'harvest' } },
+    await prisma.integrationConnection.updateMany({
+      where: { accountId: actor.accountId, provider: 'harvest', entityId: null },
       data: { config: { harvestAccountId, lastPulledAt: meta.startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },
     })
   }

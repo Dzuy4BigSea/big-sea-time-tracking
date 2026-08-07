@@ -36,10 +36,17 @@ export async function getConnectionViews(accountId: string): Promise<Record<stri
   return out
 }
 
-/** Server-only: the connection row + decrypted secrets, for sync flows. Null if not connected. */
+/**
+ * Server-only: the connection row + decrypted secrets, for sync flows. Null if not connected.
+ *
+ * Entity-aware (specs/16): when `entityId` is given (Stripe/Xero routing), resolve that entity's
+ * connection and fall back to the shared account-wide row (`entityId = null`) if the entity has none.
+ * When `entityId` is omitted, resolve the shared row (Asana, or the legacy account-wide connection).
+ */
 export async function getConnectionWithSecrets(
   accountId: string,
   provider: ProviderKey | IntegrationProvider,
+  entityId?: string | null,
 ): Promise<{
   status: string
   externalOrgId: string | null
@@ -47,9 +54,13 @@ export async function getConnectionWithSecrets(
   config: Record<string, unknown>
   secrets: Record<string, string>
 } | null> {
-  const r = await prisma.integrationConnection.findUnique({
-    where: { accountId_provider: { accountId, provider: provider as IntegrationProvider } },
-  })
+  const p = provider as IntegrationProvider
+  // findFirst (not findUnique) so we can target the shared row where entityId IS NULL — Prisma types
+  // a nullable member of a compound unique as non-null in findUnique.
+  let r = entityId
+    ? await prisma.integrationConnection.findFirst({ where: { accountId, provider: p, entityId } })
+    : null
+  if (!r) r = await prisma.integrationConnection.findFirst({ where: { accountId, provider: p, entityId: null } })
   if (!r) return null
   const encMap = (r.secretsEnc as Record<string, string> | null) ?? {}
   const secrets: Record<string, string> = {}

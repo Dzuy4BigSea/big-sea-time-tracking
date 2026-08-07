@@ -279,6 +279,43 @@ model Account {
   integrationSyncLogs      IntegrationSyncLog[]
   migrationSnapshots       MigrationSnapshot[]
   migrationIdMaps          MigrationIdMap[]
+  businessEntities         BusinessEntity[]
+}
+
+// A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
+// "Cordelia Labs". Team, login, and Asana are shared; invoicing sender/branding/Stripe/Xero split by
+// entity. Every entity-taggable record defaults to the account's isDefault entity.
+model BusinessEntity {
+  id        String  @id @default(cuid())
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  code      String // short tag shown in UI, e.g. "BS" / "CL"
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  // Outbound invoice identity
+  senderName   String?
+  senderEmail  String?
+  replyToEmail String?
+
+  // Invoice branding (falls back to the account InvoiceAppearance when null)
+  brandColor    String?
+  logoFileUrl   String?
+  documentTitle String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients                Client[]
+  projects               Project[]
+  homedUsers             User[]                  @relation("UserHomeEntity")
+  invoices               Invoice[]
+  integrationConnections IntegrationConnection[]
+
+  @@unique([accountId, code])
+  @@index([accountId])
 }
 
 // Feature flags (specs/11). 1:1 with Account.
@@ -315,6 +352,8 @@ model User {
 
   employeeId           String?
   asanaUserGid         String? // integration mapping (specs/14)
+  homeEntityId         String? // home business entity (specs/16); null = account default (Big Sea)
+  homeEntity           BusinessEntity?   @relation("UserHomeEntity", fields: [homeEntityId], references: [id], onDelete: SetNull)
   type                 UserType          @default(employee)
   permissionProfile    PermissionProfile @default(member)
   permissionOverrides  Json?
@@ -390,6 +429,8 @@ model Client {
   isActive   Boolean   @default(true)
   archivedAt DateTime?
   xeroContactId String? // integration mapping (specs/14)
+  entityId   String? // business entity (specs/16); null = account default (Big Sea)
+  entity     BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -447,6 +488,8 @@ model Project {
   name      String
   code      String?
   asanaProjectGid String? // integration mapping (specs/14)
+  entityId  String? // business entity (specs/16); null = account default (Big Sea)
+  entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   // Two-level billing model (specs/03)
   projectType            ProjectType         @default(time_and_materials)
@@ -594,6 +637,8 @@ model Invoice {
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
   clientId  String
   client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  entityId  String? // business entity (specs/16); stamped from client at creation, null = account default
+  entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   number      String? // null until sent (draft shows "Not sent yet")
   status      InvoiceStatus @default(draft)
@@ -916,6 +961,10 @@ model IntegrationConnection {
   accountId String
   account  Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
   provider IntegrationProvider
+  // Business entity this connection belongs to (specs/16). null = shared/account-wide (Asana);
+  // non-null = entity-specific (Stripe, Xero) so each company routes to its own account/tenant.
+  entityId String?
+  entity   BusinessEntity?     @relation(fields: [entityId], references: [id], onDelete: Cascade)
   status   IntegrationStatus   @default(disconnected)
 
   // Secret material — AES-256-GCM encrypted at rest (lib/crypto). Never returned to the client.
@@ -935,8 +984,9 @@ model IntegrationConnection {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([accountId, provider])
+  @@unique([accountId, provider, entityId])
   @@index([accountId])
+  @@index([entityId])
 }
 
 model IntegrationSyncLog {

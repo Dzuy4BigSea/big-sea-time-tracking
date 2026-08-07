@@ -33,8 +33,10 @@ export async function saveIntegrationAction(_prev: IntegrationState, formData: F
     return { error: 'Set the INTEGRATION_ENC_KEY environment variable before storing integration secrets.' }
   }
 
-  const existing = await prisma.integrationConnection.findUnique({
-    where: { accountId_provider: { accountId: actor.accountId, provider: provider as IntegrationProvider } },
+  // Business entity (specs/16): Stripe/Xero connect per entity; Asana + others stay shared (null).
+  const entityId = provider === 'asana' ? null : String(formData.get('entityId') ?? '').trim() || null
+  const existing = await prisma.integrationConnection.findFirst({
+    where: { accountId: actor.accountId, provider: provider as IntegrationProvider, entityId },
   })
   const existingSecrets = (existing?.secretsEnc as Record<string, string> | null) ?? {}
 
@@ -60,19 +62,26 @@ export async function saveIntegrationAction(_prev: IntegrationState, formData: F
 
   const secretsJson = secretsEnc as Prisma.InputJsonValue
   const configJson = config as Prisma.InputJsonValue
-  await prisma.integrationConnection.upsert({
-    where: { accountId_provider: { accountId: actor.accountId, provider: provider as IntegrationProvider } },
-    update: { secretsEnc: secretsJson, config: configJson, status, externalOrgName, connectedByUserId: actor.userId },
-    create: {
-      accountId: actor.accountId,
-      provider: provider as IntegrationProvider,
-      secretsEnc: secretsJson,
-      config: configJson,
-      status,
-      externalOrgName,
-      connectedByUserId: actor.userId,
-    },
-  })
+  // Manual upsert: a nullable member of a compound unique can't be targeted by upsert/findUnique.
+  if (existing) {
+    await prisma.integrationConnection.update({
+      where: { id: existing.id },
+      data: { secretsEnc: secretsJson, config: configJson, status, externalOrgName, connectedByUserId: actor.userId },
+    })
+  } else {
+    await prisma.integrationConnection.create({
+      data: {
+        accountId: actor.accountId,
+        provider: provider as IntegrationProvider,
+        entityId,
+        secretsEnc: secretsJson,
+        config: configJson,
+        status,
+        externalOrgName,
+        connectedByUserId: actor.userId,
+      },
+    })
+  }
 
   revalidatePath('/settings/integrations')
   return { ok: true }
@@ -138,8 +147,8 @@ export async function importAsanaAction(): Promise<void> {
       await prisma.project.updateMany({ where: { accountId: actor.accountId, asanaProjectGid: p.gid }, data: { name: p.name } }).catch(() => {})
     }
 
-    await prisma.integrationConnection.update({
-      where: { accountId_provider: { accountId: actor.accountId, provider: 'asana' } },
+    await prisma.integrationConnection.updateMany({
+      where: { accountId: actor.accountId, provider: 'asana', entityId: null },
       data: { lastSyncedAt: new Date() },
     })
     await logSync({ accountId: actor.accountId, provider: 'asana', direction: 'inbound', entityType: 'project', ok: true, message: `Imported ${newProjects.length} projects, ${newUsers.length} people` })
@@ -156,8 +165,9 @@ export async function disconnectIntegrationAction(formData: FormData): Promise<v
   if (!actor) return
   const provider = String(formData.get('provider') ?? '') as ProviderKey
   if (!providerDef(provider)) return
+  const entityId = provider === 'asana' ? null : String(formData.get('entityId') ?? '').trim() || null
   await prisma.integrationConnection
-    .delete({ where: { accountId_provider: { accountId: actor.accountId, provider: provider as IntegrationProvider } } })
+    .deleteMany({ where: { accountId: actor.accountId, provider: provider as IntegrationProvider, entityId } })
     .catch(() => {})
   revalidatePath('/settings/integrations')
 }
