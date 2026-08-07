@@ -13,6 +13,14 @@ prioritize — it is the tracker the project was missing.
 > and print/PDF. Rows kept for history; see the ✅ notes. Remaining open areas: timesheet approval,
 > expense edit/receipts, per-project rates, team detail/permissions (next), reports depth.
 
+> **Update 2026-08-07 (later):** further built — global top-bar **search** (invoices/projects/
+> clients/tasks/people), **Reports → Expenses** report + CSV, dashboard KPI widgets, the **Invoice
+> Configure** suite (field labels, email messages, item types, sender addresses — P3.8), and the
+> **per-company brand console** (spec 18): company-tabbed Integrations, per-company branding/accent/
+> sender/email-theme, and per-company invoice language + email messages. Correctness bugs B1–B10 are
+> all fixed. Remaining open: timesheet submit/approve (module off at Big Sea), estimates public
+> `/e/[token]` + editor, remaining report types (utilization/payments/uninvoiced), settings depth.
+
 ## Summary — biggest gaps
 | Area | State | Headline gaps |
 |---|---|---|
