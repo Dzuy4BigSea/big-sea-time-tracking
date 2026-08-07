@@ -528,12 +528,18 @@ async function ensureAssignments(ctx: Ctx, projectId: string, taskId: string, us
 export async function runImportBatch(
   accountId: string,
   snapshotId: string,
-  opts: { dryRun: boolean; cursor?: ImportCursor | null },
+  opts: { dryRun: boolean; cursor?: ImportCursor | null; stopAfter?: string },
 ): Promise<ImportBatchResult> {
   const snap = await prisma.migrationSnapshot.findFirst({ where: { id: snapshotId, accountId }, select: { entityCounts: true } })
   if (!snap) return { ok: false, message: 'Snapshot not found.', dryRun: opts.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
   const counts = (snap.entityCounts as Record<string, number> | null) ?? {}
   const totalRows = IMPORT_RESOURCES.reduce((a, r) => a + (counts[r] ?? 0), 0)
+
+  // Staged migration: stop after finishing the named entity's stage (inclusive). This lets us
+  // migrate + verify team, then projects, then timesheets as separate diagnosable phases.
+  const stopIdx = opts.stopAfter ? STAGES.findIndex((s) => s.entity === opts.stopAfter) : -1
+  const maxStageIndex = stopIdx >= 0 ? stopIdx : STAGES.length - 1
+  const fullRun = maxStageIndex === STAGES.length - 1
 
   const maps = await loadMaps(accountId)
   const dryRun = opts.dryRun
@@ -551,7 +557,7 @@ export async function runImportBatch(
   let processedThisBatch = 0
   let stageLabel = STAGES[Math.min(stageIndex, STAGES.length - 1)]?.label ?? ''
 
-  while (stageIndex < STAGES.length) {
+  while (stageIndex <= maxStageIndex) {
     const stage = STAGES[stageIndex]
     stageLabel = stage.label
     const parts = await listParts(snapshotId, stage.resource)
@@ -578,7 +584,8 @@ export async function runImportBatch(
   }
 
   // Done — bump document-number sequences past the highest imported number so new docs don't collide.
-  if (!dryRun) {
+  // Only when the whole import finished; a partial phase (stopAfter) must not claim completion side effects.
+  if (!dryRun && fullRun) {
     const [invMax, estMax] = await Promise.all([
       prisma.invoice.aggregate({ where: { accountId }, _max: { number: true } }),
       prisma.estimate.aggregate({ where: { accountId }, _max: { number: true } }),
