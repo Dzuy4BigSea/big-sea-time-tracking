@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from 'react-dom'
 import { createPersonAction, type NewPersonState } from '@/app/team/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 const PROFILE_OPTIONS: { value: string; label: string }[] = [
   { value: 'member', label: 'Member' },
@@ -36,7 +37,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-export function NewPersonForm() {
+export function NewPersonForm({ entities = [] }: { entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<NewPersonState, FormData>(createPersonAction, {})
 
   return (
@@ -76,6 +77,7 @@ export function NewPersonForm() {
           <Field label="Initial password">
             <input name="password" type="password" required minLength={8} className={`${input} w-48`} />
           </Field>
+          <EntitySelect entities={entities} name="homeEntityId" label="Home company" help="They can still work across both" />
         </div>
         <div className="flex items-center gap-3">
           <Submit />

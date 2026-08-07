@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { EditPersonForm } from '@/components/EditPersonForm'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,19 +14,23 @@ export default async function EditPersonPage({ params }: { params: { id: string 
     redirect('/team')
   }
 
-  const person = await prisma.user.findFirst({
-    where: { id: params.id, accountId },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      permissionProfile: true,
-      type: true,
-      capacityHoursPerWeek: true,
-      isActive: true,
-    },
-  })
+  const [person, entities] = await Promise.all([
+    prisma.user.findFirst({
+      where: { id: params.id, accountId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        permissionProfile: true,
+        type: true,
+        capacityHoursPerWeek: true,
+        isActive: true,
+        homeEntityId: true,
+      },
+    }),
+    listEntities(accountId),
+  ])
   if (!person) notFound()
 
   return (
@@ -44,7 +49,9 @@ export default async function EditPersonPage({ params }: { params: { id: string 
           type: person.type,
           capacityHoursPerWeek: person.capacityHoursPerWeek ? Number(person.capacityHoursPerWeek) : null,
           isActive: person.isActive,
+          homeEntityId: person.homeEntityId,
         }}
+        entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
       />
     </div>
   )

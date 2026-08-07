@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { EditClientForm } from '@/components/EditClientForm'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,10 +14,13 @@ export default async function EditClientPage({ params }: { params: { id: string 
     redirect('/clients')
   }
 
-  const client = await prisma.client.findFirst({
-    where: { id: params.id, accountId },
-    select: { id: true, name: true, currency: true, address: true, _count: { select: { invoices: true } } },
-  })
+  const [client, entities] = await Promise.all([
+    prisma.client.findFirst({
+      where: { id: params.id, accountId },
+      select: { id: true, name: true, currency: true, address: true, entityId: true, _count: { select: { invoices: true } } },
+    }),
+    listEntities(accountId),
+  ])
   if (!client) notFound()
 
   return (
@@ -26,8 +30,9 @@ export default async function EditClientPage({ params }: { params: { id: string 
       </Link>
       <h1 className="mb-4 mt-2 text-2xl font-semibold">Edit client</h1>
       <EditClientForm
-        client={{ id: client.id, name: client.name, currency: client.currency, address: client.address }}
+        client={{ id: client.id, name: client.name, currency: client.currency, address: client.address, entityId: client.entityId }}
         currencyLocked={client._count.invoices > 0}
+        entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
       />
     </div>
   )

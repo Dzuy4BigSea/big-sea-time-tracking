@@ -5,6 +5,8 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { NewPersonForm } from '@/components/NewPersonForm'
+import { EntityChip } from '@/components/EntitySelect'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,27 +25,31 @@ export default async function TeamPage() {
   const { accountId, permissionProfile } = await requireUser()
   await requireModule(accountId, 'team')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')
-  const users = await prisma.user.findMany({
-    where: { accountId, archivedAt: null },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      permissionProfile: true,
-      type: true,
-      capacityHoursPerWeek: true,
-      isActive: true,
-      timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },
-    },
-    orderBy: [{ firstName: 'asc' }],
-  })
+  const [users, entities] = await Promise.all([
+    prisma.user.findMany({
+      where: { accountId, archivedAt: null },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        permissionProfile: true,
+        type: true,
+        capacityHoursPerWeek: true,
+        isActive: true,
+        homeEntity: { select: { code: true, name: true } },
+        timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },
+      },
+      orderBy: [{ firstName: 'asc' }],
+    }),
+    listEntities(accountId),
+  ])
 
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Team</h1>
       <p className="mb-6 text-sm text-gray-500">Live from Supabase · {users.length} people</p>
 
-      {canManage && <NewPersonForm />}
+      {canManage && <NewPersonForm entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -71,6 +77,7 @@ export default async function TeamPage() {
                     <span className="font-medium text-gray-900">
                       {u.firstName} {u.lastName}
                     </span>
+                    {u.homeEntity && <span className="ml-2"><EntityChip code={u.homeEntity.code} name={u.homeEntity.name} /></span>}
                     {!u.isActive && <span className="ml-2 text-xs text-gray-400">(inactive)</span>}
                   </td>
                   <td className="px-4 py-3">

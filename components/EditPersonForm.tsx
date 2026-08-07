@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updatePersonAction, type EditPersonState } from '@/app/team/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -46,9 +47,10 @@ export interface EditablePerson {
   type: string
   capacityHoursPerWeek: number | null
   isActive: boolean
+  homeEntityId: string | null
 }
 
-export function EditPersonForm({ person }: { person: EditablePerson }) {
+export function EditPersonForm({ person, entities = [] }: { person: EditablePerson; entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<EditPersonState, FormData>(updatePersonAction, {})
 
   return (
@@ -84,6 +86,7 @@ export function EditPersonForm({ person }: { person: EditablePerson }) {
         <Field label="Capacity (h/wk)">
           <input name="capacity" defaultValue={person.capacityHoursPerWeek?.toString() ?? ''} className={`${input} w-24`} />
         </Field>
+        <EntitySelect entities={entities} name="homeEntityId" defaultValue={person.homeEntityId} label="Home company" />
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

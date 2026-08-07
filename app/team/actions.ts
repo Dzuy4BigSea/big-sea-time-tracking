@@ -6,6 +6,7 @@ import type { PermissionProfile as DbProfile, UserType as DbUserType } from '@pr
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { validEntityId } from '@/lib/entities'
 
 export type NewPersonState = { error?: string; ok?: boolean }
 export type EditPersonState = { error?: string; ok?: boolean }
@@ -41,6 +42,7 @@ export async function createPersonAction(_prev: NewPersonState, formData: FormDa
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Enter a valid email.' }
   if (password.length < 8) return { error: 'Initial password must be at least 8 characters.' }
 
+  const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
   try {
     await prisma.user.create({
       data: {
@@ -52,6 +54,7 @@ export async function createPersonAction(_prev: NewPersonState, formData: FormDa
         permissionProfile: profile,
         type,
         capacityHoursPerWeek,
+        homeEntityId,
       },
     })
   } catch (e) {
@@ -92,6 +95,7 @@ export async function updatePersonAction(_prev: EditPersonState, formData: FormD
   // Prevent locking yourself out.
   if (id === selfId && !isActive) return { error: 'You can’t deactivate your own account.' }
 
+  const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
   try {
     await prisma.user.update({
       where: { id },
@@ -102,6 +106,7 @@ export async function updatePersonAction(_prev: EditPersonState, formData: FormD
         type,
         capacityHoursPerWeek,
         isActive,
+        homeEntityId,
         ...(newPassword ? { passwordHash: bcrypt.hashSync(newPassword, 10) } : {}),
       },
     })

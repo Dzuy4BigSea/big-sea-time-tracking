@@ -6,6 +6,7 @@ import type { ProjectType, BillableRateMethod, BudgetMethod } from '@prisma/clie
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { validEntityId } from '@/lib/entities'
 
 export type NewProjectState = { error?: string }
 export type EditProjectState = { error?: string; ok?: boolean }
@@ -29,8 +30,10 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
   const budgetChoice = String(formData.get('budgetMethod') ?? 'none') // none | hours_total | fee_total
 
   if (!name) return { error: 'Project name is required.' }
-  const client = await prisma.client.findFirst({ where: { id: clientId, accountId }, select: { id: true } })
+  const client = await prisma.client.findFirst({ where: { id: clientId, accountId }, select: { id: true, entityId: true } })
   if (!client) return { error: 'Pick a valid client.' }
+  // Entity: explicit choice, else inherit the client's designation (specs/16).
+  const entityId = (await validEntityId(accountId, String(formData.get('entityId') ?? ''))) ?? client.entityId
 
   const isTM = projectType === 'time_and_materials'
   const billableRateMethod = isTM ? billableRateMethodRaw : null
@@ -68,6 +71,7 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
         budgetResetsMonthly,
         budgetAlertPercent,
         isBillable: projectType !== 'non_billable',
+        entityId,
       },
     })
     projectId = project.id
@@ -102,6 +106,7 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
   const id = String(formData.get('id') ?? '')
   const project = await prisma.project.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!project) return { error: 'Project not found.' }
+  const entityId = await validEntityId(accountId, String(formData.get('entityId') ?? ''))
 
   const name = String(formData.get('name') ?? '').trim()
   const code = String(formData.get('code') ?? '').trim() || null
@@ -145,6 +150,7 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
         budgetResetsMonthly,
         budgetAlertPercent,
         isBillable: projectType !== 'non_billable',
+        entityId,
       },
     })
   } catch {

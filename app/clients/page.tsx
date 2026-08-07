@@ -3,20 +3,27 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { NewClientForm } from '@/components/NewClientForm'
+import { EntityChip } from '@/components/EntitySelect'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
   const { accountId, permissionProfile } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')
-  const clients = await prisma.client.findMany({
-    where: { accountId },
-    include: {
-      contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
-      _count: { select: { projects: true } },
-    },
-    orderBy: { name: 'asc' },
-  })
+  const [clients, entities] = await Promise.all([
+    prisma.client.findMany({
+      where: { accountId },
+      include: {
+        contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
+        entity: { select: { code: true, name: true } },
+        _count: { select: { projects: true } },
+      },
+      orderBy: { name: 'asc' },
+    }),
+    listEntities(accountId),
+  ])
+  const entityOpts = entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))
 
   return (
     <div>
@@ -25,16 +32,17 @@ export default async function ClientsPage() {
         Live from Supabase · {clients.length} client{clients.length === 1 ? '' : 's'}
       </p>
 
-      {canManage && <NewClientForm />}
+      {canManage && <NewClientForm entities={entityOpts} />}
 
       <div className="space-y-3">
         {clients.map((c) => (
           <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold text-gray-900">
+              <h2 className="flex items-center gap-2 font-semibold text-gray-900">
                 <Link href={`/clients/${c.id}`} className="hover:text-brand-teal">
                   {c.name}
                 </Link>
+                {c.entity && <EntityChip code={c.entity.code} name={c.entity.name} />}
               </h2>
               <div className="flex items-baseline gap-3 text-xs text-gray-400">
                 <span>

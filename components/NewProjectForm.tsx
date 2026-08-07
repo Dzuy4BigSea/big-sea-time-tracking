@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import { createProjectAction, type NewProjectState } from '@/app/projects/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 function Submit() {
   const { pending } = useFormStatus()
@@ -28,7 +29,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
-export function NewProjectForm({ clients }: { clients: { id: string; name: string }[] }) {
+export function NewProjectForm({ clients, entities = [] }: { clients: { id: string; name: string }[]; entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<NewProjectState, FormData>(createProjectAction, {})
   const [projectType, setProjectType] = useState('time_and_materials')
   const [rateMethod, setRateMethod] = useState('none')
@@ -58,6 +59,7 @@ export function NewProjectForm({ clients }: { clients: { id: string; name: strin
           <Field label="Code">
             <input name="code" placeholder="optional" className={`${input} w-32`} />
           </Field>
+          <EntitySelect entities={entities} name="entityId" help="Defaults to the client's company" />
         </div>
 
         <div className="flex flex-wrap items-end gap-3">

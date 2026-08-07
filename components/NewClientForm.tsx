@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from 'react-dom'
 import { createClientAction, type NewClientState } from '@/app/clients/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 function Submit() {
   const { pending } = useFormStatus()
@@ -16,7 +17,7 @@ function Submit() {
   )
 }
 
-export function NewClientForm() {
+export function NewClientForm({ entities = [] }: { entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<NewClientState, FormData>(createClientAction, {})
 
   return (
@@ -36,6 +37,7 @@ export function NewClientForm() {
               <option>AUD</option>
             </select>
           </Field>
+          <EntitySelect entities={entities} name="entityId" help="Which company bills this client" />
         </div>
 
         <Field label="Address">

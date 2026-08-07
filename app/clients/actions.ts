@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { validEntityId } from '@/lib/entities'
 
 export type NewClientState = { error?: string; ok?: boolean }
 export type EditClientState = { error?: string; ok?: boolean }
@@ -30,6 +31,7 @@ export async function createClientAction(_prev: NewClientState, formData: FormDa
 
   if (!name) return { error: 'Client name is required.' }
 
+  const entityId = await validEntityId(accountId, String(formData.get('entityId') ?? ''))
   const hasContact = contactFirst || contactLast || contactEmail
   try {
     await prisma.client.create({
@@ -38,6 +40,7 @@ export async function createClientAction(_prev: NewClientState, formData: FormDa
         name,
         currency,
         address,
+        entityId,
         contacts: hasContact
           ? {
               create: [
@@ -75,6 +78,7 @@ export async function updateClientAction(_prev: EditClientState, formData: FormD
 
   if (!name) return { error: 'Client name is required.' }
 
+  const entityId = await validEntityId(accountId, String(formData.get('entityId') ?? ''))
   const client = await prisma.client.findFirst({
     where: { id, accountId },
     select: { currency: true, _count: { select: { invoices: true } } },
@@ -90,7 +94,7 @@ export async function updateClientAction(_prev: EditClientState, formData: FormD
   try {
     await prisma.client.update({
       where: { id },
-      data: { name, address, currency: lockedCurrency ? client.currency : currency },
+      data: { name, address, currency: lockedCurrency ? client.currency : currency, entityId },
     })
   } catch {
     return { error: 'Could not save the client.' }

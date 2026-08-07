@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { EditProjectForm } from '@/components/EditProjectForm'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,10 +14,13 @@ export default async function EditProjectPage({ params }: { params: { id: string
     redirect(`/projects/${params.id}`)
   }
 
-  const project = await prisma.project.findFirst({
-    where: { id: params.id, accountId },
-    include: { client: { select: { name: true } } },
-  })
+  const [project, entities] = await Promise.all([
+    prisma.project.findFirst({
+      where: { id: params.id, accountId },
+      include: { client: { select: { name: true } } },
+    }),
+    listEntities(accountId),
+  ])
   if (!project) notFound()
 
   return (
@@ -39,7 +43,9 @@ export default async function EditProjectPage({ params }: { params: { id: string
           budgetValue: project.budgetValue,
           budgetResetsMonthly: project.budgetResetsMonthly,
           budgetAlertPercent: project.budgetAlertPercent,
+          entityId: project.entityId,
         }}
+        entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
       />
     </div>
   )

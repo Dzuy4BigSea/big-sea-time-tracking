@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updateClientAction, type EditClientState } from '@/app/clients/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -22,9 +23,11 @@ function Submit() {
 export function EditClientForm({
   client,
   currencyLocked,
+  entities = [],
 }: {
-  client: { id: string; name: string; currency: string; address: string | null }
+  client: { id: string; name: string; currency: string; address: string | null; entityId: string | null }
   currencyLocked: boolean
+  entities?: EntityOption[]
 }) {
   const [state, formAction] = useFormState<EditClientState, FormData>(updateClientAction, {})
 
@@ -61,6 +64,8 @@ export function EditClientForm({
         <span className="text-xs uppercase tracking-wide text-gray-400">Address</span>
         <textarea name="address" rows={3} defaultValue={client.address ?? ''} className={input} />
       </label>
+
+      <EntitySelect entities={entities} name="entityId" defaultValue={client.entityId} help="Which company bills this client" />
 
       <div className="flex items-center gap-3">
         <Submit />

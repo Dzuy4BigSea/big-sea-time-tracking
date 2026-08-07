@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updateProjectAction, type EditProjectState } from '@/app/projects/actions'
+import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -42,9 +43,10 @@ export interface EditableProject {
   budgetValue: number | null
   budgetResetsMonthly: boolean
   budgetAlertPercent: number | null
+  entityId: string | null
 }
 
-export function EditProjectForm({ project }: { project: EditableProject }) {
+export function EditProjectForm({ project, entities = [] }: { project: EditableProject; entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<EditProjectState, FormData>(updateProjectAction, {})
   const [projectType, setProjectType] = useState(project.projectType)
   const [rateMethod, setRateMethod] = useState(project.billableRateMethod ?? 'none')
@@ -68,6 +70,7 @@ export function EditProjectForm({ project }: { project: EditableProject }) {
         <Field label="Code">
           <input name="code" defaultValue={project.code ?? ''} className={`${input} w-32`} />
         </Field>
+        <EntitySelect entities={entities} name="entityId" defaultValue={project.entityId} label="Company" />
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

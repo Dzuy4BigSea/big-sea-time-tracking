@@ -4,6 +4,8 @@ import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { NewProjectForm } from '@/components/NewProjectForm'
+import { EntityChip } from '@/components/EntitySelect'
+import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,16 +35,18 @@ const hours = (minutes: number) => (minutes / 60).toLocaleString(undefined, { ma
 export default async function ProjectsPage() {
   const { accountId, permissionProfile } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')
-  const [projects, clients] = await Promise.all([
+  const [projects, clients, entities] = await Promise.all([
     prisma.project.findMany({
       where: { accountId },
       include: {
         client: true,
+        entity: { select: { code: true, name: true } },
         timeEntries: { select: { minutes: true, isBillable: true, billableRateCents: true } },
       },
       orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
     }),
     prisma.client.findMany({ where: { accountId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    listEntities(accountId),
   ])
 
   // Group by client for a Harvest-style grouped table (client header links to the client).
@@ -60,7 +64,7 @@ export default async function ProjectsPage() {
         Live from Supabase · {projects.length} project{projects.length === 1 ? '' : 's'}
       </p>
 
-      {canManage && <NewProjectForm clients={clients} />}
+      {canManage && <NewProjectForm clients={clients} entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -105,6 +109,7 @@ function ClientGroup({
     projectType: string
     budgetMethod: string
     budgetValue: number | null
+    entity: { code: string; name: string } | null
     timeEntries: { minutes: number; isBillable: boolean; billableRateCents: number | null }[]
   }[]
 }) {
@@ -131,6 +136,7 @@ function ClientGroup({
                 {p.code && <span className="text-gray-400">[{p.code}] </span>}
                 {p.name}
               </Link>
+              {p.entity && <span className="ml-2"><EntityChip code={p.entity.code} name={p.entity.name} /></span>}
             </td>
             <td className="px-4 py-3">
               <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
