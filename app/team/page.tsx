@@ -21,13 +21,43 @@ const PROFILE_LABEL: Record<string, string> = {
 
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-export default async function TeamPage() {
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Everyone' },
+  ...Object.entries(PROFILE_LABEL).map(([value, label]) => ({ value, label })),
+  { value: 'type:employee', label: 'Employees' },
+  { value: 'type:contractor', label: 'Contractors' },
+]
+
+export default async function TeamPage({
+  searchParams,
+}: {
+  searchParams: { q?: string; role?: string; archived?: string }
+}) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'team')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')
-  const [users, entities] = await Promise.all([
+
+  const showArchived = searchParams.archived === '1'
+  const q = (searchParams.q ?? '').trim()
+  const role = searchParams.role ?? ''
+  const roleFilter =
+    role.startsWith('type:')
+      ? { type: role.slice(5) as 'employee' | 'contractor' }
+      : role
+        ? { permissionProfile: role as PermissionProfile }
+        : {}
+
+  const [users, activeCount, archivedCount, entities] = await Promise.all([
     prisma.user.findMany({
-      where: { accountId, archivedAt: null },
+      where: {
+        accountId,
+        archivedAt: null,
+        ...(showArchived ? {} : { isActive: true }),
+        ...roleFilter,
+        ...(q
+          ? { OR: [{ firstName: { contains: q, mode: 'insensitive' } }, { lastName: { contains: q, mode: 'insensitive' } }, { email: { contains: q, mode: 'insensitive' } }] }
+          : {}),
+      },
       select: {
         id: true,
         firstName: true,
@@ -41,15 +71,52 @@ export default async function TeamPage() {
       },
       orderBy: [{ firstName: 'asc' }],
     }),
+    prisma.user.count({ where: { accountId, archivedAt: null, isActive: true } }),
+    prisma.user.count({ where: { accountId, archivedAt: null, isActive: false } }),
     listEntities(accountId),
   ])
+
+  const qp = (over: Record<string, string>) => {
+    const p = new URLSearchParams({ ...(q ? { q } : {}), ...(role ? { role } : {}), ...(showArchived ? { archived: '1' } : {}), ...over })
+    const s = p.toString()
+    return s ? `/team?${s}` : '/team'
+  }
 
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Team</h1>
-      <p className="mb-6 text-sm text-gray-500">Live from Supabase · {users.length} people</p>
+      <p className="mb-6 text-sm text-gray-500">
+        {activeCount} active {activeCount === 1 ? 'person' : 'people'}
+        {archivedCount > 0 && ` · ${archivedCount} inactive`}
+      </p>
 
       {canManage && <NewPersonForm entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
+
+      {/* Filter bar: name search + role dropdown + active/archived toggle */}
+      <form className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          name="q"
+          defaultValue={q}
+          placeholder="Filter by name"
+          className="w-56 rounded border border-gray-300 px-3 py-1.5 text-sm"
+        />
+        <select name="role" defaultValue={role} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+          {ROLE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {showArchived && <input type="hidden" name="archived" value="1" />}
+        <button className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Apply</button>
+        {(q || role) && (
+          <Link href={qp({ q: '', role: '' })} className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>
+        )}
+        <Link
+          href={showArchived ? qp({ archived: '' }) : qp({ archived: '1' })}
+          className="ml-auto text-sm text-brand-teal hover:underline"
+        >
+          {showArchived ? 'Hide inactive people' : `View archived people${archivedCount > 0 ? ` (${archivedCount})` : ''} →`}
+        </Link>
+      </form>
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
