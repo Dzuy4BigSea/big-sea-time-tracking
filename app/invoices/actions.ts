@@ -16,9 +16,10 @@ import { writeAudit } from '@/lib/audit'
 import { formatCents, formatDate } from '@/lib/format'
 import { headers } from 'next/headers'
 import { sendEmail } from '@/modules/email/send'
-import { renderInvoiceSentEmail } from '@/modules/email/templates'
+import { renderInvoiceSentEmail, DEFAULT_EMAIL_THEME } from '@/modules/email/templates'
 import { sendReceipt, sendReminder } from '@/modules/email/invoiceEmails'
 import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
+import { resolveEmailTheme } from '@/modules/entities/resolveEntity'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -45,7 +46,11 @@ function baseUrl(): string {
 async function emailInvoice(accountId: string, invoiceId: string, actorUserId: string): Promise<void> {
   const inv = await prisma.invoice.findFirst({
     where: { id: invoiceId, accountId },
-    include: { client: { include: { contacts: true } }, account: { select: { name: true } }, entity: { select: { name: true } } },
+    include: {
+      client: { include: { contacts: true } },
+      account: { select: { name: true } },
+      entity: { select: { name: true, emailBrandColor: true, emailAccentColor: true, brandColor: true, accentColor: true } },
+    },
   })
   if (!inv || !inv.publicToken) return
   const recipient =
@@ -59,7 +64,8 @@ async function emailInvoice(accountId: string, invoiceId: string, actorUserId: s
   const link = `${baseUrl()}/i/${inv.publicToken}`
   const due = inv.totalCents - inv.paidCents
   const fromName = inv.entity?.name ?? inv.account.name
-  const tpl = await getMessageTemplate(accountId, 'invoice')
+  const tpl = await getMessageTemplate(accountId, 'invoice', inv.entityId)
+  const theme = resolveEmailTheme(inv.entity, DEFAULT_EMAIL_THEME)
   const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(due, inv.currency), due: formatDate(inv.dueDate) }
   const { subject, html } = renderInvoiceSentEmail({
     fromName,
@@ -71,6 +77,7 @@ async function emailInvoice(accountId: string, invoiceId: string, actorUserId: s
     payUrl: due > 0 ? link : null,
     invoiceUrl: link,
     msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
+    theme,
   })
   const r = await sendEmail(accountId, { to: recipient, subject, html, entityId: inv.entityId })
   await writeAudit({

@@ -2,8 +2,9 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { sendEmail } from '@/modules/email/send'
-import { renderPaymentReceiptEmail, renderOverdueReminderEmail } from '@/modules/email/templates'
+import { renderPaymentReceiptEmail, renderOverdueReminderEmail, DEFAULT_EMAIL_THEME } from '@/modules/email/templates'
 import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
+import { resolveEmailTheme } from '@/modules/entities/resolveEntity'
 
 type InvoiceForEmail = {
   id: string
@@ -16,7 +17,7 @@ type InvoiceForEmail = {
   dueDate: Date | null
   publicToken: string | null
   account: { name: string }
-  entity: { name: string } | null
+  entity: { name: string; emailBrandColor: string | null; emailAccentColor: string | null; brandColor: string | null; accentColor: string | null } | null
   client: { name: string; contacts: { email: string | null; isInvoiceRecipient: boolean }[] }
 }
 
@@ -27,7 +28,7 @@ async function load(accountId: string, invoiceId: string): Promise<InvoiceForEma
       id: true, accountId: true, entityId: true, number: true, currency: true, totalCents: true, paidCents: true,
       dueDate: true, publicToken: true,
       account: { select: { name: true } },
-      entity: { select: { name: true } },
+      entity: { select: { name: true, emailBrandColor: true, emailAccentColor: true, brandColor: true, accentColor: true } },
       client: { select: { name: true, contacts: { select: { email: true, isInvoiceRecipient: true } } } },
     },
   })
@@ -44,7 +45,8 @@ export async function sendReceipt(accountId: string, invoiceId: string, amountCe
   const to = recipientOf(inv)
   if (!to) return 'Receipt not sent — no recipient contact'
   const fromName = inv.entity?.name ?? inv.account.name
-  const tpl = await getMessageTemplate(accountId, 'thank_you')
+  const tpl = await getMessageTemplate(accountId, 'thank_you', inv.entityId)
+  const theme = resolveEmailTheme(inv.entity, DEFAULT_EMAIL_THEME)
   const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(amountCents, inv.currency), method: method.replace('_', ' ') }
   const { subject, html } = renderPaymentReceiptEmail({
     fromName,
@@ -54,6 +56,7 @@ export async function sendReceipt(accountId: string, invoiceId: string, amountCe
     paidDate: formatDate(paidOn),
     method: method.replace('_', ' '),
     msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
+    theme,
   })
   const r = await sendEmail(accountId, { to, subject, html, entityId: inv.entityId })
   return r.ok ? `Receipt emailed to ${to}` : r.skipped ? `Receipt not sent — ${r.message}` : `Receipt email failed — ${r.message}`
@@ -69,7 +72,8 @@ export async function sendReminder(accountId: string, invoiceId: string, baseUrl
   const daysOverdue = inv.dueDate ? Math.max(0, Math.round((now.getTime() - inv.dueDate.getTime()) / 86_400_000)) : 0
   const link = `${baseUrl}/i/${inv.publicToken}`
   const fromName = inv.entity?.name ?? inv.account.name
-  const tpl = await getMessageTemplate(accountId, 'reminder')
+  const tpl = await getMessageTemplate(accountId, 'reminder', inv.entityId)
+  const theme = resolveEmailTheme(inv.entity, DEFAULT_EMAIL_THEME)
   const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(due, inv.currency), due: formatDate(inv.dueDate), days: String(daysOverdue) }
   const { subject, html } = renderOverdueReminderEmail({
     fromName,
@@ -81,6 +85,7 @@ export async function sendReminder(accountId: string, invoiceId: string, baseUrl
     payUrl: due > 0 ? link : null,
     invoiceUrl: link,
     msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
+    theme,
   })
   const r = await sendEmail(accountId, { to, subject, html, entityId: inv.entityId })
   return r.ok ? `Reminder emailed to ${to}` : r.skipped ? `Reminder not sent — ${r.message}` : `Reminder email failed — ${r.message}`

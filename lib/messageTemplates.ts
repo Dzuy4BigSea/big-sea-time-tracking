@@ -32,10 +32,23 @@ export const DEFAULT_MESSAGES: Record<MessageKind, MessageTemplate> = {
   },
 }
 
-export async function getMessageTemplate(accountId: string, kind: MessageKind): Promise<MessageTemplate> {
-  const row = await prisma.invoiceMessageTemplate.findUnique({ where: { accountId_kind: { accountId, kind } } })
+/**
+ * Resolve a message template. Fallback chain (spec 18): the invoice entity's override →
+ * the account default (entityId null) → the built-in default.
+ */
+export async function getMessageTemplate(accountId: string, kind: MessageKind, entityId?: string | null): Promise<MessageTemplate> {
+  const rows = await prisma.invoiceMessageTemplate.findMany({
+    where: { accountId, kind, OR: [{ entityId: null }, ...(entityId ? [{ entityId }] : [])] },
+  })
+  const row = (entityId && rows.find((r) => r.entityId === entityId)) || rows.find((r) => r.entityId === null)
   if (!row) return DEFAULT_MESSAGES[kind]
   return { subject: row.subject || DEFAULT_MESSAGES[kind].subject, body: row.body || DEFAULT_MESSAGES[kind].body }
+}
+
+/** Load a single level's stored template for the editor (no fallback merge). */
+export async function getStoredMessage(accountId: string, kind: MessageKind, entityId: string | null): Promise<MessageTemplate | null> {
+  const row = await prisma.invoiceMessageTemplate.findFirst({ where: { accountId, kind, entityId } })
+  return row ? { subject: row.subject, body: row.body } : null
 }
 
 /** Substitute `{placeholder}` tokens. Unknown tokens are left as-is. */

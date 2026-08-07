@@ -43,21 +43,50 @@ export function resolveSender(
 
 export interface Branding {
   brandColor: string
+  accentColor: string
   logoFileUrl: string | null
   documentTitle: string
 }
 
 /** Merge an entity's branding over the account appearance; blank entity fields fall through. */
 export function resolveBranding(
-  entity: { brandColor?: string | null; logoFileUrl?: string | null; documentTitle?: string | null } | null | undefined,
+  entity:
+    | { brandColor?: string | null; accentColor?: string | null; logoFileUrl?: string | null; documentTitle?: string | null }
+    | null
+    | undefined,
   accountAppearance: Branding,
 ): Branding {
   const str = (a: string | null | undefined, b: string) => ((a ?? '').trim() || b)
   return {
     brandColor: str(entity?.brandColor, accountAppearance.brandColor),
+    accentColor: str(entity?.accentColor, accountAppearance.accentColor),
     // logo: entity logo wins if set, else account logo (which may itself be null)
     logoFileUrl: (entity?.logoFileUrl ?? '').trim() || accountAppearance.logoFileUrl,
     documentTitle: str(entity?.documentTitle, accountAppearance.documentTitle),
+  }
+}
+
+export interface EmailTheme {
+  brandColor: string
+  accentColor: string
+}
+
+/**
+ * Resolve email header/accent colors for an entity (spec 18). Email colors fall back to the entity's
+ * invoice brand/accent, then to the provided account defaults — so a company themes its emails for
+ * free once it sets its invoice brand, and can still override email colors specifically.
+ */
+export function resolveEmailTheme(
+  entity:
+    | { emailBrandColor?: string | null; emailAccentColor?: string | null; brandColor?: string | null; accentColor?: string | null }
+    | null
+    | undefined,
+  accountDefault: EmailTheme,
+): EmailTheme {
+  const pick = (...vals: (string | null | undefined)[]) => vals.map((v) => (v ?? '').trim()).find(Boolean)
+  return {
+    brandColor: pick(entity?.emailBrandColor, entity?.brandColor, accountDefault.brandColor) || accountDefault.brandColor,
+    accentColor: pick(entity?.emailAccentColor, entity?.accentColor, accountDefault.accentColor) || accountDefault.accentColor,
   }
 }
 

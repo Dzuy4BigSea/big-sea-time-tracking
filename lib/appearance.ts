@@ -3,6 +3,7 @@ import { resolveBranding } from '@/modules/entities/resolveEntity'
 
 export interface InvoiceAppearanceView {
   brandColor: string
+  accentColor: string
   documentTitle: string
   showDocumentTitle: boolean
   logoFileUrl: string | null
@@ -16,6 +17,7 @@ export interface InvoiceAppearanceView {
 // Matches the InvoiceAppearance schema defaults; used when an account has no row yet.
 export const DEFAULT_APPEARANCE: InvoiceAppearanceView = {
   brandColor: '#004348',
+  accentColor: '#047a44',
   documentTitle: 'INVOICE',
   showDocumentTitle: true,
   logoFileUrl: null,
@@ -32,10 +34,14 @@ export const DEFAULT_APPEARANCE: InvoiceAppearanceView = {
  */
 export function applyEntityBranding(
   appearance: InvoiceAppearanceView,
-  entity: { brandColor?: string | null; logoFileUrl?: string | null; documentTitle?: string | null } | null | undefined,
+  entity:
+    | { brandColor?: string | null; accentColor?: string | null; logoFileUrl?: string | null; documentTitle?: string | null }
+    | null
+    | undefined,
 ): InvoiceAppearanceView {
   const b = resolveBranding(entity, {
     brandColor: appearance.brandColor,
+    accentColor: appearance.accentColor,
     logoFileUrl: appearance.logoFileUrl,
     documentTitle: appearance.documentTitle,
   })
@@ -47,6 +53,7 @@ export async function getInvoiceAppearance(accountId: string): Promise<InvoiceAp
   if (!row) return DEFAULT_APPEARANCE
   return {
     brandColor: row.brandColor,
+    accentColor: DEFAULT_APPEARANCE.accentColor,
     documentTitle: row.documentTitle,
     showDocumentTitle: row.showDocumentTitle,
     logoFileUrl: row.logoFileUrl,

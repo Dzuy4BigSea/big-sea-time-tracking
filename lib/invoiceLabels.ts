@@ -57,8 +57,24 @@ export const LABEL_FIELDS: { key: keyof InvoiceLabelSet; hint: string }[] = [
   { key: 'notes', hint: '' },
 ]
 
-export async function getInvoiceLabels(accountId: string): Promise<InvoiceLabelSet> {
-  const row = await prisma.invoiceLabels.findUnique({ where: { accountId } })
-  const stored = (row?.labels ?? {}) as Partial<InvoiceLabelSet>
-  return { ...DEFAULT_LABELS, ...stored }
+/**
+ * Resolve the label set for an invoice. Fallback chain (spec 18): the invoice entity's overrides →
+ * the account default (entityId null) → the built-in English defaults. Each level fills only the
+ * keys it defines, so a company can override just "Invoice for" and inherit the rest.
+ */
+export async function getInvoiceLabels(accountId: string, entityId?: string | null): Promise<InvoiceLabelSet> {
+  const rows = await prisma.invoiceLabels.findMany({
+    where: { accountId, OR: [{ entityId: null }, ...(entityId ? [{ entityId }] : [])] },
+  })
+  const accountRow = rows.find((r) => r.entityId === null)
+  const entityRow = entityId ? rows.find((r) => r.entityId === entityId) : undefined
+  const accountLabels = (accountRow?.labels ?? {}) as Partial<InvoiceLabelSet>
+  const entityLabels = (entityRow?.labels ?? {}) as Partial<InvoiceLabelSet>
+  return { ...DEFAULT_LABELS, ...accountLabels, ...entityLabels }
+}
+
+/** Load a single level's raw stored map (for editors — no fallback merge). */
+export async function getStoredLabels(accountId: string, entityId: string | null): Promise<Partial<InvoiceLabelSet>> {
+  const row = await prisma.invoiceLabels.findFirst({ where: { accountId, entityId } })
+  return (row?.labels ?? {}) as Partial<InvoiceLabelSet>
 }

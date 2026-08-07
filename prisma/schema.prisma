@@ -274,7 +274,7 @@ model Account {
   invoiceMessageTemplates  InvoiceMessageTemplate[]
   senderAddresses          SenderAddress[]
   invoiceAppearance        InvoiceAppearance?
-  invoiceLabels            InvoiceLabels?
+  invoiceLabels            InvoiceLabels[]
   auditLogs                AuditLog[]
   integrationConnections   IntegrationConnection[]
   integrationSyncLogs      IntegrationSyncLog[]
@@ -305,6 +305,11 @@ model BusinessEntity {
   brandColor    String?
   logoFileUrl   String?
   documentTitle String?
+  accentColor   String? // secondary brand color for invoice + email accents (spec 18)
+
+  // Email theming (falls back to brand/accent, then account defaults) — spec 18
+  emailBrandColor  String?
+  emailAccentColor String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -314,6 +319,8 @@ model BusinessEntity {
   homedUsers             User[]                  @relation("UserHomeEntity")
   invoices               Invoice[]
   integrationConnections IntegrationConnection[]
+  invoiceLabels          InvoiceLabels[]
+  messageTemplates       InvoiceMessageTemplate[]
 
   @@unique([accountId, code])
   @@index([accountId])
@@ -887,14 +894,16 @@ model Retainer {
 // ---------------------------------------------------------------------------
 
 model InvoiceMessageTemplate {
-  id        String      @id @default(cuid())
+  id        String          @id @default(cuid())
   accountId String
-  account   Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entityId  String? // null = account default; set = per-company override (spec 18)
+  entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: Cascade)
   kind      MessageKind
   subject   String
   body      String
 
-  @@unique([accountId, kind])
+  @@unique([accountId, entityId, kind])
   @@index([accountId])
 }
 
@@ -931,10 +940,15 @@ model InvoiceAppearance {
 
 // Customizable/localizable invoice field labels (Configure -> Field labels). 1:1 with Account.
 model InvoiceLabels {
-  id        String  @id @default(cuid())
-  accountId String  @unique
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id        String          @id @default(cuid())
+  accountId String
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entityId  String? // null = account default; set = per-company override (spec 18)
+  entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: Cascade)
   labels    Json // { documentTitle, from, for, invoiceId, ... } — defaults applied by the renderer
+
+  @@unique([accountId, entityId])
+  @@index([accountId])
 }
 
 model AuditLog {

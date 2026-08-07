@@ -36,16 +36,19 @@ describe('resolveSender', () => {
 })
 
 describe('resolveBranding', () => {
-  const appearance = { brandColor: '#004348', logoFileUrl: '/brand/bs.png', documentTitle: 'INVOICE' }
+  const appearance = { brandColor: '#004348', accentColor: '#047a44', logoFileUrl: '/brand/bs.png', documentTitle: 'INVOICE' }
   it('entity branding overrides account appearance', () => {
-    expect(resolveBranding({ brandColor: '#341162', logoFileUrl: '/brand/cl.png', documentTitle: 'STATEMENT' }, appearance)).toEqual({
+    expect(
+      resolveBranding({ brandColor: '#341162', accentColor: '#8a5cf6', logoFileUrl: '/brand/cl.png', documentTitle: 'STATEMENT' }, appearance),
+    ).toEqual({
       brandColor: '#341162',
+      accentColor: '#8a5cf6',
       logoFileUrl: '/brand/cl.png',
       documentTitle: 'STATEMENT',
     })
   })
   it('blank entity fields fall through to appearance', () => {
-    expect(resolveBranding({ brandColor: '', logoFileUrl: '', documentTitle: null }, appearance)).toEqual(appearance)
+    expect(resolveBranding({ brandColor: '', accentColor: '', logoFileUrl: '', documentTitle: null }, appearance)).toEqual(appearance)
     expect(resolveBranding(null, appearance)).toEqual(appearance)
   })
 })

@@ -4,6 +4,7 @@ import { requireUser } from '@/lib/session'
 import { formatCents, formatDate } from '@/lib/format'
 import { PAYMENT_TERM_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
+import { getInvoiceLabels } from '@/lib/invoiceLabels'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { AutoPrint } from '@/components/PrintButtons'
 
@@ -20,6 +21,7 @@ export default async function PrintInvoicePage({ params }: { params: { id: strin
   if (!invoice) notFound()
 
   const appearance = applyEntityBranding(await getInvoiceAppearance(accountId), invoice.entity)
+  const L = await getInvoiceLabels(accountId, invoice.entityId ?? invoice.client.entityId ?? null)
   const BRAND = appearance.brandColor
   const fromName = invoice.entity?.name ?? invoice.account.name
   const cur = invoice.currency
@@ -43,20 +45,20 @@ export default async function PrintInvoicePage({ params }: { params: { id: strin
 
       <div className="mt-6 flex justify-between gap-8 text-sm">
         <div>
-          <div className="text-xs uppercase tracking-wide text-gray-400">Invoice for</div>
+          <div className="text-xs uppercase tracking-wide text-gray-400">{L.for}</div>
           <div className="mt-1 font-medium">{invoice.client.name}</div>
           {invoice.client.address && <div className="whitespace-pre-line text-gray-600">{invoice.client.address}</div>}
         </div>
         <div className="text-right">
-          <div className="flex justify-end gap-6"><span className="text-gray-400">Invoice ID</span><span className="font-medium">{invoice.number ?? '—'}</span></div>
-          <div className="flex justify-end gap-6"><span className="text-gray-400">Issue date</span><span className="font-medium">{formatDate(invoice.issueDate)}</span></div>
-          <div className="flex justify-end gap-6"><span className="text-gray-400">Due date</span><span className="font-medium">{formatDate(invoice.dueDate)}{invoice.dueDate ? ` (${PAYMENT_TERM_LABEL[invoice.paymentTerm] ?? invoice.paymentTerm})` : ''}</span></div>
-          {invoice.poNumber && <div className="flex justify-end gap-6"><span className="text-gray-400">PO number</span><span className="font-medium">{invoice.poNumber}</span></div>}
+          <div className="flex justify-end gap-6"><span className="text-gray-400">{L.invoiceId}</span><span className="font-medium">{invoice.number ?? '—'}</span></div>
+          <div className="flex justify-end gap-6"><span className="text-gray-400">{L.issueDate}</span><span className="font-medium">{formatDate(invoice.issueDate)}</span></div>
+          <div className="flex justify-end gap-6"><span className="text-gray-400">{L.dueDate}</span><span className="font-medium">{formatDate(invoice.dueDate)}{invoice.dueDate ? ` (${PAYMENT_TERM_LABEL[invoice.paymentTerm] ?? invoice.paymentTerm})` : ''}</span></div>
+          {invoice.poNumber && <div className="flex justify-end gap-6"><span className="text-gray-400">{L.poNumber}</span><span className="font-medium">{invoice.poNumber}</span></div>}
         </div>
       </div>
 
       {invoice.subject && (
-        <div className="mt-6 text-sm"><span className="text-xs uppercase tracking-wide text-gray-400">Subject</span><div className="mt-1">{invoice.subject}</div></div>
+        <div className="mt-6 text-sm"><span className="text-xs uppercase tracking-wide text-gray-400">{L.subject}</span><div className="mt-1">{invoice.subject}</div></div>
       )}
 
       <div className="mt-4">
@@ -69,17 +71,17 @@ export default async function PrintInvoicePage({ params }: { params: { id: strin
 
       <div className="mt-4 flex justify-end">
         <dl className="w-64 space-y-1 text-sm">
-          <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{formatCents(invoice.subtotalCents, cur)}</span></div>
-          {invoice.discountCents > 0 && <div className="flex justify-between text-gray-600"><span>Discount</span><span>−{formatCents(invoice.discountCents, cur)}</span></div>}
-          {invoice.taxCents > 0 && <div className="flex justify-between text-gray-600"><span>Tax</span><span>{formatCents(invoice.taxCents, cur)}</span></div>}
-          <div className="flex justify-between border-t border-gray-300 pt-1 font-semibold"><span>Total</span><span>{formatCents(invoice.totalCents, cur)}</span></div>
-          {invoice.paidCents > 0 && <div className="flex justify-between text-gray-600"><span>Paid</span><span>−{formatCents(invoice.paidCents, cur)}</span></div>}
-          <div className="flex justify-between text-base font-semibold" style={{ color: BRAND }}><span>Amount due</span><span>{formatCents(due, cur)}</span></div>
+          <div className="flex justify-between text-gray-600"><span>{L.subtotal}</span><span>{formatCents(invoice.subtotalCents, cur)}</span></div>
+          {invoice.discountCents > 0 && <div className="flex justify-between text-gray-600"><span>{L.discount}</span><span>−{formatCents(invoice.discountCents, cur)}</span></div>}
+          {invoice.taxCents > 0 && <div className="flex justify-between text-gray-600"><span>{L.tax}</span><span>{formatCents(invoice.taxCents, cur)}</span></div>}
+          <div className="flex justify-between border-t border-gray-300 pt-1 font-semibold"><span>{L.total}</span><span>{formatCents(invoice.totalCents, cur)}</span></div>
+          {invoice.paidCents > 0 && <div className="flex justify-between text-gray-600"><span>{L.paid}</span><span>−{formatCents(invoice.paidCents, cur)}</span></div>}
+          <div className="flex justify-between text-base font-semibold" style={{ color: BRAND }}><span>{L.amountDue}</span><span>{formatCents(due, cur)}</span></div>
         </dl>
       </div>
 
       {invoice.notes && (
-        <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">Notes</div><div className="whitespace-pre-line">{invoice.notes}</div></div>
+        <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">{L.notes}</div><div className="whitespace-pre-line">{invoice.notes}</div></div>
       )}
       {invoice.terms && (
         <div className="mt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">Terms</div><div className="whitespace-pre-line">{invoice.terms}</div></div>
