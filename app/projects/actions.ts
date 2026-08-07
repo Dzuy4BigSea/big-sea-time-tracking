@@ -225,3 +225,65 @@ export async function unassignUserFromProjectAction(formData: FormData): Promise
   }
   revalidatePath(`/projects/${projectId}`)
 }
+
+// ── Per-project rate overrides + task assignments (specs/03, AC-PROJ-002/003) ──
+
+/** Set (or clear) a person's per-project hourly rate override. */
+export async function setProjectUserRateAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  await prisma.projectUserAssignment.updateMany({
+    where: { projectId, userId },
+    data: { hourlyRateCents: centsFrom(formData.get('rate')) },
+  })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function addTaskToProjectAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const taskId = String(formData.get('taskId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor || !taskId) return
+  const task = await prisma.task.findFirst({ where: { id: taskId, accountId: actor.accountId }, select: { id: true, defaultBillable: true } })
+  if (!task) return
+  await prisma.projectTaskAssignment.upsert({
+    where: { projectId_taskId: { projectId, taskId } },
+    update: { isActive: true },
+    create: { accountId: actor.accountId, projectId, taskId, billable: task.defaultBillable, isActive: true },
+  })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function removeTaskFromProjectAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const taskId = String(formData.get('taskId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  await prisma.projectTaskAssignment.deleteMany({ where: { projectId, taskId } })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function toggleProjectTaskBillableAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const taskId = String(formData.get('taskId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  const a = await prisma.projectTaskAssignment.findUnique({ where: { projectId_taskId: { projectId, taskId } }, select: { billable: true } })
+  if (!a) return
+  await prisma.projectTaskAssignment.update({ where: { projectId_taskId: { projectId, taskId } }, data: { billable: !a.billable } })
+  revalidatePath(`/projects/${projectId}`)
+}
+
+export async function setProjectTaskRateAction(formData: FormData): Promise<void> {
+  const projectId = String(formData.get('projectId') ?? '')
+  const taskId = String(formData.get('taskId') ?? '')
+  const actor = await requireProjectManager(projectId)
+  if (!actor) return
+  await prisma.projectTaskAssignment.updateMany({
+    where: { projectId, taskId },
+    data: { hourlyRateCents: centsFrom(formData.get('rate')) },
+  })
+  revalidatePath(`/projects/${projectId}`)
+}

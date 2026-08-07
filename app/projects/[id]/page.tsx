@@ -5,7 +5,16 @@ import { formatCents, formatDate } from '@/lib/format'
 import { formatMinutes } from '@/modules/shared/duration'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { assignUserToProjectAction, toggleProjectManagerAction, unassignUserFromProjectAction } from '@/app/projects/actions'
+import {
+  assignUserToProjectAction,
+  toggleProjectManagerAction,
+  unassignUserFromProjectAction,
+  setProjectUserRateAction,
+  addTaskToProjectAction,
+  removeTaskFromProjectAction,
+  toggleProjectTaskBillableAction,
+  setProjectTaskRateAction,
+} from '@/app/projects/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +36,10 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         include: { user: { select: { id: true, firstName: true, lastName: true } } },
         orderBy: { user: { firstName: 'asc' } },
       },
+      taskAssignments: {
+        include: { task: { select: { id: true, name: true, defaultHourlyRateCents: true } } },
+        orderBy: { task: { name: 'asc' } },
+      },
       timeEntries: {
         include: { user: { select: { firstName: true, lastName: true } }, task: { select: { name: true } } },
         orderBy: { spentDate: 'desc' },
@@ -46,6 +59,14 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
         })
       ).filter((u) => !assignedIds.has(u.id))
     : []
+
+  const assignedTaskIds = new Set(project.taskAssignments.map((t) => t.taskId))
+  const addableTasks = canManage
+    ? (await prisma.task.findMany({ where: { accountId, archivedAt: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } })).filter((t) => !assignedTaskIds.has(t.id))
+    : []
+  const perPersonRates = project.billableRateMethod === 'person'
+  const perTaskRates = project.billableRateMethod === 'task'
+  const dollars = (c: number | null) => (c ? (c / 100).toFixed(2) : '')
 
   const spentMin = project.timeEntries.reduce((s, e) => s + e.minutes, 0)
   const billableCents = project.timeEntries.reduce(
@@ -117,6 +138,15 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                     {a.user.firstName} {a.user.lastName}
                     {a.isProjectManager && <span className="ml-2 rounded-full bg-brand-teal-50 px-2 py-0.5 text-xs font-medium text-brand-teal">PM</span>}
                   </span>
+                  {perPersonRates && (
+                    <form action={setProjectUserRateAction} className="flex items-center gap-1">
+                      <input type="hidden" name="projectId" value={project.id} />
+                      <input type="hidden" name="userId" value={a.user.id} />
+                      <span className="text-xs text-gray-400">$</span>
+                      <input name="rate" defaultValue={dollars(a.hourlyRateCents)} placeholder="rate/h" className="w-20 rounded border border-gray-300 px-1.5 py-1 text-xs" />
+                      <button className="text-xs text-brand-teal hover:underline">save</button>
+                    </form>
+                  )}
                   <form action={toggleProjectManagerAction}>
                     <input type="hidden" name="projectId" value={project.id} />
                     <input type="hidden" name="userId" value={a.user.id} />
@@ -153,6 +183,65 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                 </button>
               </form>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Tasks on this project (specs/03) */}
+      <div className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold text-gray-700">Tasks</h2>
+        <p className="mb-2 text-xs text-gray-400">
+          Tasks people can log against.{perTaskRates ? ' This project bills per task — set each task’s rate.' : ''}
+        </p>
+        {canManage ? (
+          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <ul className="divide-y divide-gray-100 text-sm">
+              {project.taskAssignments.map((t) => (
+                <li key={t.id} className="flex items-center gap-3 px-4 py-2">
+                  <span className="flex-1 text-gray-800">{t.task.name}</span>
+                  <form action={toggleProjectTaskBillableAction}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input type="hidden" name="taskId" value={t.taskId} />
+                    <button className={`rounded px-2 py-0.5 text-xs font-medium ${t.billable ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {t.billable ? 'Billable' : 'Non-billable'}
+                    </button>
+                  </form>
+                  {perTaskRates && (
+                    <form action={setProjectTaskRateAction} className="flex items-center gap-1">
+                      <input type="hidden" name="projectId" value={project.id} />
+                      <input type="hidden" name="taskId" value={t.taskId} />
+                      <span className="text-xs text-gray-400">$</span>
+                      <input name="rate" defaultValue={dollars(t.hourlyRateCents)} placeholder="rate/h" className="w-20 rounded border border-gray-300 px-1.5 py-1 text-xs" />
+                      <button className="text-xs text-brand-teal hover:underline">save</button>
+                    </form>
+                  )}
+                  <form action={removeTaskFromProjectAction}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input type="hidden" name="taskId" value={t.taskId} />
+                    <button className="text-xs text-gray-400 hover:text-red-600">Remove</button>
+                  </form>
+                </li>
+              ))}
+              {project.taskAssignments.length === 0 && <li className="px-4 py-3 text-gray-400">No tasks on this project yet.</li>}
+            </ul>
+            {addableTasks.length > 0 && (
+              <form action={addTaskToProjectAction} className="flex flex-wrap items-center gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3">
+                <input type="hidden" name="projectId" value={project.id} />
+                <select name="taskId" className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                  {addableTasks.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add task</button>
+              </form>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {project.taskAssignments.map((t) => (
+              <span key={t.id} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{t.task.name}</span>
+            ))}
+            {project.taskAssignments.length === 0 && <span className="text-sm text-gray-400">No tasks yet.</span>}
           </div>
         )}
       </div>
