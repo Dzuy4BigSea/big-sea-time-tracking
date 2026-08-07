@@ -22,9 +22,9 @@ const PROFILE_LABEL: Record<string, string> = {
 const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function TeamPage() {
-  const { accountId, permissionProfile } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'team')
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')
   const [users, entities] = await Promise.all([
     prisma.user.findMany({
       where: { accountId, archivedAt: null },

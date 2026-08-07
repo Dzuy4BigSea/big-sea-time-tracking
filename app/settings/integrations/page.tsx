@@ -31,8 +31,8 @@ const toViewProps = (v: DetailedConnectionView | undefined): ConnectionViewProps
     : EMPTY_VIEW
 
 export default async function IntegrationsSettingsPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     redirect('/')
   }
 

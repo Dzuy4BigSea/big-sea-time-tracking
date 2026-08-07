@@ -64,8 +64,8 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
 
 /** Categories are an account setting — only admins/settings-managers create them. */
 export async function createCategoryAction(_prev: NewCategoryState, formData: FormData): Promise<NewCategoryState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     return { error: 'You do not have permission to add expense categories.' }
   }
 

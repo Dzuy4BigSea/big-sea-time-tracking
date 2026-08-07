@@ -14,9 +14,9 @@ export const dynamic = 'force-dynamic'
 const inp = 'rounded border border-gray-300 px-2 py-1 text-sm'
 
 export default async function EditInvoicePage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'invoices')
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) redirect(`/invoices/${params.id}`)
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) redirect(`/invoices/${params.id}`)
 
   const invoice = await prisma.invoice.findFirst({
     where: { id: params.id, accountId },

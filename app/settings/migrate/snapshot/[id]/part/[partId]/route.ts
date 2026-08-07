@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic'
 
 /** Download a single backup part's raw rows (bounded to one resource/year). Admin, account-scoped. */
 export async function GET(_req: Request, { params }: { params: { id: string; partId: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     return new Response('Forbidden', { status: 403 })
   }
   const part = await prisma.migrationSnapshotPart.findFirst({

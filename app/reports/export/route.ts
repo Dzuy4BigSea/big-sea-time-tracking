@@ -11,8 +11,8 @@ const hrs = (m: number) => (m / 60).toFixed(2)
 
 /** Detailed time-entry export (Reports → Export CSV). Account-scoped; reports permission required. */
 export async function GET() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'run_account_reports')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')) {
     return new Response('Forbidden', { status: 403 })
   }
 

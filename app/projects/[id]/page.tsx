@@ -16,8 +16,8 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')
   const project = await prisma.project.findFirst({
     where: { id: params.id, accountId },
     include: {

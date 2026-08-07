@@ -15,7 +15,7 @@ const centsFrom = (raw: FormDataEntryValue | null): number | null => {
 
 async function requireInvoiceAdmin() {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'manage_invoices')) return null
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_invoices')) return null
   return actor
 }
 

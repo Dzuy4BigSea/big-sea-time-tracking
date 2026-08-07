@@ -16,8 +16,8 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // allow long pulls; partial-failure handling covers plan caps
 
 export default async function MigratePage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) redirect('/')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) redirect('/')
 
   const [conn, snapshots, importable] = await Promise.all([
     getConnectionWithSecrets(accountId, 'harvest'),

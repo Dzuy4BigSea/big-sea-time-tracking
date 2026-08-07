@@ -8,8 +8,8 @@ import { NewTaskForm } from '@/components/NewTaskForm'
 export const dynamic = 'force-dynamic'
 
 export default async function TasksPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')
   const tasks = await prisma.task.findMany({
     where: { accountId, archivedAt: null },
     orderBy: { name: 'asc' },

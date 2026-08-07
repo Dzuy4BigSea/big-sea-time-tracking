@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic'
 
 /** Download a backup snapshot MANIFEST (metadata + per-part checksums). Small + bounded. */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     return new Response('Forbidden', { status: 403 })
   }
   const snap = await prisma.migrationSnapshot.findFirst({

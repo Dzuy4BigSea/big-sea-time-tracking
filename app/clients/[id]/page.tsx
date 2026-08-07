@@ -17,8 +17,8 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')
 
   const client = await prisma.client.findFirst({
     where: { id: params.id, accountId },

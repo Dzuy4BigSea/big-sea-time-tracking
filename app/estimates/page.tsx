@@ -17,8 +17,8 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 export default async function EstimatesPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) redirect('/')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) redirect('/')
   await requireModule(accountId, 'estimates')
 
   const [estimates, clients] = await Promise.all([

@@ -9,8 +9,8 @@ import { listEntities } from '@/lib/entities'
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')
   const [clients, entities] = await Promise.all([
     prisma.client.findMany({
       where: { accountId },

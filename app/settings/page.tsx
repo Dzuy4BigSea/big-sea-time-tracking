@@ -11,8 +11,8 @@ import { getInvoiceAppearance } from '@/lib/appearance'
 export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     redirect('/')
   }
 

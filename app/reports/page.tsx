@@ -29,8 +29,8 @@ export default async function ReportsPage({
 }: {
   searchParams: { group?: string; period?: string; anchor?: string }
 }) {
-  const { accountId, permissionProfile } = await requireUser()
-  const canExport = can({ permissionProfile: permissionProfile as PermissionProfile }, 'run_account_reports')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
   const group: Group = (['clients', 'projects', 'tasks', 'teammates'] as const).includes(searchParams.group as Group)
     ? (searchParams.group as Group)
     : 'clients'

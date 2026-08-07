@@ -39,9 +39,9 @@ export default async function TeamMemberPage({
   params: { id: string }
   searchParams: { tab?: string }
 }) {
-  const { accountId, userId, permissionProfile } = await requireUser()
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'team')
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) redirect('/team')
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) redirect('/team')
 
   const [person, entities] = await Promise.all([
     prisma.user.findFirst({

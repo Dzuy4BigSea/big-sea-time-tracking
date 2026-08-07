@@ -33,8 +33,8 @@ function budgetLabel(method: string, value: number | null): string {
 const hours = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
 export default async function ProjectsPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')
   const [projects, clients, entities] = await Promise.all([
     prisma.project.findMany({
       where: { accountId },

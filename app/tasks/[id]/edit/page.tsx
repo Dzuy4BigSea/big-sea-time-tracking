@@ -8,8 +8,8 @@ import { EditTaskForm } from '@/components/EditTaskForm'
 export const dynamic = 'force-dynamic'
 
 export default async function EditTaskPage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')) {
     redirect('/tasks')
   }
 

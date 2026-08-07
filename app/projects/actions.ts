@@ -17,8 +17,8 @@ const centsFrom = (raw: FormDataEntryValue | null): number | null => {
 }
 
 export async function createProjectAction(_prev: NewProjectState, formData: FormData): Promise<NewProjectState> {
-  const { userId, accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')) {
+  const { userId, accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')) {
     return { error: 'You do not have permission to add projects.' }
   }
 
@@ -98,8 +98,8 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
 }
 
 export async function updateProjectAction(_prev: EditProjectState, formData: FormData): Promise<EditProjectState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')) {
     return { error: 'You do not have permission to edit projects.' }
   }
 
@@ -166,7 +166,7 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
 
 async function requireProjectManager(projectId: string) {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'manage_projects')) return null
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_projects')) return null
   const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
   return project ? actor : null
 }

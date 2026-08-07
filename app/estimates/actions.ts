@@ -18,7 +18,7 @@ const centsFrom = (raw: FormDataEntryValue | null): number | null => {
 
 async function requireEstimateAdmin() {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'manage_invoices')) return null
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_invoices')) return null
   const modules = await getModules(actor.accountId)
   if (!modules.estimates) return null // AC-MOD: module off → no estimate mutations
   return actor

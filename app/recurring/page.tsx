@@ -11,8 +11,8 @@ import { generateDueAction, toggleRecurringStatusAction, deleteRecurringAction }
 export const dynamic = 'force-dynamic'
 
 export default async function RecurringPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) {
     redirect('/')
   }
   await requireModule(accountId, 'invoices')

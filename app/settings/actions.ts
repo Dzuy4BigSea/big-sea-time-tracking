@@ -18,7 +18,7 @@ export type SettingsState = { error?: string; ok?: boolean }
 
 async function requireSettingsAdmin() {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'edit_account_settings')) {
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'edit_account_settings')) {
     return null
   }
   return actor

@@ -15,7 +15,7 @@ export type MigrateState = { error?: string; ok?: boolean }
 
 async function requireMigrateAdmin() {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile }, 'edit_account_settings')) return null
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'edit_account_settings')) return null
   return actor
 }
 

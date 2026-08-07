@@ -9,8 +9,8 @@ export type NewTaskState = { error?: string; ok?: boolean }
 export type EditTaskState = { error?: string; ok?: boolean }
 
 export async function createTaskAction(_prev: NewTaskState, formData: FormData): Promise<NewTaskState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')) {
     return { error: 'You do not have permission to add tasks.' }
   }
 
@@ -36,8 +36,8 @@ export async function createTaskAction(_prev: NewTaskState, formData: FormData):
 }
 
 export async function updateTaskAction(_prev: EditTaskState, formData: FormData): Promise<EditTaskState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_tasks')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_tasks')) {
     return { error: 'You do not have permission to edit tasks.' }
   }
 

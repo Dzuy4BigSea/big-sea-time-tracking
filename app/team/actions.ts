@@ -24,8 +24,8 @@ const PROFILES: DbProfile[] = [
 const TYPES: DbUserType[] = ['employee', 'contractor']
 
 export async function createPersonAction(_prev: NewPersonState, formData: FormData): Promise<NewPersonState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {
     return { error: 'You do not have permission to add people.' }
   }
 
@@ -72,8 +72,8 @@ export async function createPersonAction(_prev: NewPersonState, formData: FormDa
 
 /** Basic info tab — name, type, capacity, home company (specs/17 team detail). */
 export async function updatePersonBasicAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {
     return { error: 'You do not have permission to edit people.' }
   }
   const id = String(formData.get('id') ?? '')
@@ -95,8 +95,8 @@ export async function updatePersonBasicAction(_prev: EditPersonState, formData: 
 
 /** Permissions tab — access level (profile) + granular ability overrides (specs/17). */
 export async function updatePersonPermissionsAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
-  const { userId: selfId, accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) {
+  const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {
     return { error: 'You do not have permission to change access.' }
   }
   const id = String(formData.get('id') ?? '')
@@ -125,8 +125,8 @@ export async function updatePersonPermissionsAction(_prev: EditPersonState, form
 }
 
 export async function updatePersonAction(_prev: EditPersonState, formData: FormData): Promise<EditPersonState> {
-  const { userId: selfId, accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_people')) {
+  const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) {
     return { error: 'You do not have permission to edit people.' }
   }
 

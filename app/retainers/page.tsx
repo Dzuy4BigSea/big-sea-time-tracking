@@ -13,8 +13,8 @@ export const dynamic = 'force-dynamic'
 const amt = 'w-24 rounded border border-gray-300 px-2 py-1 text-sm'
 
 export default async function RetainersPage() {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) {
     redirect('/')
   }
   await requireModule(accountId, 'invoices')

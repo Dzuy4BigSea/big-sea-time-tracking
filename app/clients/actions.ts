@@ -12,10 +12,10 @@ export type EditClientState = { error?: string; ok?: boolean }
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD']
 
 export async function createClientAction(_prev: NewClientState, formData: FormData): Promise<NewClientState> {
-  const { accountId, permissionProfile } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
 
   // Permission gate (defense in depth — the form is also hidden for those who can't).
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')) {
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')) {
     return { error: 'You do not have permission to add clients.' }
   }
 
@@ -65,8 +65,8 @@ export async function createClientAction(_prev: NewClientState, formData: FormDa
 }
 
 export async function updateClientAction(_prev: EditClientState, formData: FormData): Promise<EditClientState> {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_clients')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')) {
     return { error: 'You do not have permission to edit clients.' }
   }
 

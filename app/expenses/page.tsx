@@ -9,9 +9,9 @@ import { NewCategoryForm } from '@/components/NewCategoryForm'
 export const dynamic = 'force-dynamic'
 
 export default async function ExpensesPage() {
-  const { accountId, permissionProfile } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'expenseTracking')
-  const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile }, 'edit_account_settings')
+  const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')
 
   const [expenses, projects, categories] = await Promise.all([
     prisma.expense.findMany({

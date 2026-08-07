@@ -9,8 +9,8 @@ import { listEntities } from '@/lib/entities'
 export const dynamic = 'force-dynamic'
 
 export default async function EditProjectPage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_projects')) {
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')) {
     redirect(`/projects/${params.id}`)
   }
 

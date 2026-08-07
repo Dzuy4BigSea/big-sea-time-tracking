@@ -26,8 +26,8 @@ const pctOrNull = (raw: FormDataEntryValue | null): number | null => {
 
 /** Guard: invoice belongs to the actor's account + actor may manage invoices. Returns status or null. */
 async function guard(invoiceId: string): Promise<{ accountId: string; userId: string; status: string } | null> {
-  const { accountId, userId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) return null
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) return null
   const inv = await prisma.invoice.findFirst({ where: { id: invoiceId, accountId }, select: { status: true } })
   if (!inv) return null
   return { accountId, userId, status: inv.status }
@@ -137,8 +137,8 @@ export async function removeLineItemAction(formData: FormData): Promise<void> {
 
 /** Create a blank draft invoice for a client, then open the editor (the "New invoice" path). */
 export async function createBlankInvoiceAction(formData: FormData): Promise<void> {
-  const { accountId, userId, permissionProfile } = await requireUser()
-  if (!can({ permissionProfile: permissionProfile as PermissionProfile }, 'manage_invoices')) return
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) return
   const clientId = String(formData.get('clientId') ?? '')
   const client = await prisma.client.findFirst({ where: { id: clientId, accountId }, select: { id: true, currency: true, entityId: true } })
   if (!client) return
