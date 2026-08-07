@@ -5,6 +5,7 @@ import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceStat
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
+import { getInvoiceLabels } from '@/lib/invoiceLabels'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
 import { PrintButton } from '@/components/PrintButtons'
@@ -45,6 +46,7 @@ export default async function PublicInvoicePage({
   void prisma.invoice.update({ where: { id: invoice.id }, data: { lastViewedAt: new Date() } }).catch(() => {})
 
   const appearance = applyEntityBranding(await getInvoiceAppearance(invoice.accountId), invoice.entity)
+  const L = await getInvoiceLabels(invoice.accountId)
   const BRAND = appearance.brandColor
   const fromName = invoice.entity?.name ?? invoice.account.name
 
@@ -79,7 +81,7 @@ export default async function PublicInvoicePage({
       {/* Summary banner */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg bg-white p-5 shadow-sm">
         <div>
-          <div className="text-xs uppercase tracking-wide text-gray-400">Invoice {invoice.number ?? ''} from</div>
+          <div className="text-xs uppercase tracking-wide text-gray-400">Invoice {invoice.number ?? ''} {L.from}</div>
           <div className="text-lg font-semibold" style={{ color: BRAND }}>
             {fromName}
           </div>
@@ -88,7 +90,7 @@ export default async function PublicInvoicePage({
           <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>
             {BADGE_LABEL[badge]}
           </span>
-          <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">Amount due</div>
+          <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">{L.amountDue}</div>
           <div className="font-serif text-3xl font-semibold" style={{ color: BRAND }}>
             {formatCents(due, cur)}
           </div>
@@ -126,28 +128,28 @@ export default async function PublicInvoicePage({
 
         <div className="mt-8 flex justify-between gap-8 text-sm">
           <div>
-            <div className="text-xs uppercase tracking-wide text-gray-400">Invoice for</div>
+            <div className="text-xs uppercase tracking-wide text-gray-400">{L.for}</div>
             <div className="mt-1 font-medium">{invoice.client.name}</div>
             {invoice.client.address && <div className="whitespace-pre-line text-gray-600">{invoice.client.address}</div>}
           </div>
           <div className="text-right">
             <dl className="space-y-1">
-              <Row label="Invoice ID" value={invoice.number ?? '—'} />
-              <Row label="Issue date" value={formatDate(invoice.issueDate)} />
+              <Row label={L.invoiceId} value={invoice.number ?? '—'} />
+              <Row label={L.issueDate} value={formatDate(invoice.issueDate)} />
               <Row
-                label="Due date"
+                label={L.dueDate}
                 value={`${formatDate(invoice.dueDate)}${
                   invoice.dueDate ? ` (${PAYMENT_TERM_LABEL[invoice.paymentTerm] ?? invoice.paymentTerm})` : ''
                 }`}
               />
-              {invoice.poNumber && <Row label="PO number" value={invoice.poNumber} />}
+              {invoice.poNumber && <Row label={L.poNumber} value={invoice.poNumber} />}
             </dl>
           </div>
         </div>
 
         {invoice.subject && (
           <div className="mt-6 text-sm">
-            <span className="text-xs uppercase tracking-wide text-gray-400">Subject</span>
+            <span className="text-xs uppercase tracking-wide text-gray-400">{L.subject}</span>
             <div className="mt-1">{invoice.subject}</div>
           </div>
         )}
@@ -166,20 +168,20 @@ export default async function PublicInvoicePage({
 
         <div className="mt-4 flex justify-end">
           <dl className="w-64 space-y-1 text-sm">
-            <TotalRow label="Subtotal" value={formatCents(invoice.subtotalCents, cur)} />
-            {invoice.discountCents > 0 && <TotalRow label="Discount" value={`−${formatCents(invoice.discountCents, cur)}`} />}
-            {invoice.taxCents > 0 && <TotalRow label="Tax" value={formatCents(invoice.taxCents, cur)} />}
+            <TotalRow label={L.subtotal} value={formatCents(invoice.subtotalCents, cur)} />
+            {invoice.discountCents > 0 && <TotalRow label={L.discount} value={`−${formatCents(invoice.discountCents, cur)}`} />}
+            {invoice.taxCents > 0 && <TotalRow label={L.tax} value={formatCents(invoice.taxCents, cur)} />}
             <div className="border-t border-gray-200 pt-1">
-              <TotalRow label="Total" value={formatCents(invoice.totalCents, cur)} bold />
+              <TotalRow label={L.total} value={formatCents(invoice.totalCents, cur)} bold />
             </div>
-            {invoice.paidCents > 0 && <TotalRow label="Paid" value={`−${formatCents(invoice.paidCents, cur)}`} />}
-            <TotalRow label="Amount due" value={formatCents(due, cur)} bold brandColor={BRAND} />
+            {invoice.paidCents > 0 && <TotalRow label={L.paid} value={`−${formatCents(invoice.paidCents, cur)}`} />}
+            <TotalRow label={L.amountDue} value={formatCents(due, cur)} bold brandColor={BRAND} />
           </dl>
         </div>
 
         {invoice.notes && (
           <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500">
-            <div className="mb-1 uppercase tracking-wide">Notes</div>
+            <div className="mb-1 uppercase tracking-wide">{L.notes}</div>
             <div className="whitespace-pre-line">{invoice.notes}</div>
           </div>
         )}

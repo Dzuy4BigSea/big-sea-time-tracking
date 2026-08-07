@@ -38,7 +38,7 @@ const TABS = [
   { key: 'recurring', label: 'Recurring', href: '/recurring' },
   { key: 'retainers', label: 'Retainers', href: '/retainers' },
   { key: 'uninvoiced', label: 'Uninvoiced', href: '/reports' },
-  { key: 'configure', label: 'Configure', href: '/settings' },
+  { key: 'configure', label: 'Configure', href: '/invoices/configure' },
 ]
 
 export default async function InvoicesPage({

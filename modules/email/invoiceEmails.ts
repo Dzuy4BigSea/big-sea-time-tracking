@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { sendEmail } from '@/modules/email/send'
 import { renderPaymentReceiptEmail, renderOverdueReminderEmail } from '@/modules/email/templates'
+import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
 
 type InvoiceForEmail = {
   id: string
@@ -42,13 +43,17 @@ export async function sendReceipt(accountId: string, invoiceId: string, amountCe
   if (!inv) return 'Receipt not sent — invoice not found'
   const to = recipientOf(inv)
   if (!to) return 'Receipt not sent — no recipient contact'
+  const fromName = inv.entity?.name ?? inv.account.name
+  const tpl = await getMessageTemplate(accountId, 'thank_you')
+  const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(amountCents, inv.currency), method: method.replace('_', ' ') }
   const { subject, html } = renderPaymentReceiptEmail({
-    fromName: inv.entity?.name ?? inv.account.name,
+    fromName,
     clientName: inv.client.name,
     invoiceNumber: inv.number ?? '',
     amountPaid: formatCents(amountCents, inv.currency),
     paidDate: formatDate(paidOn),
     method: method.replace('_', ' '),
+    msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
   })
   const r = await sendEmail(accountId, { to, subject, html, entityId: inv.entityId })
   return r.ok ? `Receipt emailed to ${to}` : r.skipped ? `Receipt not sent — ${r.message}` : `Receipt email failed — ${r.message}`
@@ -63,8 +68,11 @@ export async function sendReminder(accountId: string, invoiceId: string, baseUrl
   const due = inv.totalCents - inv.paidCents
   const daysOverdue = inv.dueDate ? Math.max(0, Math.round((now.getTime() - inv.dueDate.getTime()) / 86_400_000)) : 0
   const link = `${baseUrl}/i/${inv.publicToken}`
+  const fromName = inv.entity?.name ?? inv.account.name
+  const tpl = await getMessageTemplate(accountId, 'reminder')
+  const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(due, inv.currency), due: formatDate(inv.dueDate), days: String(daysOverdue) }
   const { subject, html } = renderOverdueReminderEmail({
-    fromName: inv.entity?.name ?? inv.account.name,
+    fromName,
     clientName: inv.client.name,
     invoiceNumber: inv.number ?? '',
     amountDue: formatCents(due, inv.currency),
@@ -72,6 +80,7 @@ export async function sendReminder(accountId: string, invoiceId: string, baseUrl
     daysOverdue,
     payUrl: due > 0 ? link : null,
     invoiceUrl: link,
+    msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
   })
   const r = await sendEmail(accountId, { to, subject, html, entityId: inv.entityId })
   return r.ok ? `Reminder emailed to ${to}` : r.skipped ? `Reminder not sent — ${r.message}` : `Reminder email failed — ${r.message}`

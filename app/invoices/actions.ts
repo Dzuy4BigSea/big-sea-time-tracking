@@ -18,6 +18,7 @@ import { headers } from 'next/headers'
 import { sendEmail } from '@/modules/email/send'
 import { renderInvoiceSentEmail } from '@/modules/email/templates'
 import { sendReceipt, sendReminder } from '@/modules/email/invoiceEmails'
+import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -57,8 +58,11 @@ async function emailInvoice(accountId: string, invoiceId: string, actorUserId: s
   }
   const link = `${baseUrl()}/i/${inv.publicToken}`
   const due = inv.totalCents - inv.paidCents
+  const fromName = inv.entity?.name ?? inv.account.name
+  const tpl = await getMessageTemplate(accountId, 'invoice')
+  const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(due, inv.currency), due: formatDate(inv.dueDate) }
   const { subject, html } = renderInvoiceSentEmail({
-    fromName: inv.entity?.name ?? inv.account.name,
+    fromName,
     clientName: inv.client.name,
     invoiceNumber: inv.number ?? '',
     amountDue: formatCents(due, inv.currency),
@@ -66,6 +70,7 @@ async function emailInvoice(accountId: string, invoiceId: string, actorUserId: s
     dueDate: formatDate(inv.dueDate),
     payUrl: due > 0 ? link : null,
     invoiceUrl: link,
+    msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
   })
   const r = await sendEmail(accountId, { to: recipient, subject, html, entityId: inv.entityId })
   await writeAudit({
