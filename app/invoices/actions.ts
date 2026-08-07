@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client'
 import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xeroSync'
 import { parseYmd } from '@/lib/week'
 import { requireUser } from '@/lib/session'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { writeAudit } from '@/lib/audit'
 import { formatCents, formatDate } from '@/lib/format'
 import { headers } from 'next/headers'
@@ -105,6 +106,29 @@ export async function recordPaymentAction(_prev: PaymentState, formData: FormDat
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   return { ok: true }
+}
+
+/** Remove a recorded payment and re-derive the invoice status (paid → open) — AC-INV-011. */
+export async function deletePaymentAction(formData: FormData): Promise<void> {
+  const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
+  if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')) return
+  const paymentId = String(formData.get('paymentId') ?? '')
+  if (!paymentId) return
+  const payment = await prisma.payment.findFirst({
+    where: { id: paymentId, accountId },
+    select: { id: true, amountCents: true, invoice: { select: { id: true, totalCents: true, paidCents: true, status: true } } },
+  })
+  if (!payment) return
+  const inv = payment.invoice
+  const newPaid = Math.max(0, inv.paidCents - payment.amountCents)
+  const newStatus = inv.status === 'paid' && newPaid < inv.totalCents ? 'open' : inv.status
+  await prisma.$transaction([
+    prisma.payment.delete({ where: { id: paymentId } }),
+    prisma.invoice.update({ where: { id: inv.id }, data: { paidCents: newPaid, status: newStatus } }),
+  ])
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: inv.id, action: 'update', summary: `Payment removed — ${formatCents(payment.amountCents)}` })
+  revalidatePath(`/invoices/${inv.id}`)
+  revalidatePath('/invoices')
 }
 
 export async function generateInvoiceAction(formData: FormData): Promise<void> {

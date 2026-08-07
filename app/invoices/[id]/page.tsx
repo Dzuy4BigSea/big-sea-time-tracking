@@ -16,17 +16,21 @@ import {
   copyToXeroAction,
   resendInvoiceAction,
 } from '@/app/invoices/actions'
+import { deletePaymentAction } from '@/app/invoices/actions'
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
+import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { ConfirmSubmit } from '@/components/ConfirmSubmit'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { listAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const { accountId } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'invoices')
+  const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')
   const invoice = await prisma.invoice.findFirst({
     where: { id: params.id, accountId },
     include: {
@@ -156,6 +160,17 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
             {invoice.status === 'draft' && (
               <MenuForm action={deleteInvoiceAction} invoiceId={invoice.id} label="Delete draft" danger />
             )}
+            {invoice.status === 'open' && (
+              <form action={deleteInvoiceAction}>
+                <input type="hidden" name="invoiceId" value={invoice.id} />
+                <ConfirmSubmit
+                  message={`Delete invoice ${invoice.number ?? ''}? This releases its billed time/expenses back to the uninvoiced pool.`}
+                  className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                >
+                  Delete invoice
+                </ConfirmSubmit>
+              </form>
+            )}
           </div>
         </details>
       </div>
@@ -260,7 +275,17 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
                   {formatDate(p.paidOn)} · {PAYMENT_METHOD_LABEL[p.method] ?? p.method}
                   {p.note ? ` · ${p.note}` : ''}
                 </span>
-                <span className="font-medium">{formatCents(p.amountCents, cur)}</span>
+                <span className="flex items-center gap-3">
+                  <span className="font-medium">{formatCents(p.amountCents, cur)}</span>
+                  {canManage && (
+                    <form action={deletePaymentAction}>
+                      <input type="hidden" name="paymentId" value={p.id} />
+                      <ConfirmSubmit message={`Remove this ${formatCents(p.amountCents, cur)} payment? The invoice will reopen if it becomes underpaid.`} className="text-xs text-gray-400 hover:text-red-600">
+                        ✕
+                      </ConfirmSubmit>
+                    </form>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
