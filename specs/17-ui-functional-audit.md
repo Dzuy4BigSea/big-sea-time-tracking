@@ -21,6 +21,28 @@ prioritize — it is the tracker the project was missing.
 > all fixed. Remaining open: timesheet submit/approve (module off at Big Sea), estimates public
 > `/e/[token]` + editor, remaining report types (utilization/payments/uninvoiced), settings depth.
 
+> **Update 2026-08-08 (real-data audit pass):** with the full Harvest migration loaded, re-audited
+> the core list/detail screens against live volume and refined each: **Team** (Members week view +
+> utilization + Assignments tab), **Projects list** (client/manager filters, budget/spent/remaining,
+> monthly-reset scoping), **Project detail** (chart + 5 cards + tabs + task breakdown), **Clients**
+> (A/R table), **Tasks** (filters + usage), **Invoices list** (fixed empty chart, controls, sort,
+> pagination), and a shared **ColumnChart** with reference lines. All now aggregate in the DB (no
+> loading 388k rows). Open loose ends tracked below.
+
+## Open loose ends (tracked 2026-08-08)
+Small, deliberately-deferred items so they don't get lost. Not blockers.
+- **Invoices list:** no **Balance sort** (computed field — needs raw SQL ordering) and no **Columns
+  chooser** (Harvest has both). Sortable on issue/due/number/client only.
+- **Team member detail:** the Members-tab Actions menu deep-links to `/team/[id]?tab=rates` and
+  `?tab=permissions`, but the detail page may not read `?tab=` yet — wire it or drop the params.
+- **Expenses screen:** not yet given the real-data audit/refine pass (filters, scale check).
+- **Reports:** utilization/capacity, payments, uninvoiced report types still missing; period selector
+  only on Time; CSV only on Time/Expenses; no charts on Profitability/Receivables.
+- **Migration follow-ups:** see [19-migration-followups.md](19-migration-followups.md) — PM-flag
+  breadth, 7 partially-paid invoices vs Xero, estimates 403 re-pull, cost/billable-rate backfill.
+- **Deferred earlier:** timesheet submit/approve (module off at Big Sea); estimates public
+  `/e/[token]` + editor; recurring auto-send.
+
 ## Summary — biggest gaps
 | Area | State | Headline gaps |
 |---|---|---|
