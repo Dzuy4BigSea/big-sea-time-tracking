@@ -602,6 +602,11 @@ model TimeEntry {
   @@index([userId, spentDate])
   @@index([projectId])
   @@index([invoiceLineItemId])
+  // Composite indexes for the aggregation screens (spec 17 perf): account+date range (Team week,
+  // Reports date range, dashboards) and per-project date range (project detail chart/breakdown,
+  // projects-list monthly spent).
+  @@index([accountId, spentDate])
+  @@index([projectId, spentDate])
 }
 
 model Timesheet {
@@ -691,6 +696,10 @@ model Invoice {
   @@unique([accountId, number])
   @@index([accountId])
   @@index([clientId])
+  // Perf (spec 17): the issued-per-year chart + list filter/sort by issueDate; Open total/count +
+  // receivables filter by status — both scoped to the account.
+  @@index([accountId, issueDate])
+  @@index([accountId, status])
 }
 
 model InvoiceLineItem {

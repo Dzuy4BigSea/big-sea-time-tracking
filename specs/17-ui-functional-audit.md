@@ -37,6 +37,25 @@ sidebar is an off-canvas drawer under `lg` with a hamburger + backdrop, closes o
 `overflow-x-auto` + hide-secondary-columns-under-`sm` (row-action dropdowns need care — they require
 `overflow-visible`, which conflicts with a scroll container); form stacking; public/print invoice on phone.
 
+## Performance (tracked 2026-08-08)
+Keep screens/data-calls snappy at full data volume (388k time entries, 7.8k invoices).
+- ✅ **Composite DB indexes** matching the aggregation filters: `TimeEntry(accountId, spentDate)` +
+  `(projectId, spentDate)`; `Invoice(accountId, issueDate)` + `(accountId, status)`. Team week-nav
+  groupBy dropped to ~120ms. (migration `*_perf_indexes`.)
+- ✅ **DB-side aggregation everywhere** — lists/reports use `groupBy`/`$queryRaw`, never `findMany`
+  the full time-entry table (done during the 2026-08-08 real-data pass).
+- **Next low-hanging fruit (not yet done):**
+  - **`Expense(accountId, spentDate)`** index if the expenses report gets date filters.
+  - **Prefetch / soft-nav:** week/month/year nav are `<Link>`s that re-run the server component each
+    click; consider `router` client nav + cached segments, or narrower server components, so nav feels
+    instant like Harvest. Pages are all `force-dynamic` today.
+  - **Selective caching:** short `revalidate` (or `unstable_cache`) on read-heavy, rarely-changing
+    aggregates (e.g. prior-month/prior-year report totals never change) — big win for repeat views.
+  - **Count queries:** a few pages run extra `count()`s (active/archived, pagination totals) per load;
+    fold into fewer round-trips where it matters.
+  - **Connection latency:** serverless uses the transaction pooler (`connection_limit=1`); cold
+    connections add ms. Acceptable now; revisit if p95 matters.
+
 ## Open loose ends (tracked 2026-08-08)
 Small, deliberately-deferred items so they don't get lost. Not blockers.
 - **Invoices list:** no **Balance sort** (computed field — needs raw SQL ordering) and no **Columns
