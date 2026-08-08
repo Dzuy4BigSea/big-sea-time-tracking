@@ -29,6 +29,14 @@ prioritize — it is the tracker the project was missing.
 > pagination), and a shared **ColumnChart** with reference lines. All now aggregate in the DB (no
 > loading 388k rows). Open loose ends tracked below.
 
+## Mobile / responsive (spec 20)
+The app was desktop-only: fixed 238px sidebar, `px-8`, wide tables — unusable on a phone. See
+[20-mobile-responsive.md](20-mobile-responsive.md). **Step 1 done (2026-08-08):** responsive shell —
+sidebar is an off-canvas drawer under `lg` with a hamburger + backdrop, closes on nav; content padding
+`px-4 sm:px-8`; main scrolls rather than clipping so nothing is unreachable. **Remaining:** per-table
+`overflow-x-auto` + hide-secondary-columns-under-`sm` (row-action dropdowns need care — they require
+`overflow-visible`, which conflicts with a scroll container); form stacking; public/print invoice on phone.
+
 ## Open loose ends (tracked 2026-08-08)
 Small, deliberately-deferred items so they don't get lost. Not blockers.
 - **Invoices list:** no **Balance sort** (computed field — needs raw SQL ordering) and no **Columns

@@ -4,6 +4,7 @@ import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { SiteFooter } from '@/components/SiteFooter'
+import { Shell } from '@/components/Shell'
 import { auth } from '@/auth'
 import { getTopBarData } from '@/lib/topbar'
 import { getModules, DEFAULT_MODULES } from '@/lib/modules'
@@ -42,23 +43,26 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body>
-        <div className="flex min-h-screen bg-gray-50">
-          <Sidebar
-            userName={session?.user?.name ?? undefined}
-            showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
-            modules={modules}
-          />
-          <main className="flex min-h-screen flex-1 flex-col overflow-x-auto">
+        <Shell
+          sidebar={
+            <Sidebar
+              userName={session?.user?.name ?? undefined}
+              showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
+              modules={modules}
+            />
+          }
+          topbar={
             <TopBar
               projects={topBar.projects}
               running={topBar.running}
               canManageInvoices={can({ permissionProfile: profile }, 'manage_invoices')}
               today={today}
             />
-            <div className="mx-auto w-full max-w-6xl flex-1 px-8 py-6">{children}</div>
-            <SiteFooter />
-          </main>
-        </div>
+          }
+          footer={<SiteFooter />}
+        >
+          {children}
+        </Shell>
       </body>
     </html>
   )
