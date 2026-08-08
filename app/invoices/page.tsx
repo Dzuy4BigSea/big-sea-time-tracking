@@ -7,6 +7,7 @@ import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 import { generateInvoiceAction } from '@/app/invoices/actions'
 import { createBlankInvoiceAction } from '@/app/invoices/[id]/edit/actions'
 import { ClickableRow } from '@/components/ClickableRow'
+import { ColumnChart } from '@/components/ColumnChart'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 
@@ -100,7 +101,6 @@ export default async function InvoicesPage({
     const r = chart.find((x) => x.m === i + 1)
     return { paid: Number(r?.paid ?? 0), open: Number(r?.open ?? 0) }
   })
-  const maxMonth = Math.max(1, ...months.map((m) => m.paid + m.open))
   const totalOpen = Number(openAgg[0]?.c ?? 0)
   const paidThisYear = Number(paidYearAgg[0]?.c ?? 0)
   const totalPages = Math.max(1, Math.ceil(totalMatched / PAGE_SIZE))
@@ -165,22 +165,19 @@ export default async function InvoicesPage({
               <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-brand-green" />Paid</span>
             </div>
           </div>
-          {/* items-stretch (not items-end) so columns fill the height and %-height bars render */}
-          <div className="flex h-40 items-stretch gap-1.5">
-            {months.map((m, i) => {
-              const paidH = Math.round((m.paid / maxMonth) * 100)
-              const openH = Math.round((m.open / maxMonth) * 100)
-              return (
-                <div key={i} className="flex flex-1 flex-col" title={`${MONTHS[i]}: ${formatCents(m.paid)} paid, ${formatCents(m.open)} open`}>
-                  <div className="flex flex-1 flex-col justify-end">
-                    <div className="w-full rounded-t-sm" style={{ height: `${openH}%`, background: '#a7e3be' }} />
-                    <div className="w-full" style={{ height: `${paidH}%`, background: '#047a44' }} />
-                  </div>
-                  <span className="mt-1 text-center text-[10px] text-gray-400">{MONTHS[i]}</span>
-                </div>
-              )
-            })}
-          </div>
+          <ColumnChart
+            format={(v) => (v >= 1000_00 ? `$${Math.round(v / 100 / 1000)}k` : formatCents(v))}
+            bars={months.map((m, i) => ({
+              label: MONTHS[i],
+              title: `${MONTHS[i]}: ${formatCents(m.paid)} paid, ${formatCents(m.open)} open`,
+              highlight: year === thisYear && i === today.getUTCMonth(),
+              // top segment first (open, lighter) then paid (darker) at the base
+              segments: [
+                { value: m.open, color: '#a7e3be' },
+                { value: m.paid, color: '#047a44' },
+              ],
+            }))}
+          />
         </div>
       </div>
 

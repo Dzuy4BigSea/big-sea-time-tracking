@@ -6,6 +6,7 @@ import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ProjectTaskBreakdown, type TaskRow } from '@/components/ProjectTaskBreakdown'
+import { ColumnChart } from '@/components/ColumnChart'
 import {
   assignUserToProjectAction,
   toggleProjectManagerAction,
@@ -101,7 +102,6 @@ export default async function ProjectDetailPage({
 
   const chartMap = new Map(chart.map((r) => [r.m, r.mins]))
   const months = MONTHS.map((_, i) => chartMap.get(i + 1) ?? 0)
-  const maxMonth = Math.max(1, ...months)
 
   const monthLabel = `${MONTHS[selM]} ${selY}`
   const qp = (over: Record<string, string>) => {
@@ -140,20 +140,18 @@ export default async function ProjectDetailPage({
           <Link href={qp({ year: String(chartYear + 1) })} className="rounded border border-gray-300 px-2 text-sm text-gray-600 hover:bg-gray-50">→</Link>
           <h2 className="text-sm font-semibold text-gray-700">Hours tracked — {chartYear}</h2>
         </div>
-        <div className="flex h-40 items-end gap-2">
-          {months.map((mins, i) => {
-            const h = Math.round((mins / maxMonth) * 100)
+        <ColumnChart
+          format={(v) => `${Math.round(v / 60)}h`}
+          bars={months.map((mins, i) => {
             const isCurrent = chartYear === now.getUTCFullYear() && i === now.getUTCMonth()
-            return (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1" title={`${MONTHS[i]} ${chartYear}: ${hrs(mins)}h`}>
-                <div className="flex w-full flex-1 items-end">
-                  <div className="w-full rounded-t-sm" style={{ height: `${h}%`, background: isCurrent ? '#9ca3af' : '#c7ccd1' }} />
-                </div>
-                <span className={`text-[10px] ${isCurrent ? 'font-semibold text-gray-600' : 'text-gray-400'}`}>{MONTHS[i]}</span>
-              </div>
-            )
+            return {
+              label: MONTHS[i],
+              title: `${MONTHS[i]} ${chartYear}: ${hrs(mins)}h`,
+              highlight: isCurrent,
+              segments: [{ value: mins, color: isCurrent ? '#9ca3af' : '#c7ccd1' }],
+            }
           })}
-        </div>
+        />
       </div>
 
       {/* Stat cards */}
