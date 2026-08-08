@@ -2,29 +2,34 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-08-06._
+_Last updated: 2026-08-08._
 
 ## ▶ Resume here (next session)
 
-**Track2 is a working, deployed, authenticated app.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` (admin), or the demo users `alice@bigsea.demo` / `frank@bigsea.demo` / `zoe@globex.demo` (password `password123`). Everything is committed + pushed to `main`; working tree clean. **167 unit tests + `next build` green.**
+**Track2 is a working, deployed, authenticated app with the full Harvest history migrated in.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` or `andi@bigsea.co` (admins). Everything is committed + pushed to `main`; `tsc` + `next build` green; **227 unit tests pass**.
 
-**Done:** core loop (track → invoice → send → pay), every sidebar screen, auth + per-account tenancy, real migrations. **Full entity CRUD** (create + edit) for Client / Task / Project / Person. **Expense entry** + **expenses billed onto invoices**. **Inline time-entry edit**. **Public invoice** `/i/[token]`. **CSV export** + **Client detail**. **Global Harvest-style top bar** (Timer popover / Track-time modal / Create-invoice / More→Track-expenses, live running-timer pill). **Settings** (preferences + module toggles + categories + invoice appearance). **Invoice appearance theming** (brand/logo/columns, data-driven). **Retainers** (deposit/drawdown). **Recurring invoices** (profiles + generate-due + create-from-invoice). **Module nav/route gating** (AC-MOD).
+### What's done (since 2026-08-06)
+- **Invoicing depth:** activity/history log, Actions menu (write-off / duplicate / resend / manual Xero copy), edit + blank composer, print/PDF, delete payment / delete sent invoice, **Configure suite** (renameable field labels, editable email messages, item types, sender addresses).
+- **Outbound email:** SendGrid pipeline + encrypted-key admin UI; invoice-sent, payment-receipt, overdue-reminder templates wired to the send paths.
+- **Multi-brand (spec 16 + 18):** per-company brand console — company-tabbed Integrations, per-entity branding/accent, sender identity, **email theming + per-company invoice language**; money/branding/Xero already route by the invoice's business entity.
+- **Team:** member detail hub (Basic / Rates / Assigned projects / Assigned people / Permissions / Security) with **granular per-user permission overrides enforced everywhere**; Members **week view** (hours / utilization / capacity) + Assignments tab.
+- **Global cross-entity search** in the top bar; **dashboard KPI widgets**; **"Purpose built by Big Sea"** footer.
+- **PRODUCTION MIGRATION COMPLETE (Harvest → Track2, `acc_demo`):** demo data cleared; **594 clients, 970 contacts, 581 tasks, 130 people, 2,649 projects, 388,607 time entries, 715 expenses, 7,788 invoices** (with reconstructed activity/status), and the **real assignment roster** (31,646 user + 24,234 task assignments, PM flags + rates). Tooling is resumable/idempotent — see the `migration-progress` memory + [MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md) + `scripts/*`.
+- **Real-data screen audits/rebuilds:** every core list/detail now **aggregates in the DB** (no loading 388k rows) with filters/sort/pagination — Team, Projects (list + detail), Clients, Tasks, Invoices (list, incl. fixed empty chart + controls), Reports (Time + Profitability). Shared reference-line **ColumnChart**.
+- **Mobile step 1:** responsive shell (off-canvas sidebar drawer + hamburger below `lg`, responsive padding) — [spec 20](specs/20-mobile-responsive.md).
 
-**Every spec phase buildable without external input is now done (01–12).** What's left needs a decision or an artifact from you:
-1. **Set `CRON_SECRET`** in Vercel project env → activates the daily recurring-invoice cron (`vercel.json` → `/api/cron/recurring`). Until then, the manual "Generate due" button covers it.
-2. **Migration importer** (specs/13) — needs a real **Harvest CSV/API export** to build the column mapping against; risky to build speculatively.
-3. **Online payment** on the public invoice — needs a **payment-provider** decision (Stripe, etc.).
-4. **DB-backed tenant-isolation tests** (specs/08) — need a test-env `DATABASE_URL` loader (no `dotenv` dep yet). Isolation is verified live + covered structurally by the authz matrix.
-5. **Audit log** (`AuditLog` model exists) — wire key mutations to write entries; broad-touch, deferred.
-6. **Public estimate view** `/e/[token]` (mirror `/i/[token]`); reports CSV on the profitability/receivables tabs.
-
-**Ops follow-ups (your call, dashboard settings):** provision a separate **production Supabase** (Pro, with backups) before real client data; optional Vercel preview-URL protection. See parking lot.
+### What's open / next (tracked, not lost)
+- **Mobile step 2+** ([spec 20](specs/20-mobile-responsive.md)): per-table `overflow-x-auto` + hide-secondary-columns-under-`sm` (row-action dropdowns need `overflow-visible` — needs care); form stacking; public/print invoice on a phone; **visual QA at 375px not yet done**.
+- **UI loose ends** ([spec 17](specs/17-ui-functional-audit.md) → "Open loose ends"): invoices **Balance sort** + **Columns chooser**; member-detail `?tab=` deep-links (referenced from Team Actions menu, may not be read yet); **Expenses screen** real-data audit pass; more **Reports** types (utilization, payments, uninvoiced) + charts on Profitability/Receivables.
+- **Migration follow-ups** ([spec 19](specs/19-migration-followups.md)): PM-flag breadth (~90% is_project_manager — confirm intent); reconcile the **7 partially-paid invoices** vs Xero (#2072, #2645, #387523, #387747, #389700, #911, #996); **estimates** 403'd during backup (re-pull if wanted); **cost/billable-rate backfill** (project Costs column hidden, historical billable $ understates until then).
+- **Ops:** separate **production Supabase** (Pro + backups) before this is the system of record; set `CRON_SECRET` to activate recurring-invoice cron; decide Vercel deployment protection.
+- **Stale task list:** the harness TaskCreate list (#1–84) reflects the original build plan and is no longer maintained — these spec files + this doc are the source of truth.
 
 **Heads-up for whoever picks this up:**
-- The `/i/[token]` public view uses a middleware-injected `x-pathname` header + a `bare` branch in [app/layout.tsx](app/layout.tsx) to drop the app chrome. New public routes: add the prefix to `PUBLIC_PREFIXES` in [middleware.ts](middleware.ts) **and** `BARE_PREFIXES` in the layout.
-- Module gating: [lib/modules.ts](lib/modules.ts) `requireModule(accountId, key)` guards pages; [Sidebar](components/Sidebar.tsx) hides off-module nav. Defaults live in `DEFAULT_MODULES`.
-- Invoice appearance/theming: [lib/appearance.ts](lib/appearance.ts) + shared [InvoiceLineItems](components/InvoiceLineItems.tsx) (column visibility). Both invoice views read it.
-- Vitest now resolves the `@/` alias ([vitest.config.ts](vitest.config.ts)).
+- Migration tooling: `scripts/migrate-staged.ts` (team→projects→timesheets→billing phases, resumable), `scripts/migrate-timesheets.mjs` (bulk 388k, fresh connection per year), `scripts/sync-assignments.mjs` (Harvest roster; needs `INTEGRATION_ENC_KEY`), `scripts/clear-demo-data.mjs` (guarded), `scripts/inspect-db.mjs`. Reconciliation logic in `modules/migration/reconcile.ts` (+ tests).
+- Big lists/reports now use raw `$queryRaw` / `groupBy` aggregation — never `findMany` the full time-entry table.
+- The `/i/[token]` + `/print/[id]` public views drop app chrome via `BARE_PREFIXES` in [app/layout.tsx](app/layout.tsx); the app shell is [components/Shell.tsx](components/Shell.tsx) (mobile drawer).
+- Per-company resolution: [lib/appearance.ts](lib/appearance.ts), [lib/invoiceLabels.ts](lib/invoiceLabels.ts), [lib/messageTemplates.ts](lib/messageTemplates.ts), [modules/entities/resolveEntity.ts](modules/entities/resolveEntity.ts) all take an optional `entityId` and fall back entity → account → default.
 
 ## Current status
 
