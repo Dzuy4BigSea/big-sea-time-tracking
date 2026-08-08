@@ -1,7 +1,7 @@
 import Link from 'next/link'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
-import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -68,58 +68,49 @@ export default async function ReportsPage({
     nextAnchor = ymd(new Date(Date.UTC(y, m + 1, 1)))
   }
 
-  const entries = await prisma.timeEntry.findMany({
-    where: { accountId, ...(from && till ? { spentDate: { gte: from, lte: till } } : {}) },
-    select: {
-      minutes: true,
-      isBillable: true,
-      billableRateCents: true,
-      invoiceLineItemId: true,
-      lockState: true,
-      task: { select: { id: true, name: true } },
-      user: { select: { id: true, firstName: true, lastName: true } },
-      project: { select: { id: true, name: true, code: true, client: { select: { id: true, name: true } } } },
-    },
-  })
+  // Aggregate in the DB (never load raw entries — 388k rows). Metric expressions are shared;
+  // only the grouping key/label/join differ per dimension.
+  const dateFilter = from && till ? Prisma.sql`AND te."spentDate" >= ${from} AND te."spentDate" <= ${till}` : Prisma.empty
+  const metrics = Prisma.sql`
+    SUM(te.minutes)::int AS minutes,
+    SUM(CASE WHEN te."isBillable" THEN te.minutes ELSE 0 END)::int AS bmin,
+    SUM(CASE WHEN te."isBillable" THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS bcents,
+    SUM(CASE WHEN te."isBillable" AND te."invoiceLineItemId" IS NULL AND te."lockState"::text <> 'invoiced' THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS ucents`
+
+  type Raw = { key: string; name: string; code?: string | null; fn?: string; ln?: string; minutes: number; bmin: number; bcents: number; ucents: number }
+  let raw: Raw[]
+  if (group === 'projects') {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT p.id AS key, p.name AS name, p.code AS code, ${metrics}
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
+      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY p.id, p.name, p.code ORDER BY minutes DESC`
+  } else if (group === 'tasks') {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT t.id AS key, t.name AS name, ${metrics}
+      FROM "TimeEntry" te JOIN "Task" t ON t.id = te."taskId"
+      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY t.id, t.name ORDER BY minutes DESC`
+  } else if (group === 'teammates') {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT u.id AS key, u."firstName" AS fn, u."lastName" AS ln, ${metrics}
+      FROM "TimeEntry" te JOIN "User" u ON u.id = te."userId"
+      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY u.id, u."firstName", u."lastName" ORDER BY minutes DESC`
+  } else {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT c.id AS key, c.name AS name, ${metrics}
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
+      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY c.id, c.name ORDER BY minutes DESC`
+  }
 
   type Row = { key: string; label: string; href: string | null; minutes: number; billableMinutes: number; billableCents: number; uninvoicedCents: number }
-  const rowsMap = new Map<string, Row>()
-  const totals = { minutes: 0, billableMinutes: 0, billableCents: 0, uninvoicedCents: 0 }
-
-  const keyOf = (e: (typeof entries)[number]): { key: string; label: string; href: string | null } => {
-    switch (group) {
-      case 'projects':
-        return { key: e.project.id, label: `${e.project.code ? `[${e.project.code}] ` : ''}${e.project.name}`, href: `/projects/${e.project.id}` }
-      case 'tasks':
-        return { key: e.task.id, label: e.task.name, href: null }
-      case 'teammates':
-        return { key: e.user.id, label: `${e.user.firstName} ${e.user.lastName}`.trim(), href: null }
-      case 'clients':
-      default:
-        return { key: e.project.client.id, label: e.project.client.name, href: `/clients/${e.project.client.id}` }
-    }
-  }
-
-  for (const e of entries) {
-    const { key, label, href } = keyOf(e)
-    const row = rowsMap.get(key) ?? { key, label, href, minutes: 0, billableMinutes: 0, billableCents: 0, uninvoicedCents: 0 }
-    const amount = e.isBillable && e.billableRateCents ? Math.round((e.minutes / 60) * e.billableRateCents) : 0
-    row.minutes += e.minutes
-    totals.minutes += e.minutes
-    if (e.isBillable) {
-      row.billableMinutes += e.minutes
-      totals.billableMinutes += e.minutes
-    }
-    row.billableCents += amount
-    totals.billableCents += amount
-    if (isUninvoiced({ isBillable: e.isBillable, invoiceLineItemId: e.invoiceLineItemId, lockState: e.lockState })) {
-      row.uninvoicedCents += amount
-      totals.uninvoicedCents += amount
-    }
-    rowsMap.set(key, row)
-  }
-
-  const rows = [...rowsMap.values()].sort((a, b) => b.minutes - a.minutes)
+  const rows: Row[] = raw.map((r) => ({
+    key: r.key,
+    label: group === 'projects' ? `${r.code ? `[${r.code}] ` : ''}${r.name}` : group === 'teammates' ? `${r.fn ?? ''} ${r.ln ?? ''}`.trim() : r.name,
+    href: group === 'projects' ? `/projects/${r.key}` : group === 'clients' ? `/clients/${r.key}` : null,
+    minutes: Number(r.minutes),
+    billableMinutes: Number(r.bmin),
+    billableCents: Math.round(Number(r.bcents)),
+    uninvoicedCents: Math.round(Number(r.ucents)),
+  }))
+  const totals = rows.reduce(
+    (a, r) => ({ minutes: a.minutes + r.minutes, billableMinutes: a.billableMinutes + r.billableMinutes, billableCents: a.billableCents + r.billableCents, uninvoicedCents: a.uninvoicedCents + r.uninvoicedCents }),
+    { minutes: 0, billableMinutes: 0, billableCents: 0, uninvoicedCents: 0 },
+  )
   const column = GROUPS.find((g) => g.key === group)!.column
   const nonBillableMinutes = totals.minutes - totals.billableMinutes
   const billablePct = totals.minutes > 0 ? Math.round((totals.billableMinutes / totals.minutes) * 100) : 0

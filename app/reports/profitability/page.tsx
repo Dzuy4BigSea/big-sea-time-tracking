@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
-import { effectiveRate, type EffectiveRate } from '@/modules/projects/resolveRate'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 
@@ -8,52 +7,22 @@ export const dynamic = 'force-dynamic'
 
 export default async function ProfitabilityPage() {
   const { accountId } = await requireUser()
-  const [entries, costRates] = await Promise.all([
-    prisma.timeEntry.findMany({
-      where: { accountId },
-      select: {
-        userId: true,
-        minutes: true,
-        isBillable: true,
-        billableRateCents: true,
-        spentDate: true,
-        project: { select: { name: true, client: { select: { name: true } } } },
-      },
-    }),
-    prisma.personCostRate.findMany({
-      where: { accountId },
-      select: { userId: true, hourlyRateCents: true, startDate: true, endDate: true },
-    }),
+  // Revenue aggregated in the DB per project (never load 388k entries). Internal cost needs
+  // effective-dated person cost rates, which aren't imported from Harvest yet — so cost is 0 until
+  // that backfill (see specs/19). Margin therefore equals revenue for now.
+  const [raw, costRateCount] = await Promise.all([
+    prisma.$queryRaw<{ key: string; revenue: number }[]>`
+      SELECT (c.name || ' — ' || p.name) AS key,
+        SUM(CASE WHEN te."isBillable" THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS revenue
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
+      WHERE te."accountId" = ${accountId}
+      GROUP BY c.name, p.name HAVING SUM(te.minutes) > 0 ORDER BY revenue DESC`,
+    prisma.personCostRate.count({ where: { accountId } }),
   ])
 
-  // Effective-dated cost rates per user (revenue is the entry's snapshotted billable rate).
-  const ratesByUser = new Map<string, EffectiveRate[]>()
-  for (const r of costRates) {
-    const list = ratesByUser.get(r.userId) ?? []
-    list.push({ hourlyRateCents: r.hourlyRateCents, startDate: r.startDate, endDate: r.endDate })
-    ratesByUser.set(r.userId, list)
-  }
-
-  type Row = { revenue: number; cost: number }
-  const byProject = new Map<string, Row & { client: string }>()
-  const totals: Row = { revenue: 0, cost: 0 }
-
-  for (const e of entries) {
-    const hours = e.minutes / 60
-    const revenue = e.isBillable && e.billableRateCents ? Math.round(hours * e.billableRateCents) : 0
-    const costRate = effectiveRate(ratesByUser.get(e.userId), e.spentDate)
-    const cost = costRate ? Math.round(hours * costRate) : 0
-    const key = `${e.project.client.name} — ${e.project.name}`
-    const row = byProject.get(key) ?? { revenue: 0, cost: 0, client: e.project.client.name }
-    row.revenue += revenue
-    row.cost += cost
-    byProject.set(key, row)
-    totals.revenue += revenue
-    totals.cost += cost
-  }
-
-  const rows = [...byProject.entries()].sort((a, b) => b[1].revenue - b[1].cost - (a[1].revenue - a[1].cost))
-  const pct = (r: Row) => (r.revenue > 0 ? Math.round(((r.revenue - r.cost) / r.revenue) * 100) : null)
+  const rows: [string, { revenue: number; cost: number }][] = raw.map((r) => [r.key, { revenue: Math.round(Number(r.revenue)), cost: 0 }])
+  const totals = rows.reduce((a, [, r]) => ({ revenue: a.revenue + r.revenue, cost: a.cost + r.cost }), { revenue: 0, cost: 0 })
+  const pct = (r: { revenue: number; cost: number }) => (r.revenue > 0 ? Math.round(((r.revenue - r.cost) / r.revenue) * 100) : null)
 
   return (
     <div>
@@ -112,7 +81,9 @@ export default async function ProfitabilityPage() {
         </table>
       </div>
       <p className="mt-2 text-xs text-gray-400">
-        Cost uses effective-dated person cost rates (Admin-only in the real permission model).
+        {costRateCount > 0
+          ? 'Cost uses effective-dated person cost rates (Admin-only).'
+          : 'Internal cost rates aren’t imported from Harvest yet, so Cost shows $0 and Margin = Revenue. Backfill cost rates to populate (specs/19).'}
       </p>
     </div>
   )
