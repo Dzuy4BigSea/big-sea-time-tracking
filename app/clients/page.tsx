@@ -1,92 +1,134 @@
 import Link from 'next/link'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { NewClientForm } from '@/components/NewClientForm'
 import { EntityChip } from '@/components/EntitySelect'
+import { ClickableRow } from '@/components/ClickableRow'
 import { listEntities } from '@/lib/entities'
+import { setClientArchivedAction } from '@/app/clients/actions'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ClientsPage({ searchParams }: { searchParams: { archived?: string } }) {
+export default async function ClientsPage({
+  searchParams,
+}: {
+  searchParams: { status?: string; q?: string }
+}) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_clients')
-  const showArchived = searchParams.archived === '1'
-  const [clients, entities] = await Promise.all([
+
+  const status = ['active', 'archived', 'all'].includes(searchParams.status ?? '') ? searchParams.status! : 'active'
+  const q = (searchParams.q ?? '').trim()
+
+  const where: Prisma.ClientWhereInput = {
+    accountId,
+    ...(status === 'active' ? { isActive: true } : status === 'archived' ? { isActive: false } : {}),
+    ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
+  }
+
+  const [clients, activeCount, entities, projAgg, arRows] = await Promise.all([
     prisma.client.findMany({
-      where: { accountId, ...(showArchived ? {} : { isActive: true }) },
-      include: {
-        contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
-        entity: { select: { code: true, name: true } },
-        _count: { select: { projects: true } },
-      },
+      where,
+      select: { id: true, name: true, currency: true, isActive: true, entity: { select: { code: true, name: true } } },
       orderBy: { name: 'asc' },
     }),
+    prisma.client.count({ where: { accountId, isActive: true } }),
     listEntities(accountId),
+    prisma.project.groupBy({ by: ['clientId'], where: { accountId }, _count: { _all: true } }),
+    prisma.$queryRaw<{ clientId: string; open: bigint; overdue: bigint }[]>`
+      SELECT "clientId",
+        COALESCE(SUM("totalCents" - "paidCents"),0)::bigint AS open,
+        COALESCE(SUM(CASE WHEN "dueDate" < NOW() THEN "totalCents" - "paidCents" ELSE 0 END),0)::bigint AS overdue
+      FROM "Invoice" WHERE "accountId" = ${accountId} AND status::text = 'open' GROUP BY "clientId"`,
   ])
-  const entityOpts = entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))
+
+  const projBy = new Map(projAgg.map((r) => [r.clientId, r._count._all]))
+  const arBy = new Map(arRows.map((r) => [r.clientId, { open: Number(r.open), overdue: Number(r.overdue) }]))
+  const totalOutstanding = arRows.reduce((s, r) => s + Number(r.open), 0)
+
+  const qp = (over: Record<string, string>) => {
+    const p = new URLSearchParams({ ...(status !== 'active' ? { status } : {}), ...(q ? { q } : {}), ...over })
+    const s = p.toString()
+    return s ? `/clients?${s}` : '/clients'
+  }
+  const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
   return (
     <div>
-      <div className="mb-6 flex items-baseline justify-between">
-        <div>
-          <h1 className="mb-1 text-2xl font-semibold">Clients</h1>
-          <p className="text-sm text-gray-500">
-            Live from Supabase · {clients.length} {showArchived ? 'archived ' : ''}client{clients.length === 1 ? '' : 's'}
-          </p>
-        </div>
-        <Link href={showArchived ? '/clients' : '/clients?archived=1'} className="text-sm text-gray-500 hover:text-brand-teal">
-          {showArchived ? '← Active clients' : 'View archived'}
-        </Link>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Clients</h1>
+        <span className="text-sm text-gray-500">Total outstanding <span className="font-semibold text-gray-800">{formatCents(totalOutstanding)}</span></span>
       </div>
 
-      {canManage && <NewClientForm entities={entityOpts} />}
+      {canManage && <NewClientForm entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
 
-      <div className="space-y-3">
-        {clients.map((c) => (
-          <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="flex items-center gap-2 font-semibold text-gray-900">
-                <Link href={`/clients/${c.id}`} className="hover:text-brand-teal">
-                  {c.name}
-                </Link>
-                {c.entity && <EntityChip code={c.entity.code} name={c.entity.name} />}
-              </h2>
-              <div className="flex items-baseline gap-3 text-xs text-gray-400">
-                <span>
-                  {c.currency} · {c._count.projects} project{c._count.projects === 1 ? '' : 's'}
-                </span>
-                {canManage && (
-                  <Link href={`/clients/${c.id}/edit`} className="text-gray-500 hover:text-brand-teal">
-                    Edit
-                  </Link>
-                )}
-              </div>
-            </div>
-            {c.address && <div className="mt-1 whitespace-pre-line text-xs text-gray-500">{c.address}</div>}
+      {/* Filters */}
+      <form className="mb-4 flex flex-wrap items-center gap-2">
+        <select name="status" defaultValue={status} className={input}>
+          <option value="active">Active clients ({activeCount})</option>
+          <option value="archived">Archived clients</option>
+          <option value="all">All clients</option>
+        </select>
+        <input name="q" defaultValue={q} placeholder="Search clients" className={`${input} w-56`} />
+        <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Apply</button>
+        {(q || status !== 'active') && <Link href="/clients" className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>}
+        <span className="ml-auto text-sm text-gray-400">{clients.length} shown</span>
+      </form>
 
-            {c.contacts.length > 0 && (
-              <ul className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-sm">
-                {c.contacts.map((ct) => (
-                  <li key={ct.id} className="flex items-center gap-2">
-                    <span className="font-medium text-gray-800">
-                      {ct.firstName} {ct.lastName}
-                    </span>
-                    {ct.title && <span className="text-xs text-gray-400">{ct.title}</span>}
-                    {ct.email && <span className="text-gray-500">{ct.email}</span>}
-                    {ct.isInvoiceRecipient && (
-                      <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">
-                        invoices
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+      <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
+              <th className="px-4 py-3 font-medium">Client</th>
+              <th className="px-4 py-3 text-right font-medium">Projects</th>
+              <th className="px-4 py-3 text-right font-medium">Outstanding</th>
+              <th className="px-4 py-3 text-right font-medium">Overdue</th>
+              {canManage && <th className="px-4 py-3" />}
+            </tr>
+          </thead>
+          <tbody>
+            {clients.map((c) => {
+              const ar = arBy.get(c.id) ?? { open: 0, overdue: 0 }
+              return (
+                <ClickableRow key={c.id} href={`/clients/${c.id}`} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link href={`/clients/${c.id}`} className="font-medium text-gray-900 hover:text-brand-teal">{c.name}</Link>
+                    {c.entity && <span className="ml-2"><EntityChip code={c.entity.code} name={c.entity.name} /></span>}
+                    {!c.isActive && <span className="ml-2 text-xs text-gray-400">(archived)</span>}
+                    <span className="ml-2 text-xs text-gray-400">{c.currency}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-600">{projBy.get(c.id) ?? 0}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-700">{ar.open > 0 ? formatCents(ar.open, c.currency) : '—'}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${ar.overdue > 0 ? 'font-medium text-red-600' : 'text-gray-400'}`}>{ar.overdue > 0 ? formatCents(ar.overdue, c.currency) : '—'}</td>
+                  {canManage && (
+                    <td className="px-4 py-3 text-right">
+                      <details className="relative inline-block text-left">
+                        <summary className="cursor-pointer list-none rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">Actions ▾</summary>
+                        <div className="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-left shadow-lg">
+                          <Link href={`/clients/${c.id}`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">View</Link>
+                          <Link href={`/clients/${c.id}/edit`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Edit</Link>
+                          <form action={setClientArchivedAction}>
+                            <input type="hidden" name="id" value={c.id} />
+                            <input type="hidden" name="archived" value={c.isActive ? 'on' : 'off'} />
+                            <button className="block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50">{c.isActive ? 'Archive' : 'Restore'}</button>
+                          </form>
+                        </div>
+                      </details>
+                    </td>
+                  )}
+                </ClickableRow>
+              )
+            })}
+            {clients.length === 0 && (
+              <tr><td colSpan={canManage ? 5 : 4} className="px-4 py-8 text-center text-gray-400">No clients match.</td></tr>
             )}
-          </div>
-        ))}
-        {clients.length === 0 && <p className="text-sm text-gray-400">No clients yet.</p>}
+          </tbody>
+        </table>
       </div>
+      <p className="mt-2 text-xs text-gray-400">Outstanding = open invoice balances; Overdue = past due. Contacts live on each client&apos;s page.</p>
     </div>
   )
 }
