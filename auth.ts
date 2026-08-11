@@ -18,9 +18,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // NOTE: email is unique per account in the schema; for demo login we match the
         // first active user with this email. Real multi-account login should disambiguate.
-        const user = await prisma.user.findFirst({ where: { email, isActive: true } })
+        // A DB/connection error here (e.g. a cold serverless→pooler connect) must NOT masquerade as
+        // "invalid password" — rethrow a distinct error so the UI can say "try again", not "wrong password".
+        let user
+        try {
+          user = await prisma.user.findFirst({ where: { email, isActive: true } })
+        } catch (e) {
+          throw new Error('AuthServiceUnavailable')
+        }
         if (!user) return null
-        if (!bcrypt.compareSync(password, user.passwordHash)) return null
+        // Async compare (doesn't block the event loop). Imported/no-login users have a non-bcrypt
+        // sentinel hash, which compare() safely rejects.
+        const ok = await bcrypt.compare(password, user.passwordHash).catch(() => false)
+        if (!ok) return null
 
         return {
           id: user.id,

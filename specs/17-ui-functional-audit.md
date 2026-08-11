@@ -44,6 +44,20 @@ Keep screens/data-calls snappy at full data volume (388k time entries, 7.8k invo
   groupBy dropped to ~120ms. (migration `*_perf_indexes`.)
 - ✅ **DB-side aggregation everywhere** — lists/reports use `groupBy`/`$queryRaw`, never `findMany`
   the full time-entry table (done during the 2026-08-08 real-data pass).
+### Slow login / cold-start (reported 2026-08-08)
+Symptom: sign-in hangs 5–25s with "nothing happening", sometimes needs a second click. **Not app
+logic** — the login DB query is ~120ms and connect ~700ms warm. It's the **cold path**: a cold Vercel
+function (Prisma engine init) + a cold transaction-pooler connection, and Supabase compute waking if
+idle. The old code also let a transient DB/connection error in `authorize()` surface as "invalid
+password", so the retry that "fixed" it was really the warmed-up second attempt.
+- ✅ **Code fixes:** `authorize()` rethrows a distinct `AuthServiceUnavailable` on DB error (no longer
+  masquerades as bad credentials); async `bcrypt.compare` (non-blocking); login page shows "app may be
+  waking up, try again" for non-credential errors vs "invalid email or password" for real ones.
+- ✅ **`/api/health`** (cheap `SELECT 1`, public) — point an external uptime monitor at it every ~5 min
+  to keep a function + pooler connection warm; sidesteps the cold path for real users (works on Hobby).
+- **Durable infra fix (ops, your call):** move to **Supabase Pro** (no idle auto-pause) and enable
+  **Vercel Fluid Compute** (keeps functions warm / reuses instances). This is the real cure; the health
+  pinger is the free stopgap.
 - **Next low-hanging fruit (not yet done):**
   - **`Expense(accountId, spentDate)`** index if the expenses report gets date filters.
   - **Prefetch / soft-nav:** week/month/year nav are `<Link>`s that re-run the server component each

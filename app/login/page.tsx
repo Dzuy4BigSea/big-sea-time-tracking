@@ -14,17 +14,28 @@ export default function LoginPage() {
     setPending(true)
     setError('')
     const form = new FormData(e.currentTarget)
-    const res = await signIn('credentials', {
-      email: String(form.get('email') ?? ''),
-      password: String(form.get('password') ?? ''),
-      redirect: false,
-    })
+    let res
+    try {
+      res = await signIn('credentials', {
+        email: String(form.get('email') ?? ''),
+        password: String(form.get('password') ?? ''),
+        redirect: false,
+      })
+    } catch {
+      res = { error: 'AuthServiceUnavailable' }
+    }
     setPending(false)
-    if (!res || res.error) {
-      setError('Invalid email or password.')
-    } else {
+    if (res && !res.error) {
       router.push('/')
       router.refresh()
+      return
+    }
+    // A cold serverless/DB connection surfaces as a non-credentials error — don't call it a bad password.
+    const err = String(res?.error ?? '')
+    if (err.includes('Credentials')) {
+      setError('Invalid email or password.')
+    } else {
+      setError('Sign-in didn’t go through — the app may have been idle and is waking up. Please try again.')
     }
   }
 
