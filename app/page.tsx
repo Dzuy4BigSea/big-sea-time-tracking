@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { startOfWeekMonday, addDays } from '@/lib/week'
@@ -31,7 +32,9 @@ export default async function HomePage() {
   const lastMonthEnd = addDays(monthStart, -1)
   const farFuture = new Date(Date.UTC(9999, 0, 1))
 
-  const [minToday, minYesterday, minWeek, minLastWeek, minMonth, minLastMonth, invoices, recurring, retainers, projects, uninvTime, uninvExpenses, capacityAgg] =
+  // Everything below aggregates in the DB — the dashboard must never load raw rows (388k time
+  // entries / 7.8k invoices). One scalar/row per widget instead of pulling + reducing in JS.
+  const [minToday, minYesterday, minWeek, minLastWeek, minMonth, minLastMonth, invAgg, uninvTimeAgg, uninvExpenses, recurring, retainers, capacityAgg, activeRaw] =
     await Promise.all([
       sumHours(accountId, today, today),
       sumHours(accountId, yesterday, yesterday),
@@ -39,66 +42,48 @@ export default async function HomePage() {
       sumHours(accountId, lastWeekStart, lastWeekEnd),
       sumHours(accountId, monthStart, farFuture),
       sumHours(accountId, lastMonthStart, lastMonthEnd),
-    prisma.invoice.findMany({
-      where: { accountId },
-      select: { status: true, totalCents: true, paidCents: true, issueDate: true, dueDate: true },
-    }),
-    prisma.recurringInvoiceProfile.findMany({
-      where: { accountId, status: 'active' },
-      select: { nextIssueDate: true },
-    }),
-    prisma.retainer.findMany({ where: { accountId, status: 'ongoing' }, select: { balanceCents: true } }),
-    prisma.project.findMany({
-      where: { accountId },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        client: { select: { name: true } },
-        budgetMethod: true,
-        budgetValue: true,
-        timeEntries: { select: { minutes: true, spentDate: true } },
-      },
-    }),
-    prisma.timeEntry.findMany({
-      where: { accountId, isBillable: true, isRunning: false, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
-      select: { minutes: true, billableRateCents: true },
-    }),
-    prisma.expense.findMany({
-      where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
-      select: { totalCents: true, markupPercent: true },
-    }),
-    prisma.user.aggregate({ where: { accountId, isActive: true }, _sum: { capacityHoursPerWeek: true } }),
-  ])
+      prisma.$queryRaw<{ outstanding: bigint; paid: bigint; month: bigint; overdue: bigint }[]>`
+        SELECT
+          COALESCE(SUM(CASE WHEN status::text = 'open' THEN "totalCents" - "paidCents" ELSE 0 END),0)::bigint AS outstanding,
+          COALESCE(SUM("paidCents"),0)::bigint AS paid,
+          COALESCE(SUM(CASE WHEN "issueDate" >= ${monthStart} THEN "totalCents" ELSE 0 END),0)::bigint AS month,
+          COALESCE(SUM(CASE WHEN status::text = 'open' AND "dueDate" < ${today} THEN "totalCents" - "paidCents" ELSE 0 END),0)::bigint AS overdue
+        FROM "Invoice" WHERE "accountId" = ${accountId}`,
+      prisma.$queryRaw<{ c: number }[]>`
+        SELECT COALESCE(SUM(minutes/60.0 * COALESCE("billableRateCents",0)),0)::float8 AS c
+        FROM "TimeEntry" WHERE "accountId" = ${accountId} AND "isBillable" AND NOT "isRunning" AND "invoiceLineItemId" IS NULL AND "lockState"::text <> 'invoiced'`,
+      prisma.expense.findMany({
+        where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
+        select: { totalCents: true, markupPercent: true },
+      }),
+      prisma.recurringInvoiceProfile.findMany({ where: { accountId, status: 'active' }, select: { nextIssueDate: true } }),
+      prisma.retainer.findMany({ where: { accountId, status: 'ongoing' }, select: { balanceCents: true } }),
+      prisma.user.aggregate({ where: { accountId, isActive: true }, _sum: { capacityHoursPerWeek: true } }),
+      prisma.$queryRaw<{ id: string; name: string; code: string | null; client: string; budgetMethod: string; budgetValue: number | null; spent: number; last: Date }[]>`
+        SELECT p.id, p.name, p.code, c.name AS client, p."budgetMethod" AS "budgetMethod", p."budgetValue" AS "budgetValue",
+          SUM(te.minutes)::int AS spent, MAX(te."spentDate") AS last
+        FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
+        WHERE te."accountId" = ${accountId}
+        GROUP BY p.id, p.name, p.code, c.name, p."budgetMethod", p."budgetValue"
+        ORDER BY MAX(te."spentDate") DESC NULLS LAST LIMIT 5`,
+    ])
 
-  const outstanding = invoices.filter((i) => i.status === 'open').reduce((s, i) => s + (i.totalCents - i.paidCents), 0)
-  const totalPaid = invoices.reduce((s, i) => s + i.paidCents, 0)
-  const invoicedThisMonth = invoices
-    .filter((i) => i.issueDate && i.issueDate >= monthStart)
-    .reduce((s, i) => s + i.totalCents, 0)
+  const inv = invAgg[0]
+  const outstanding = Number(inv?.outstanding ?? 0)
+  const totalPaid = Number(inv?.paid ?? 0)
+  const invoicedThisMonth = Number(inv?.month ?? 0)
+  const overdueCents = Number(inv?.overdue ?? 0)
 
   const recurringDue = recurring.filter((r) => r.nextIssueDate && utcMidnight(r.nextIssueDate) <= today).length
   const retainerBalance = retainers.reduce((s, r) => s + r.balanceCents, 0)
 
-  // KPI widgets.
-  const overdueCents = invoices
-    .filter((i) => i.status === 'open' && i.dueDate && utcMidnight(i.dueDate) < today)
-    .reduce((s, i) => s + (i.totalCents - i.paidCents), 0)
   const uninvoicedCents =
-    uninvTime.reduce((s, e) => s + (e.billableRateCents ? Math.round((e.minutes / 60) * e.billableRateCents) : 0), 0) +
+    Math.round(Number(uninvTimeAgg[0]?.c ?? 0)) +
     uninvExpenses.reduce((s, e) => s + Math.round(e.totalCents * (1 + (e.markupPercent ? Number(e.markupPercent) : 0) / 100)), 0)
   const capacityHours = Number(capacityAgg._sum.capacityHoursPerWeek ?? 0)
   const utilization = capacityHours > 0 ? Math.round((minWeek / 60 / capacityHours) * 100) : null
 
-  const activeProjects = projects
-    .map((p) => {
-      const spent = p.timeEntries.reduce((s, e) => s + e.minutes, 0)
-      const last = p.timeEntries.reduce<Date | null>((m, e) => (!m || e.spentDate > m ? e.spentDate : m), null)
-      return { ...p, spent, last }
-    })
-    .filter((p) => p.spent > 0)
-    .sort((a, b) => (b.last?.getTime() ?? 0) - (a.last?.getTime() ?? 0))
-    .slice(0, 5)
+  const activeProjects = activeRaw.map((p) => ({ ...p, spent: Number(p.spent) }))
 
   return (
     <div>
@@ -193,7 +178,7 @@ export default async function HomePage() {
               return (
                 <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div className="text-xs text-gray-400">{p.client.name}</div>
+                    <div className="text-xs text-gray-400">{p.client}</div>
                     <Link href={`/projects/${p.id}`} className="font-medium text-gray-900 hover:text-brand-teal">
                       {p.code ? `[${p.code}] ` : ''}
                       {p.name}
