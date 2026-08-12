@@ -39,6 +39,8 @@ sidebar is an off-canvas drawer under `lg` with a hamburger + backdrop, closes o
 
 ## Performance (tracked 2026-08-08)
 Keep screens/data-calls snappy at full data volume (388k time entries, 7.8k invoices).
+Full deployment/scaling plan (cold start, connection pooling, when to move off scale-to-zero, and how
+it affects API/MCP calls) lives in [21-performance-scaling.md](21-performance-scaling.md).
 - ✅ **Composite DB indexes** matching the aggregation filters: `TimeEntry(accountId, spentDate)` +
   `(projectId, spentDate)`; `Invoice(accountId, issueDate)` + `(accountId, status)`. Team week-nav
   groupBy dropped to ~120ms. (migration `*_perf_indexes`.)
