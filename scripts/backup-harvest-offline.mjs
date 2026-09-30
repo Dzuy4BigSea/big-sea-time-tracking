@@ -16,6 +16,14 @@
  *   ACCOUNT_ID             Track2 account id (defaults to the connection's account).
  *
  * Run:  node scripts/backup-harvest-offline.mjs
+ *
+ * Incremental (update sync) mode — writes a NEW snapshot; the original is never touched:
+ *   node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=2026-08-06T00:00:00Z --years=2025,2026
+ *   - light resources: pulled whole (small; also captures deactivations)
+ *   - time_entries: whole year-chunks for --years (the bulk importer replaces by year, which also
+ *     picks up Harvest-side deletions), plus a "delta" chunk (updated_since) to spot edits in older years
+ *   - expenses / invoices: "delta" chunk via updated_since (id-mapped, so upserts are safe)
+ *   --since defaults to the connection's lastPulledAt.
  */
 import { PrismaClient } from '@prisma/client'
 import { createDecipheriv, createHash } from 'node:crypto'
@@ -31,6 +39,10 @@ const PER_PAGE = 2000
 const LIGHT = ['clients', 'contacts', 'projects', 'tasks', 'users', 'roles', 'expense_categories', 'estimates']
 const HEAVY = ['time_entries', 'expenses', 'invoices']
 const START_YEAR = 2008
+
+const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
+const INCREMENTAL = process.argv.includes('--incremental')
+const YEARS = (arg('years') ?? '').split(',').map((y) => y.trim()).filter(Boolean)
 
 const p = new PrismaClient()
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -60,10 +72,11 @@ async function hget(token, acct, path) {
   throw new Error(`GET ${path} exhausted retries`)
 }
 
-async function pullAll(token, acct, resource, { from, to } = {}) {
+async function pullAll(token, acct, resource, { from, to, updatedSince } = {}) {
   const out = []
   let page = 1
   const q = [`per_page=${PER_PAGE}`]
+  if (updatedSince) q.push(`updated_since=${encodeURIComponent(updatedSince)}`)
   if (from) q.push(`from=${from}`)
   if (to) q.push(`to=${to}`)
   const base = q.join('&')
@@ -76,9 +89,14 @@ async function pullAll(token, acct, resource, { from, to } = {}) {
   return out
 }
 
-function workList() {
+function workList(updatedSince) {
   const items = []
   for (const r of LIGHT) items.push({ resource: r, chunk: null })
+  if (INCREMENTAL) {
+    for (const y of YEARS) items.push({ resource: 'time_entries', chunk: y, from: `${y}-01-01`, to: `${y}-12-31` })
+    for (const r of HEAVY) items.push({ resource: r, chunk: 'delta', updatedSince })
+    return items
+  }
   const end = new Date().getUTCFullYear()
   for (const r of HEAVY) for (let y = START_YEAR; y <= end; y++) items.push({ resource: r, chunk: String(y), from: `${y}-01-01`, to: `${y}-12-31` })
   return items
@@ -90,20 +108,25 @@ if (!conn) { console.error('No connected Harvest integration found.'); await p.$
 const token = decrypt(conn.secretsEnc.accessToken)
 const acct = String(conn.config.harvestAccountId)
 const accountId = process.env.ACCOUNT_ID || conn.accountId
+const mode = INCREMENTAL ? 'incremental' : 'full'
 let snap = process.env.SNAPSHOT_ID
   ? await p.migrationSnapshot.findFirst({ where: { id: process.env.SNAPSHOT_ID, accountId } })
-  : await p.migrationSnapshot.findFirst({ where: { accountId, status: 'running' }, orderBy: { createdAt: 'desc' } })
+  : await p.migrationSnapshot.findFirst({ where: { accountId, status: 'running', mode }, orderBy: { createdAt: 'desc' } })
 if (!snap) {
+  const updatedSince = INCREMENTAL ? arg('since') ?? conn.config.lastPulledAt : null
+  if (INCREMENTAL && !updatedSince) { console.error('Incremental needs --since=<ISO> (no lastPulledAt on the connection).'); await p.$disconnect(); process.exit(1) }
+  if (INCREMENTAL && !YEARS.length) { console.error('Incremental needs --years=YYYY[,YYYY] for the time-entry year replacement.'); await p.$disconnect(); process.exit(1) }
   snap = await p.migrationSnapshot.create({
-    data: { accountId, source: 'harvest', status: 'running', mode: 'full', meta: { startedAt: new Date().toISOString(), errors: {} }, createdByUserId: conn.connectedByUserId },
+    data: { accountId, source: 'harvest', status: 'running', mode, meta: { startedAt: new Date().toISOString(), updatedSince, years: YEARS, errors: {} }, createdByUserId: conn.connectedByUserId },
   })
-  console.log('created new snapshot', snap.id)
+  console.log('created new snapshot', snap.id, mode)
 }
-console.log('snapshot', snap.id, 'account', accountId, 'harvest acct', acct)
+const snapMeta = snap.meta ?? {}
+console.log('snapshot', snap.id, snap.mode, 'account', accountId, 'harvest acct', acct, snap.mode === 'incremental' ? `since ${snapMeta.updatedSince} years ${snapMeta.years}` : '')
 
 const existing = await p.migrationSnapshotPart.findMany({ where: { snapshotId: snap.id }, select: { resource: true, chunk: true } })
 const done = new Set(existing.map(wk))
-const work = workList()
+const work = workList(snapMeta.updatedSince)
 const errors = {}
 let n = 0
 for (const item of work) {
@@ -135,10 +158,11 @@ for (const g of grouped) counts[g.resource] = g._sum.rowCount ?? 0
 
 await p.migrationSnapshot.update({
   where: { id: snap.id },
-  data: { status, entityCounts: counts, meta: { startedAt: new Date().toISOString(), errors, remaining, total: work.length, completedVia: 'offline-runner' }, errorMessage: errorKeys.length ? `Issues: ${errorKeys.join(', ')}` : null },
+  data: { status, entityCounts: counts, meta: { ...snapMeta, startedAt: snapMeta.startedAt ?? new Date().toISOString(), errors, remaining, total: work.length, completedVia: 'offline-runner' }, errorMessage: errorKeys.length ? `Issues: ${errorKeys.join(', ')}` : null },
 })
 if (status === 'complete' || status === 'partial') {
-  await p.integrationConnection.update({ where: { id: conn.id }, data: { config: { harvestAccountId: acct, lastPulledAt: new Date().toISOString() }, lastSyncedAt: new Date() } })
+  // High-water mark = when this pull STARTED, so anything edited mid-pull is caught next time.
+  await p.integrationConnection.update({ where: { id: conn.id }, data: { config: { ...conn.config, harvestAccountId: acct, lastPulledAt: snapMeta.startedAt ?? new Date().toISOString() }, lastSyncedAt: new Date() } })
 }
 console.log(`\nDONE processed ${n} items -> ${status} (remaining ${remaining})`)
 console.log('counts', JSON.stringify(counts))
