@@ -553,7 +553,7 @@ export async function runImportBatch(
   snapshotId: string,
   opts: { dryRun: boolean; cursor?: ImportCursor | null; stopAfter?: string; fromEntity?: string },
 ): Promise<ImportBatchResult> {
-  const snap = await prisma.migrationSnapshot.findFirst({ where: { id: snapshotId, accountId }, select: { entityCounts: true } })
+  const snap = await prisma.migrationSnapshot.findFirst({ where: { id: snapshotId, accountId }, select: { entityCounts: true, mode: true } })
   if (!snap) return { ok: false, message: 'Snapshot not found.', dryRun: opts.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
   const counts = (snap.entityCounts as Record<string, number> | null) ?? {}
   const totalRows = IMPORT_RESOURCES.reduce((a, r) => a + (counts[r] ?? 0), 0)
@@ -588,6 +588,15 @@ export async function runImportBatch(
   while (stageIndex <= maxStageIndex) {
     const stage = STAGES[stageIndex]
     stageLabel = stage.label
+    // Bulk-imported time entries (migrate-timesheets.mjs) have no MigrationIdMap rows, so upserting an
+    // incremental delta would duplicate every edited entry. Time is replaced by year out-of-band instead.
+    if (stage.entity === 'time_entry' && snap.mode === 'incremental') {
+      notes.push('Time entries skipped for incremental snapshots (would duplicate bulk-imported entries); replaced by year separately.')
+      stageIndex++
+      partIndex = 0
+      offset = 0
+      continue
+    }
     const parts = await listParts(snapshotId, stage.resource)
     while (partIndex < parts.length) {
       const rows = await loadPartData(parts[partIndex].id) // one bounded part at a time

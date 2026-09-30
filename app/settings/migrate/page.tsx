@@ -10,6 +10,7 @@ import { BackupRunner } from '@/components/BackupRunner'
 import { ImportRunner } from '@/components/ImportRunner'
 import { getImportableSnapshot } from '@/modules/migration/importer'
 import { IMPORT_RESOURCES } from '@/modules/migration/importer'
+import { resolveDeltaSince } from '@/modules/migration/deltaSince'
 import { formatDate } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -33,8 +34,10 @@ export default async function MigratePage() {
   const importTotalRows = IMPORT_RESOURCES.reduce((a, r) => a + (importCounts[r] ?? 0), 0)
   const connected = conn?.status === 'connected'
   const encOk = isEncryptionConfigured()
-  const lastPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
-  const hasCompleteBackup = snapshots.some((s) => s.status === 'complete')
+  const savedPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
+  // Falls back to the last finished full backup's start (it ends "partial" on the estimates 403).
+  const deltaSince = resolveDeltaSince(savedPulledAt, snapshots)
+  const hasCompleteBackup = deltaSince !== null
   const runningSnap = snapshots.find((s) => s.status === 'running') ?? null
   const running = runningSnap
     ? {
@@ -75,7 +78,9 @@ export default async function MigratePage() {
         <BackupRunner connected={connected} hasCompleteBackup={hasCompleteBackup} running={running} />
       </div>
       <p className="mb-4 text-xs text-gray-400">
-        {lastPulledAt ? `Last clean pull: ${new Date(lastPulledAt).toLocaleString()}` : 'No clean pull yet — start with a full backup.'}
+        {deltaSince
+          ? `${savedPulledAt ? 'Last clean pull' : 'Incremental will pull changes since the last full backup'}: ${new Date(deltaSince).toLocaleString()}`
+          : 'No clean pull yet — start with a full backup.'}
       </p>
 
       <div className="mb-8 overflow-hidden rounded-lg border border-gray-200 bg-white">

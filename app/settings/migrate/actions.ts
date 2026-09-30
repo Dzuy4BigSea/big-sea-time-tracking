@@ -10,6 +10,7 @@ import { encryptSecret, isEncryptionConfigured } from '@/lib/crypto'
 import { getConnectionWithSecrets } from '@/lib/integrations'
 import { pullAll, verifyHarvest, LIGHT_RESOURCES, HEAVY_RESOURCES } from '@/modules/integrations/harvestClient'
 import { runImportBatch, type ImportBatchResult, type ImportCursor } from '@/modules/migration/importer'
+import { isCleanPull, resolveDeltaSince } from '@/modules/migration/deltaSince'
 
 export type MigrateState = { error?: string; ok?: boolean }
 
@@ -138,7 +139,16 @@ async function executeBackupBatch(
     : null
   if (!snapshot) {
     const mode = opts.mode === 'incremental' ? 'incremental' : 'full'
-    const updatedSince = mode === 'incremental' ? ((conn.config.lastPulledAt as string | undefined) ?? undefined) : undefined
+    let updatedSince: string | undefined
+    if (mode === 'incremental') {
+      const finished = await prisma.migrationSnapshot.findMany({
+        where: { accountId: actor.accountId, mode: 'full', status: { in: ['complete', 'partial'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { status: true, mode: true, createdAt: true, meta: true },
+      })
+      updatedSince = resolveDeltaSince(conn.config.lastPulledAt as string | undefined, finished) ?? undefined
+    }
     if (mode === 'incremental' && !updatedSince) {
       return { ok: false, message: 'No previous clean pull to delta from — run a full backup first.' }
     }
@@ -224,7 +234,8 @@ async function executeBackupBatch(
     },
   })
 
-  if (finished && status === 'complete' && meta.startedAt) {
+  // Estimates 403 on Big Sea's Harvest plan, so "partial" on estimates alone still counts as clean.
+  if (finished && isCleanPull(errorKeys) && meta.startedAt) {
     await prisma.integrationConnection.updateMany({
       where: { accountId: actor.accountId, provider: 'harvest', entityId: null },
       data: { config: { harvestAccountId, lastPulledAt: meta.startedAt } as Prisma.InputJsonValue, lastSyncedAt: new Date() },

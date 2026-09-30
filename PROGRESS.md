@@ -8,15 +8,15 @@ _Last updated: 2026-09-30._
 
 ### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29)
 Catching up ~7 weeks of Harvest changes since the Aug 6–7 import. **Nothing pulled or imported yet.**
-- **Blocked on:** `INTEGRATION_ENC_KEY` isn't in local `.env`. Copy it from Vercel (Settings → Environment Variables); don't commit it.
+- **Use the in-app page (Settings → Migrate), not the offline script.** It runs on Vercel, which already has `INTEGRATION_ENC_KEY` (Vercel marks it Sensitive, so it can't be copied into a local `.env`).
+- **Fixed 2026-09-30:** the Incremental button was locked because the Aug full backup ended "partial" (estimates 403 on Big Sea's plan) and `lastPulledAt` was only saved on "complete". Now it deltas from the last finished full backup, and a pull whose only failure is estimates counts as clean ([modules/migration/deltaSince.ts](modules/migration/deltaSince.ts)).
 - **State checked 2026-09-29:** Track2 hasn't been used for real work since the import (time entries still exactly 388,607; only Track2-native rows are 2 empty draft invoices from 2026-08-08). So replacing from Harvest won't clobber anything.
-- **Ready:** `scripts/backup-harvest-offline.mjs --incremental` (syntax-checked, **not yet run**). Details + rationale in [MIGRATION-RUNBOOK.md](MIGRATION-RUNBOOK.md) Step 1.
 - **Next steps:**
-  1. Pull: `node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=2026-08-06T00:00:00Z --years=2025,2026` (read-only on Harvest; ~5–15 min).
-  2. Review the delta counts (and whether the `time_entries|delta` chunk touches years before 2025).
-  3. Import, still to build/adapt: point `migrate-timesheets.mjs` at the incremental snapshot's year parts (replace 2025–2026); run light + expenses/invoices through the id-mapped importer; re-run `scripts/sync-assignments.mjs`. Pause for review before `--apply`.
+  1. Settings → Migrate → **Incremental (delta since last)**. Read-only on Harvest.
+  2. Review the delta counts; **Preview import (dry run)** only.
+  3. Time entries: the importer now **skips time for incremental snapshots** (bulk-imported entries have no `MigrationIdMap`, so upserting would duplicate). Still to build: replace changed years (2025–2026) from a whole-year pull, which also catches Harvest-side deletions. Then Apply for the rest + re-run `scripts/sync-assignments.mjs`.
   4. Reconcile, then update the `migration-progress` notes.
-- ⚠️ **Before running any import script after the pull:** `migrate-timesheets.mjs` (and likely `migrate-staged.ts`) auto-picks the **newest** complete/partial snapshot. That will be the new incremental one, and its `delta` chunk isn't a year. Don't run them unmodified; adapt them first or pin `SNAPSHOT_ID`.
+- ⚠️ **Re-importing the Aug full snapshot via the button would still duplicate all 388k time entries** (same missing id-map). Don't.
 
 **Track2 is a working, deployed, authenticated app with the full Harvest history migrated in.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` or `andi@bigsea.co` (admins). Everything is committed + pushed to `main`; `tsc` + `next build` green; **227 unit tests pass**.
 
