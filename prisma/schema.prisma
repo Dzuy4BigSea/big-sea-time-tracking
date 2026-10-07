@@ -595,9 +595,14 @@ model TimeEntry {
   approvedTimesheetId String?
   approvedTimesheet   Timesheet?       @relation("TimesheetEntries", fields: [approvedTimesheetId], references: [id], onDelete: SetNull)
 
+  // Source Harvest time-entry id (null for entries created in Track2). Time entries are keyed here
+  // rather than in MigrationIdMap — 388k leaf rows — so delta syncs can upsert in place.
+  harvestId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([accountId, harvestId])
   @@index([accountId])
   @@index([userId, spentDate])
   @@index([projectId])

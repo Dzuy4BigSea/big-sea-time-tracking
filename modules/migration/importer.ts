@@ -331,10 +331,10 @@ const STAGES: Stage[] = [
         billableRateCents: centsOrNull(te.billable_rate),
         lockState,
       }
-      const local = getLocal(maps, 'time_entry', hid)
-      if (local) { if (!dryRun) await prisma.timeEntry.update({ where: { id: local }, data }); return 'updated' }
-      const id = dryRun ? DRY : (await prisma.timeEntry.create({ data: { accountId, ...data } })).id
-      await recordMap(maps, 'time_entry', hid, id, dryRun, accountId)
+      // Keyed by TimeEntry.harvestId (not MigrationIdMap) so the 388k leaf rows don't need map rows.
+      const existing = await prisma.timeEntry.findUnique({ where: { accountId_harvestId: { accountId, harvestId: hid } }, select: { id: true } })
+      if (existing) { if (!dryRun) await prisma.timeEntry.update({ where: { id: existing.id }, data }); return 'updated' }
+      if (!dryRun) await prisma.timeEntry.create({ data: { accountId, harvestId: hid, ...data } })
       return 'created'
     },
   },
@@ -547,6 +547,18 @@ async function ensureAssignments(ctx: Ctx, projectId: string, taskId: string, us
   }
 }
 
+/** MigrationIdMap marker written by scripts/rebuild-timesheets.mjs once every imported entry carries its harvestId. */
+export const TIME_KEYED_MARKER = { entity: 'time_harvest_ids', harvestId: 'done' } as const
+
+async function timeEntriesKeyed(accountId: string): Promise<boolean> {
+  const marker = await prisma.migrationIdMap.findUnique({
+    where: { accountId_entity_harvestId: { accountId, ...TIME_KEYED_MARKER } },
+    select: { id: true },
+  })
+  if (marker) return true
+  return (await prisma.timeEntry.count({ where: { accountId } })) === 0
+}
+
 // ---- batch driver ----------------------------------------------------------
 export async function runImportBatch(
   accountId: string,
@@ -588,10 +600,11 @@ export async function runImportBatch(
   while (stageIndex <= maxStageIndex) {
     const stage = STAGES[stageIndex]
     stageLabel = stage.label
-    // Bulk-imported time entries (migrate-timesheets.mjs) have no MigrationIdMap rows, so upserting an
-    // incremental delta would duplicate every edited entry. Time is replaced by year out-of-band instead.
-    if (stage.entity === 'time_entry' && snap.mode === 'incremental') {
-      notes.push('Time entries skipped for incremental snapshots (would duplicate bulk-imported entries); replaced by year separately.')
+    // Time entries upsert by TimeEntry.harvestId. Entries from the original bulk import had no
+    // harvestId until scripts/rebuild-timesheets.mjs keyed them, so until then importing time would
+    // duplicate them — skip the stage unless the account is keyed (or has no time yet).
+    if (stage.entity === 'time_entry' && !(await timeEntriesKeyed(accountId))) {
+      notes.push('Time entries skipped: existing entries are not keyed by Harvest id yet — run scripts/rebuild-timesheets.mjs first.')
       stageIndex++
       partIndex = 0
       offset = 0
