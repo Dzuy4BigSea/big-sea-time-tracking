@@ -58,7 +58,7 @@ Screens:
 - Below grid: split button "Copy from last week (projects only)" + ˅ menu with one option "Copy from last week (with entries)". (Day view equivalent: "Copy from 3 days ago (projects only)" – references last day with time.)
 - Week grid (populated): columns Project/task text | notes icon | Mon..Sun (header "⏱ Mon / 05 Oct"; clock icon on weekdays that have time) | row total | ✕ delete-row button. Cells are editable h:mm inputs. Footer row: daily totals + week total. Below: "+ Add row" button + Copy split button.
 - Row text: **[CODE] Project name** (Client) newline Task.
-### "+ Track time" in Week view = modal "Add row to this timesheet"
+#### "+ Track time" in Week view = modal "Add row to this timesheet"
 - Label "Project / Task"; Project select (two-line: client small grey above, project name); Task select; buttons green "Save row" + outlined "Cancel". No notes/hours in week-view modal.
 - Default project = top of list (most-used); task default = most-used task for that project (e.g. "Last Call").
 - Project dropdown: search box "Search..." (autofocused) + sort icon button (⇅) opening menu: Most Recent / Most Used (✓ default) / A to Z / Z to A. Options grouped under bold client headers; with Most Used sort, the top client groups are ordered by usage (Brooks Rehabilitation, Revs Institute, Warren Wilson College) then remaining clients alphabetical (numeric "1" first). Project rows show "[CODE] Name". Highlighted row = black fill, white text.
