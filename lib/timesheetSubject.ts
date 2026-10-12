@@ -122,12 +122,15 @@ export interface LoggableProjectOption {
   id: string
   name: string
   code: string | null
+  /** The project's client, for grouping the project picker (Harvest groups projects by client). */
+  clientName: string
   tasks: { id: string; name: string }[]
 }
 
 /**
  * Projects (with active, non-archived tasks) `userId` may log time against: their active assignments on
- * active projects of active clients (BugHerd #1). Shared by the timesheet and the top bar.
+ * active projects of active clients (BugHerd #1), ordered by client then project. Shared by the
+ * timesheet and the top bar.
  */
 export async function loggableProjectsFor(userId: string): Promise<LoggableProjectOption[]> {
   const assignments = await prisma.projectUserAssignment.findMany({
@@ -138,16 +141,19 @@ export async function loggableProjectsFor(userId: string): Promise<LoggableProje
           id: true,
           name: true,
           code: true,
+          client: { select: { name: true } },
           taskAssignments: { where: { isActive: true, task: { isActive: true } }, select: { task: { select: { id: true, name: true } } } },
         },
       },
     },
-    orderBy: { project: { name: 'asc' } },
+    // Client, then project: the picker shows projects grouped under their client.
+    orderBy: [{ project: { client: { name: 'asc' } } }, { project: { name: 'asc' } }],
   })
   return assignments.map((a) => ({
     id: a.project.id,
     name: a.project.name,
     code: a.project.code,
+    clientName: a.project.client.name,
     tasks: a.project.taskAssignments.map((ta) => ta.task),
   }))
 }
