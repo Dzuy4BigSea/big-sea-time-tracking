@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updateExpenseAction, type EditExpenseState } from '@/app/expenses/actions'
-import type { ExpenseOption } from '@/components/NewExpenseForm'
+import { toComboOptions, type ExpenseOption } from '@/components/NewExpenseForm'
+import { Combobox } from '@/components/Combobox'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -52,18 +53,10 @@ export function EditExpenseForm({
       <input type="hidden" name="id" value={expense.id} />
       <div className="flex flex-wrap gap-3">
         <Field label="Project">
-          <select name="projectId" defaultValue={expense.projectId} className={`${input} w-64`}>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
+          <Combobox name="projectId" required defaultValue={expense.projectId} options={toComboOptions(projects)} className="w-64" />
         </Field>
         <Field label="Category">
-          <select name="categoryId" defaultValue={expense.categoryId} className={`${input} w-56`}>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
+          <Combobox name="categoryId" required defaultValue={expense.categoryId} options={toComboOptions(categories)} className="w-56" />
         </Field>
         <Field label="Date">
           <input name="spentDate" type="date" defaultValue={expense.spentDate} className={input} />
