@@ -32,7 +32,7 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
    - #4/#10 Google Drive export: is a CSV saved to a Drive folder enough, or should it create a Google Sheet? Whose Drive?
    - #5, #7, #15: need the BugHerd pin/screenshot to know which element.
    - #12: keep, move or remove the "By Category" expense report?
-   - Post the card comments/status updates listed at the end of [specs/23](specs/23-bugherd-feedback.md) (needs `BUGHERD_API_KEY` + `www.bugherd.com` allowed in the cloud environment).
+   - Card comments and status updates were posted on 2026-10-12 (record at the end of [specs/23](specs/23-bugherd-feedback.md)). FIXED cards are in DONE for Chasity to close; NEEDS INFO cards are assigned to her. New cards #22 and #23 (nice-to-haves) aren't triaged yet.
 5. **Small data fixes on prod:**
    - Rename the account from "Big Sea (demo)" (left over from the seed; shows on invoices). There's no Settings field for it yet, so it's one SQL `UPDATE "Account" SET name = '…'`.
    - Cost-rate backfill: Profitability shows $0 cost ([spec 19](specs/19-migration-followups.md) item 4).
@@ -44,7 +44,7 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
    - The Projects → Archived filter takes ~4s (2,227 rows); paginate it.
 
 **Working from a cloud Claude session**
-- bugherd.com, track2.bigseabridge.com and *.vercel.app are blocked by the environment's network policy. Add them under Allowed domains to let Claude read BugHerd or check pages itself.
+- The BugHerd API (`www.bugherd.com`, `BUGHERD_API_KEY`) is reachable from cloud sessions as of 2026-10-12. Python's default user agent gets a Cloudflare 403, so use curl or set a User-Agent. track2.bigseabridge.com and *.vercel.app may still be blocked; add them under Allowed domains to let Claude check pages itself.
 - There's no prod DB access, so anything touching data (migrations, scripts, renames) is done by hand in Supabase or locally.
 
 ### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
