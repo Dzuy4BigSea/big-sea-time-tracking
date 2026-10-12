@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updateProjectAction, type EditProjectState } from '@/app/projects/actions'
 import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
+import { useProjectBilling } from '@/components/ProjectBillingContext'
+import { useLeavePageGuard } from '@/components/useLeavePageGuard'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -48,8 +50,21 @@ export interface EditableProject {
 
 export function EditProjectForm({ project, entities = [] }: { project: EditableProject; entities?: EntityOption[] }) {
   const [state, formAction] = useFormState<EditProjectState, FormData>(updateProjectAction, {})
-  const [projectType, setProjectType] = useState(project.projectType)
-  const [rateMethod, setRateMethod] = useState(project.billableRateMethod ?? 'none')
+  // Inside ProjectBillingProvider the type/rate method are shared with the Team card (its Billable
+  // rate column follows the select instantly); standalone, the form keeps its own state.
+  const shared = useProjectBilling()
+  const [localType, setLocalType] = useState(project.projectType)
+  const [localMethod, setLocalMethod] = useState(project.billableRateMethod ?? 'none')
+  const projectType = shared?.projectType ?? localType
+  const setProjectType = shared?.setProjectType ?? setLocalType
+  const rateMethod = shared?.rateMethod ?? localMethod
+  const setRateMethod = shared?.setRateMethod ?? setLocalMethod
+  // Leave-page guard: any edit marks the form dirty until it saves.
+  const [dirty, setDirty] = useState(false)
+  useLeavePageGuard(dirty)
+  useEffect(() => {
+    if (state.ok) setDirty(false)
+  }, [state])
   const initialBudget =
     project.budgetMethod === 'hours_total' ? 'hours_total' : project.budgetMethod === 'fee_total' ? 'fee_total' : 'none'
   const [budget, setBudget] = useState(initialBudget)
@@ -59,7 +74,7 @@ export function EditProjectForm({ project, entities = [] }: { project: EditableP
   const dollars = (c: number | null) => (c ? (c / 100).toString() : '')
 
   return (
-    <form action={formAction} className="space-y-4 rounded-lg border border-gray-200 bg-white p-5">
+    <form action={formAction} onChange={() => setDirty(true)} className="space-y-4 rounded-lg border border-gray-200 bg-white p-5">
       <input type="hidden" name="id" value={project.id} />
       <div className="text-xs text-gray-400">Client: {project.clientName} (fixed)</div>
 

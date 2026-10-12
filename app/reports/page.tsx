@@ -10,34 +10,53 @@ import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
 import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
+import {
+  TIME_SORT_KEYS,
+  type TimeSortKey,
+  type TimeTab,
+  type TimeTotals,
+  parseTimeTab,
+  defaultTimeSort,
+  pct,
+  formatHours as hrs,
+  billableShareTitle,
+  sumTotals,
+  splitByPersonType,
+} from '@/modules/reports/timeReport'
 
 export const dynamic = 'force-dynamic'
 
-const hrs = (m: number) => (m / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
-
-// Time report groups by one of these dimensions (sub-tabs under the Time tab).
-type Group = 'clients' | 'projects' | 'tasks' | 'teammates'
-const GROUPS: { key: Group; label: string; column: string }[] = [
-  { key: 'clients', label: 'Clients', column: 'Client' },
-  { key: 'projects', label: 'Projects', column: 'Project' },
-  { key: 'tasks', label: 'Tasks', column: 'Task' },
-  { key: 'teammates', label: 'Teammates', column: 'Teammate' },
+// Group-by tabs under Reports > Time, Harvest naming (URL ?tab=clients|projects|tasks|users).
+const TABS: { key: TimeTab; label: string }[] = [
+  { key: 'clients', label: 'Clients' },
+  { key: 'projects', label: 'Projects' },
+  { key: 'tasks', label: 'Tasks' },
+  { key: 'users', label: 'Teammates' },
 ]
 
-const SORT_KEYS = ['name', 'hours', 'billable', 'amount', 'uninvoiced'] as const
-type SortKey = (typeof SORT_KEYS)[number]
+type Row = TimeTotals & {
+  key: string
+  label: string
+  href: string | null
+  clientName?: string | null
+  clientHref?: string | null
+  personType?: string | null
+  initials?: string
+}
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: { group?: string; period?: string; anchor?: string; from?: string; to?: string; sort?: string; dir?: string }
+  searchParams: { tab?: string; group?: string; active?: string; period?: string; anchor?: string; from?: string; to?: string; sort?: string; dir?: string }
 }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
-  const group: Group = (['clients', 'projects', 'tasks', 'teammates'] as const).includes(searchParams.group as Group)
-    ? (searchParams.group as Group)
-    : 'clients'
-  const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'hours', dir: 'desc' })
+  const tab = parseTimeTab(searchParams)
+  const activeOnly = searchParams.active === '1'
+  const defaultSort = defaultTimeSort(tab)
+  const parsedSort = parseSort<TimeSortKey>(searchParams, TIME_SORT_KEYS, defaultSort)
+  // The Clients column only exists on the Projects tab.
+  const sort = parsedSort.key === 'client' && tab !== 'projects' ? defaultSort : parsedSort
 
   // Anchor for week/month/… navigation defaults to the latest tracked day, so there's data.
   let fallbackAnchor: Date | null = null
@@ -49,64 +68,87 @@ export default async function ReportsPage({
   const { from, till } = tf
 
   // Aggregate in the DB (never load raw entries — 388k rows). Metric expressions are shared;
-  // only the grouping key/label/join differ per dimension.
-  const dateFilter = Prisma.sql`${from ? Prisma.sql`AND te."spentDate" >= ${from}` : Prisma.empty} ${till ? Prisma.sql`AND te."spentDate" <= ${till}` : Prisma.empty}`
+  // only the grouping key/label/join differ per dimension. Every query joins Project `p` so the
+  // "Active projects only" filter applies to all tabs.
+  const filter = Prisma.sql`te."accountId" = ${accountId}
+    ${from ? Prisma.sql`AND te."spentDate" >= ${from}` : Prisma.empty}
+    ${till ? Prisma.sql`AND te."spentDate" <= ${till}` : Prisma.empty}
+    ${activeOnly ? Prisma.sql`AND p."isActive" = true AND p."archivedAt" IS NULL` : Prisma.empty}`
   const metrics = Prisma.sql`
     SUM(te.minutes)::int AS minutes,
     SUM(CASE WHEN te."isBillable" THEN te.minutes ELSE 0 END)::int AS bmin,
     SUM(CASE WHEN te."isBillable" THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS bcents,
-    SUM(CASE WHEN te."isBillable" AND te."invoiceLineItemId" IS NULL AND te."lockState"::text <> 'invoiced' THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS ucents`
+    SUM(CASE WHEN te."isBillable" AND te."invoiceLineItemId" IS NULL AND te."lockState"::text <> 'invoiced' AND p."projectType"::text <> 'fixed_fee' THEN te.minutes/60.0*COALESCE(te."billableRateCents",0) ELSE 0 END)::float8 AS ucents`
 
-  type Raw = { key: string; name: string; code?: string | null; fn?: string; ln?: string; minutes: number; bmin: number; bcents: number; ucents: number }
+  type Raw = {
+    key: string
+    name: string
+    code?: string | null
+    cid?: string | null
+    cname?: string | null
+    fn?: string
+    ln?: string
+    utype?: string | null
+    minutes: number
+    bmin: number
+    bcents: number
+    ucents: number
+  }
   let raw: Raw[]
-  if (group === 'projects') {
-    raw = await prisma.$queryRaw<Raw[]>`SELECT p.id AS key, p.name AS name, p.code AS code, ${metrics}
-      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
-      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY p.id, p.name, p.code ORDER BY minutes DESC`
-  } else if (group === 'tasks') {
+  if (tab === 'projects') {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT p.id AS key, p.name AS name, p.code AS code, c.id AS cid, c.name AS cname, ${metrics}
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
+      WHERE ${filter} GROUP BY p.id, p.name, p.code, c.id, c.name`
+  } else if (tab === 'tasks') {
     raw = await prisma.$queryRaw<Raw[]>`SELECT t.id AS key, t.name AS name, ${metrics}
-      FROM "TimeEntry" te JOIN "Task" t ON t.id = te."taskId"
-      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY t.id, t.name ORDER BY minutes DESC`
-  } else if (group === 'teammates') {
-    raw = await prisma.$queryRaw<Raw[]>`SELECT u.id AS key, u."firstName" AS fn, u."lastName" AS ln, ${metrics}
-      FROM "TimeEntry" te JOIN "User" u ON u.id = te."userId"
-      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY u.id, u."firstName", u."lastName" ORDER BY minutes DESC`
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Task" t ON t.id = te."taskId"
+      WHERE ${filter} GROUP BY t.id, t.name`
+  } else if (tab === 'users') {
+    raw = await prisma.$queryRaw<Raw[]>`SELECT u.id AS key, u."firstName" AS fn, u."lastName" AS ln, u.type::text AS utype, ${metrics}
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "User" u ON u.id = te."userId"
+      WHERE ${filter} GROUP BY u.id, u."firstName", u."lastName", u.type`
   } else {
     raw = await prisma.$queryRaw<Raw[]>`SELECT c.id AS key, c.name AS name, ${metrics}
       FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
-      WHERE te."accountId" = ${accountId} ${dateFilter} GROUP BY c.id, c.name ORDER BY minutes DESC`
+      WHERE ${filter} GROUP BY c.id, c.name`
   }
 
-  type Row = { key: string; label: string; href: string | null; minutes: number; billableMinutes: number; billableCents: number; uninvoicedCents: number }
-  const unsorted: Row[] = raw.map((r) => ({
-    key: r.key,
-    label: group === 'projects' ? `${r.code ? `[${r.code}] ` : ''}${r.name}` : group === 'teammates' ? `${r.fn ?? ''} ${r.ln ?? ''}`.trim() : r.name,
-    href: group === 'projects' ? `/projects/${r.key}` : group === 'clients' ? `/clients/${r.key}` : null,
-    minutes: Number(r.minutes),
-    billableMinutes: Number(r.bmin),
-    billableCents: Math.round(Number(r.bcents)),
-    uninvoicedCents: Math.round(Number(r.ucents)),
-  }))
+  const unsorted: Row[] = raw.map((r) => {
+    const person = `${r.fn ?? ''} ${r.ln ?? ''}`.trim()
+    return {
+      key: r.key,
+      label: tab === 'projects' ? `${r.code ? `[${r.code}] ` : ''}${r.name}` : tab === 'users' ? person : r.name,
+      href: tab === 'projects' ? `/projects/${r.key}` : tab === 'clients' ? `/clients/${r.key}` : tab === 'users' ? `/team/${r.key}` : null,
+      clientName: r.cname ?? null,
+      clientHref: r.cid ? `/clients/${r.cid}` : null,
+      personType: r.utype ?? null,
+      initials: tab === 'users' ? `${(r.fn ?? '').charAt(0)}${(r.ln ?? '').charAt(0)}`.toUpperCase() : undefined,
+      minutes: Number(r.minutes),
+      billableMinutes: Number(r.bmin),
+      billableCents: Math.round(Number(r.bcents)),
+      uninvoicedCents: Math.round(Number(r.ucents)),
+    }
+  })
   // Sort the aggregated rows (one per client/project/task/person — small), never raw entries.
   const rows = sortRows(unsorted, sort, {
     name: (r) => r.label,
+    client: (r) => r.clientName ?? null,
     hours: (r) => r.minutes,
     billable: (r) => r.billableMinutes,
     amount: (r) => r.billableCents,
-    uninvoiced: (r) => r.uninvoicedCents,
   })
-  const totals = rows.reduce(
-    (a, r) => ({ minutes: a.minutes + r.minutes, billableMinutes: a.billableMinutes + r.billableMinutes, billableCents: a.billableCents + r.billableCents, uninvoicedCents: a.uninvoicedCents + r.uninvoicedCents }),
-    { minutes: 0, billableMinutes: 0, billableCents: 0, uninvoicedCents: 0 },
-  )
-  const column = GROUPS.find((g) => g.key === group)!.column
+  const totals = sumTotals(rows)
   const nonBillableMinutes = totals.minutes - totals.billableMinutes
-  const billablePct = totals.minutes > 0 ? Math.round((totals.billableMinutes / totals.minutes) * 100) : 0
+  const billablePct = pct(totals.billableMinutes, totals.minutes)
+  const sections = tab === 'users' ? splitByPersonType(rows) : null
+  const colCount = tab === 'projects' ? 6 : 5
 
   // Query-string builders that preserve the other params.
   const tfq = timeframeQuery(tf)
-  const sortq = sort.key === 'hours' && sort.dir === 'desc' ? {} : { sort: sort.key, dir: sort.dir }
-  const sortHref = (s: SortState<SortKey>) => buildHref('/reports', { group, ...tfq, sort: s.key, dir: s.dir })
+  const activeq = activeOnly ? { active: '1' } : {}
+  const isDefaultSort = sort.key === defaultSort.key && sort.dir === defaultSort.dir
+  const sortq = isDefaultSort ? {} : { sort: sort.key, dir: sort.dir }
+  const sortHref = (s: SortState<TimeSortKey>) => buildHref('/reports', { tab, ...activeq, ...tfq, sort: s.key, dir: s.dir })
 
   return (
     <div>
@@ -121,61 +163,99 @@ export default async function ReportsPage({
       <p className="mb-4 text-sm text-gray-500">Time report · live from Supabase</p>
       <ReportsTabs active="Time" timeframe={tfq} />
 
-      <ReportTimeframe basePath="/reports" tf={tf} keep={{ group, ...sortq }} />
+      <ReportTimeframe basePath="/reports" tf={tf} keep={{ tab, ...activeq, ...sortq }} />
 
-      {/* Summary band */}
-      <div className="mb-4 grid gap-4 rounded-lg border border-gray-200 bg-white p-5 sm:grid-cols-4">
-        <Metric label="Total hours" value={hrs(totals.minutes)} />
-        <Metric label={`Billable (${billablePct}%)`} value={hrs(totals.billableMinutes)} sub={`${hrs(nonBillableMinutes)} non-billable`} />
-        <Metric label="Billable amount" value={formatCents(totals.billableCents)} />
-        <Metric label="Uninvoiced amount" value={formatCents(totals.uninvoicedCents)} accent="text-brand-green" />
+      {/* Summary card: total hours + billable donut, billable amount, uninvoiced amount */}
+      <div className="mb-4 grid gap-6 rounded-lg border border-gray-200 bg-white p-5 sm:grid-cols-3">
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-400">Total hours</div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">{hrs(totals.minutes)}</div>
+          </div>
+          <BillableDonut percent={billablePct} empty={totals.minutes === 0} />
+          <dl className="space-y-1 text-xs text-gray-600">
+            <div className="flex items-center gap-1.5">
+              <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-brand-blue" />
+              <dt>Billable</dt>
+              <dd className="ml-auto pl-3 tabular-nums font-medium text-gray-800">{hrs(totals.billableMinutes)}</dd>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-gray-300" />
+              <dt>Non-billable</dt>
+              <dd className="ml-auto pl-3 tabular-nums font-medium text-gray-800">{hrs(nonBillableMinutes)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-gray-400">Billable amount</div>
+          <div className="mt-1 text-2xl font-semibold text-gray-900">{formatCents(totals.billableCents)}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-gray-400">Uninvoiced amount</div>
+          <div className="mt-1 text-2xl font-semibold text-brand-green">{formatCents(totals.uninvoicedCents)}</div>
+          <div className="text-xs text-gray-400">Excludes Fixed Fee projects</div>
+        </div>
       </div>
 
-      {/* Grouping sub-tabs */}
-      <div className="mb-4 flex gap-1 text-sm">
-        {GROUPS.map((g) => (
-          <Link
-            key={g.key}
-            href={buildHref('/reports', { group: g.key, ...tfq, ...sortq })}
-            className={`rounded-full px-3 py-1 ${g.key === group ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-500 hover:bg-gray-50'}`}
+      {/* Group-by tabs + filters */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex gap-1 border-b border-gray-200 text-sm" aria-label="Group by">
+          {TABS.map((t) => (
+            <Link
+              key={t.key}
+              href={buildHref('/reports', { tab: t.key, ...activeq, ...tfq })}
+              aria-current={t.key === tab ? 'page' : undefined}
+              className={`-mb-px border-b-2 px-3 py-2 ${t.key === tab ? 'border-brand-teal font-medium text-brand-teal' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </nav>
+        <Link
+          href={buildHref('/reports', { tab, ...tfq, ...sortq, active: activeOnly ? null : '1' })}
+          role="checkbox"
+          aria-checked={activeOnly}
+          scroll={false}
+          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+        >
+          <span
+            aria-hidden
+            className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] leading-none ${activeOnly ? 'border-brand-teal bg-brand-teal text-white' : 'border-gray-300 bg-white'}`}
           >
-            {g.label}
-          </Link>
-        ))}
+            {activeOnly ? '✓' : ''}
+          </span>
+          Active projects only
+        </Link>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <SortableTh label={column} col="name" sort={sort} hrefFor={sortHref} />
+              <SortableTh label="Name" col="name" sort={sort} hrefFor={sortHref} />
+              {tab === 'projects' && <SortableTh label="Clients" col="client" sort={sort} hrefFor={sortHref} />}
               <SortableTh label="Hours" col="hours" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <th className="w-32 px-4 py-3" aria-label="Billable share" />
               <SortableTh label="Billable hours" col="billable" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
               <SortableTh label="Billable amount" col="amount" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
-              <SortableTh label="Uninvoiced" col="uninvoiced" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.key} className="border-b border-gray-100 last:border-0">
-                <td className="px-4 py-3 font-medium text-gray-900">
-                  {r.href ? (
-                    <Link href={r.href} className="hover:text-brand-teal">
-                      {r.label}
-                    </Link>
-                  ) : (
-                    r.label
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(r.minutes)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-500">{hrs(r.billableMinutes)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{r.billableCents ? formatCents(r.billableCents) : '—'}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-700">{r.uninvoicedCents ? formatCents(r.uninvoicedCents) : '—'}</td>
-              </tr>
-            ))}
+            {sections
+              ? sections.map((s) => [
+                  <tr key={`h-${s.type}`} className="border-b border-gray-100 bg-gray-50 font-medium">
+                    <td className="px-4 py-2 text-xs uppercase tracking-wide text-gray-500">{s.label}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-700">{hrs(s.totals.minutes)}</td>
+                    <td className="px-4 py-2"><ShareBar billable={s.totals.billableMinutes} total={s.totals.minutes} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-600">{billableHoursCell(s.totals)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-700">{amountCell(s.totals.billableCents)}</td>
+                  </tr>,
+                  ...s.rows.map((r) => <DataRow key={r.key} r={r} tab={tab} />),
+                ])
+              : rows.map((r) => <DataRow key={r.key} r={r} tab={tab} />)}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={colCount} className="px-4 py-8 text-center text-gray-400">
                   No tracked time in this period.
                 </td>
               </tr>
@@ -183,12 +263,13 @@ export default async function ReportsPage({
           </tbody>
           {rows.length > 0 && (
             <tfoot>
-              <tr className="border-t border-gray-200 font-medium">
-                <td className="px-4 py-3 text-xs uppercase tracking-wide text-gray-400">Total</td>
+              <tr className="border-t border-gray-200 font-semibold">
+                <td className="px-4 py-3">Total</td>
+                {tab === 'projects' && <td />}
                 <td className="px-4 py-3 text-right tabular-nums">{hrs(totals.minutes)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-500">{hrs(totals.billableMinutes)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCents(totals.billableCents)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCents(totals.uninvoicedCents)}</td>
+                <td className="px-4 py-3"><ShareBar billable={totals.billableMinutes} total={totals.minutes} /></td>
+                <td className="px-4 py-3 text-right tabular-nums">{billableHoursCell(totals)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{amountCell(totals.billableCents)}</td>
               </tr>
             </tfoot>
           )}
@@ -198,12 +279,69 @@ export default async function ReportsPage({
   )
 }
 
-function Metric({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+const billableHoursCell = (t: TimeTotals) => `${hrs(t.billableMinutes)} (${pct(t.billableMinutes, t.minutes)}%)`
+const amountCell = (cents: number) => (cents ? formatCents(cents) : '—')
+
+function DataRow({ r, tab }: { r: Row; tab: TimeTab }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-gray-400">{label}</div>
-      <div className={`mt-1 text-xl font-semibold ${accent ?? 'text-gray-900'}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-400">{sub}</div>}
+    <tr className="border-b border-gray-100 last:border-0">
+      <td className="px-4 py-3 font-medium text-gray-900">
+        <span className="flex items-center gap-2">
+          {r.initials !== undefined && (
+            <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-ink text-[10px] font-semibold text-white">
+              {r.initials}
+            </span>
+          )}
+          {r.href ? (
+            <Link href={r.href} className="hover:text-brand-teal">
+              {r.label}
+            </Link>
+          ) : (
+            r.label
+          )}
+        </span>
+      </td>
+      {tab === 'projects' && (
+        <td className="px-4 py-3 text-gray-600">
+          {r.clientHref ? (
+            <Link href={r.clientHref} className="hover:text-brand-teal">
+              {r.clientName}
+            </Link>
+          ) : (
+            r.clientName
+          )}
+        </td>
+      )}
+      <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(r.minutes)}</td>
+      <td className="px-4 py-3">
+        <ShareBar billable={r.billableMinutes} total={r.minutes} />
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-gray-500">{billableHoursCell(r)}</td>
+      <td className="px-4 py-3 text-right tabular-nums">{amountCell(r.billableCents)}</td>
+    </tr>
+  )
+}
+
+/** Horizontal bar: billable share (blue) vs non-billable (grey); hover shows the split. */
+function ShareBar({ billable, total }: { billable: number; total: number }) {
+  const b = pct(billable, total)
+  return (
+    <div title={billableShareTitle(billable, total)} className="flex h-2 w-full min-w-[4rem] overflow-hidden rounded-full bg-gray-200">
+      <div className="h-full bg-brand-blue" style={{ width: `${b}%` }} />
+    </div>
+  )
+}
+
+/** CSS-only donut of the billable share. */
+function BillableDonut({ percent, empty }: { percent: number; empty: boolean }) {
+  return (
+    <div
+      role="img"
+      aria-label={`${percent}% billable`}
+      className="relative h-16 w-16 shrink-0 rounded-full"
+      style={{ background: empty ? '#e5e7eb' : `conic-gradient(#5180eb 0 ${percent}%, #d1d5db ${percent}% 100%)` }}
+    >
+      <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-xs font-semibold text-gray-700">{percent}%</div>
     </div>
   )
 }
