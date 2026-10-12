@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { deriveStatusBanner, type BannerTone } from '@/modules/invoicing/statusBanner'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
@@ -62,6 +63,18 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   )
   const due = invoice.totalCents - invoice.paidCents
   const cur = invoice.currency
+  const banner = deriveStatusBanner(
+    {
+      status: invoice.status as StoredStatus,
+      dueDate: invoice.dueDate,
+      sentAt: invoice.sentAt,
+      totalCents: invoice.totalCents,
+      paidCents: invoice.paidCents,
+      lastPaymentOn: invoice.payments.length ? invoice.payments[invoice.payments.length - 1].paidOn : null,
+      currency: cur,
+    },
+    new Date(),
+  )
 
   return (
     <div>
@@ -83,6 +96,15 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
           <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
           <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
         </div>
+      </div>
+
+      {/* Status banner (BugHerd #14): big, color-coded, front and center */}
+      <div
+        role="status"
+        className={`mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg border-l-4 px-5 py-4 ${BANNER_STYLES[banner.tone]}`}
+      >
+        <div className="text-xl font-semibold">{banner.headline}</div>
+        <div className="text-sm opacity-90">{banner.detail}</div>
       </div>
 
       {latest && (
@@ -316,6 +338,16 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
       )}
     </div>
   )
+}
+
+/** Status palette per DESIGN-SYSTEM.md §1.2 (blue open, amber warning, red overdue, green paid). */
+const BANNER_STYLES: Record<BannerTone, string> = {
+  neutral: 'border-gray-400 bg-gray-100 text-gray-800',
+  info: 'border-blue-500 bg-blue-50 text-blue-800',
+  warning: 'border-amber-500 bg-amber-50 text-amber-800',
+  danger: 'border-red-500 bg-red-50 text-red-800',
+  success: 'border-brand-green bg-green-50 text-green-800',
+  muted: 'border-gray-300 bg-gray-50 text-gray-600',
 }
 
 function MenuForm({
