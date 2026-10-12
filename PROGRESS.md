@@ -6,10 +6,46 @@ _Last updated: 2026-10-12._
 
 ## ▶ Resume here (next session)
 
-### 🐞 BugHerd round 1 (2026-10-12), PR branch `claude/quirky-galileo-23agcn`
-15 of Chasity's 21 BugHerd items are fixed in code ([specs/23](specs/23-bugherd-feedback.md) has the per-item table); the other 6 need input (Google Drive export #4/#10, plus #5, #7, #12, #15). Not yet clicked through against real data.
-- ⚠️ **Before deploying:** run `npx prisma migrate deploy` on prod. Migration `20261012120000_recurring_remaining_occurrences` adds one nullable column that the recurring screens read.
-- Then QA on a Vercel preview: timesheet person switcher, project timeframe bar + Team tab, report sorting/timeframes, expense combobox, invoice banner, client contact edit, recurring "invoices to issue".
+### 🐞 BugHerd feedback + Harvest parity (updated 2026-10-12, end of day)
+Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23-bugherd-feedback.md); the Harvest reference and capture prompt are in [specs/24](specs/24-harvest-ui-capture.md).
+
+**Where things stand**
+- **Round 1 (15 of 21 BugHerd items): live in production.** It was merged in PR #1 on 2026-10-12. The `remainingOccurrences` column was added on prod by hand (Supabase SQL editor); the migration file uses `IF NOT EXISTS`, so `prisma migrate deploy` is still safe.
+  - QA'd on prod with Claude in Chrome: all pass. Two are only partly checked because no data exists yet: recurring "N left / No end" labels, and the "due in N days" banner.
+- **Harvest parity pass: PR #2 open, not merged** (branch `claude/quirky-galileo-23agcn`, no DB changes, Vercel preview green).
+  - Teammates button, amber banner, and timers for teammates.
+  - Grouped/searchable project and task pickers.
+  - Harvest invoice status words and colors.
+  - Semimonth period, with one shared timeframe module (`modules/shared/timeframe.ts`).
+  - Sortable project Tasks/Team tables.
+  - Timesheet opens on the current week.
+  - Expenses table scrolls sideways.
+
+**Next steps, in order**
+1. **Review and merge PR #2.** Click through the preview first. It deploys to production on merge, and nothing needs to happen in the DB.
+2. **Harvest UI notes:** run the capture prompt in [specs/24](specs/24-harvest-ui-capture.md) if it isn't back yet. Paste the results into that file, then do the layout pass screen by screen.
+3. **Decisions (Dzuy):**
+   - **Assigned people:** build Harvest's manager → people assignment (new table + "Assigned people" tab + timesheet/report scope)? Today managers act only on projects they manage.
+   - **Project page default:** Harvest opens on All time; Track2 opens monthly-reset budgets on Month. Switch to Harvest's behavior?
+   - **Client contacts:** add Fax (new column) and move contact add/edit onto the Clients list like Harvest?
+4. **BugHerd items needing Chasity/Dzuy input:**
+   - #4/#10 Google Drive export: is a CSV saved to a Drive folder enough, or should it create a Google Sheet? Whose Drive?
+   - #5, #7, #15: need the BugHerd pin/screenshot to know which element.
+   - #12: keep, move or remove the "By Category" expense report?
+   - Also: mark the 15 fixed items done in BugHerd once Chasity confirms.
+5. **Small data fixes on prod:**
+   - Rename the account from "Big Sea (demo)" (left over from the seed; shows on invoices). There's no Settings field for it yet, so it's one SQL `UPDATE "Account" SET name = '…'`.
+   - Cost-rate backfill: Profitability shows $0 cost ([spec 19](specs/19-migration-followups.md) item 4).
+   - PM-flag breadth: ~90% of assignments are flagged PM (spec 19 item 1).
+6. **Harvest → Track2 update sync:** still waiting to be run against prod (see the next section).
+7. **Follow-ups:**
+   - Stream the time CSV export ("All time" still `findMany`s every entry).
+   - Use `DropdownMenu` (single-open menus) on the /projects, /clients and invoice row menus.
+   - The Projects → Archived filter takes ~4s (2,227 rows); paginate it.
+
+**Working from a cloud Claude session**
+- bugherd.com, track2.bigseabridge.com and *.vercel.app are blocked by the environment's network policy. Add them under Allowed domains to let Claude read BugHerd or check pages itself.
+- There's no prod DB access, so anything touching data (migrations, scripts, renames) is done by hand in Supabase or locally.
 
 ### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
 Catching up Harvest changes since the Aug 6–7 import. **All the code is built; what's left is running it against production** (needs the prod `DATABASE_URL`, so it can't be done from a cloud Claude session).
