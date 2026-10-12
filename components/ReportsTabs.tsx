@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { buildHref } from '@/modules/reports/timeframe'
+import { buildHref } from '@/modules/shared/timeframe'
 
 // `timed` tabs share the timeframe picker, so switching between them keeps the selected period.
 const TABS = [
