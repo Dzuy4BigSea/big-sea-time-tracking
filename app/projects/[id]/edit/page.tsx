@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { EditProjectForm } from '@/components/EditProjectForm'
+import { ProjectTeamManager } from '@/components/ProjectTeamManager'
 import { listEntities } from '@/lib/entities'
 
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
         }}
         entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
       />
+      <ProjectTeamManager accountId={accountId} project={{ id: project.id, billableRateMethod: project.billableRateMethod }} />
     </div>
   )
 }

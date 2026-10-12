@@ -176,6 +176,12 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
 
 // ── Project team assignments (assign people so they can track time) ──────────
 
+/** Team edits are made on the Edit page and shown on the detail page's Team tab. */
+function revalidateProjectTeam(projectId: string) {
+  revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/edit`)
+}
+
 async function requireProjectManager(projectId: string) {
   const actor = await requireUser()
   if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_projects')) return null
@@ -197,7 +203,7 @@ export async function assignUserToProjectAction(formData: FormData): Promise<voi
     update: { isActive: true, isProjectManager },
     create: { accountId: actor.accountId, projectId, userId, isProjectManager, isActive: true },
   })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function toggleProjectManagerAction(formData: FormData): Promise<void> {
@@ -208,7 +214,7 @@ export async function toggleProjectManagerAction(formData: FormData): Promise<vo
   const a = await prisma.projectUserAssignment.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { isProjectManager: true } })
   if (!a) return
   await prisma.projectUserAssignment.update({ where: { projectId_userId: { projectId, userId } }, data: { isProjectManager: !a.isProjectManager } })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function unassignUserFromProjectAction(formData: FormData): Promise<void> {
@@ -223,7 +229,7 @@ export async function unassignUserFromProjectAction(formData: FormData): Promise
   } else {
     await prisma.projectUserAssignment.deleteMany({ where: { projectId, userId } })
   }
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 /** Archive or restore a project (specs/03 — archive, never hard-delete in-use records). */
@@ -249,7 +255,7 @@ export async function setProjectUserRateAction(formData: FormData): Promise<void
     where: { projectId, userId },
     data: { hourlyRateCents: centsFrom(formData.get('rate')) },
   })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function addTaskToProjectAction(formData: FormData): Promise<void> {
