@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -145,6 +146,9 @@ export async function saveContactAction(_prev: ContactFormState, formData: FormD
   }
 
   revalidatePath(`/clients/${clientId}`)
+  revalidatePath('/clients')
+  // The standalone contact pages (/clients/[id]/contacts/…) return to the clients list, as Harvest does.
+  if (formData.get('returnTo') === 'clients') redirect('/clients')
   return { ok: true, savedAt: Date.now() }
 }
 
@@ -154,6 +158,8 @@ export async function deleteContactAction(formData: FormData): Promise<void> {
   if (!accountId) return
   await prisma.clientContact.deleteMany({ where: { id: String(formData.get('contactId') ?? ''), clientId, accountId } })
   revalidatePath(`/clients/${clientId}`)
+  revalidatePath('/clients')
+  if (formData.get('returnTo') === 'clients') redirect('/clients')
 }
 
 export async function toggleInvoiceRecipientAction(formData: FormData): Promise<void> {

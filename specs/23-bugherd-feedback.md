@@ -69,11 +69,11 @@ Goal: match Harvest's UI and behavior, not invent new behavior. Reference is Har
   - Harvest has a **Fax** field (needs a column).
   - Harvest manages contacts from the Clients list (Add contact / Edit next to each contact); Track2 does it on the client page.
 
-## BugHerd card updates to post (pending)
-To be posted on each card in BugHerd project 541260 (via the API with `BUGHERD_API_KEY`, or Claude in
+## BugHerd card updates (posted 2026-10-12)
+Posted on each card in BugHerd project 541260 (via the API with `BUGHERD_API_KEY`, or Claude in
 Chrome). **FIXED** cards: post the comment, then move to a "Ready for review"/QA column if one exists,
 otherwise "Done". Never close or delete (Chasity closes after checking). **NEEDS INFO** cards: post the
-comment, leave the status, and assign to Chasity if possible. Afterwards, record what was posted here.
+comment, leave the status, and assign to Chasity if possible. What was posted is recorded below the table.
 
 API notes (BugHerd API v2):
 - Base: `https://www.bugherd.com/api_v2/`. Auth: HTTP basic, API key as the username, `x` as the password.
@@ -105,3 +105,35 @@ API notes (BugHerd API v2):
 | 7 | NEEDS INFO | Question: which section is too easy to click by accident? Once we know, we'll move it or add a confirmation. |
 | 12 | NEEDS INFO | Question: should "By Category" be removed, moved below "By client", or left as it is? |
 | 15 | NEEDS INFO | Question: which element is "over here"? Could you circle it or add a screenshot? |
+
+### Posted (2026-10-12, via the API from a cloud session)
+The comment text in the table above was posted verbatim to all 21 cards (the API returned 201 for each). The
+board's columns are BACKLOG, DOING, NEED INFORMATION, FOR CLIENT and DONE. It has no review or QA column, so
+FIXED cards went to **DONE**. Nothing was closed or deleted.
+
+| # | BugHerd task id | Comment id | Status after | Assignee after |
+|---|---|---|---|---|
+| 1 | 31093454 | 18360170 | BACKLOG → DONE | Dzuy (unchanged) |
+| 2 | 31093467 | 18360172 | DOING → DONE | Dzuy (unchanged) |
+| 3 | 31093485 | 18360173 | BACKLOG → DONE | Dzuy (unchanged) |
+| 6 | 31093518 | 18360174 | BACKLOG → DONE | Dzuy (unchanged) |
+| 8 | 31093531 | 18360175 | BACKLOG → DONE | Dzuy (unchanged) |
+| 9 | 31093544 | 18360176 | BACKLOG → DONE | Dzuy (unchanged) |
+| 11 | 31093563 | 18360177 | BACKLOG → DONE | Dzuy (unchanged) |
+| 13 | 31093620 | 18360178 | BACKLOG → DONE | Dzuy (unchanged) |
+| 14 | 31093631 | 18360179 | BACKLOG → DONE | Dzuy (unchanged) |
+| 16 | 31093661 | 18360180 | BACKLOG → DONE | Dzuy (unchanged) |
+| 17 | 31093663 | 18360181 | BACKLOG → DONE | Dzuy (unchanged) |
+| 18 | 31093673 | 18360182 | BACKLOG → DONE | Dzuy (unchanged) |
+| 19 | 31093681 | 18360183 | BACKLOG → DONE | Dzuy (unchanged) |
+| 20 | 31093686 | 18360184 | BACKLOG → DONE | Dzuy (unchanged) |
+| 21 | 31093696 | 18360185 | BACKLOG → DONE | Dzuy (unchanged) |
+| 4 | 31093500 | 18360186 | DOING (unchanged) | Dzuy → Chasity |
+| 10 | 31093547 | 18360187 | DOING (unchanged) | Dzuy → Chasity |
+| 5 | 31093505 | 18360188 | BACKLOG (unchanged) | Dzuy → Chasity |
+| 7 | 31093525 | 18360189 | BACKLOG (unchanged) | Dzuy → Chasity |
+| 12 | 31093572 | 18360190 | BACKLOG (unchanged) | Dzuy → Chasity |
+| 15 | 31093647 | 18360191 | BACKLOG (unchanged) | Dzuy → Chasity |
+
+Comments post as the API key's owner. Two newer cards, **#22** (invoice message/reminder templates) and **#23**
+(recurring project hours), are both marked "NICE TO HAVE" and aren't in this round. They were left untouched in BACKLOG.

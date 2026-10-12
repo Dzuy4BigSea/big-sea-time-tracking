@@ -87,6 +87,8 @@ export async function resolveSubjectUserId(current: CurrentUser, requested: stri
 export interface PersonOption {
   id: string
   name: string
+  /** User.type, so the Teammates list can group Employees / Contractors. */
+  type: 'employee' | 'contractor'
 }
 
 /**
@@ -110,10 +112,10 @@ export async function listActablePeople(current: CurrentUser): Promise<PersonOpt
           }
         : {}),
     },
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true, firstName: true, lastName: true, type: true },
     orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
   })
-  const opts = people.map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim() }))
+  const opts: PersonOption[] = people.map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim(), type: p.type }))
   const self = opts.filter((p) => p.id === current.userId)
   return [...self, ...opts.filter((p) => p.id !== current.userId)]
 }

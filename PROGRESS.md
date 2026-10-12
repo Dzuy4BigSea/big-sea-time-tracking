@@ -12,18 +12,18 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
 **Where things stand**
 - **Round 1 (15 of 21 BugHerd items): live in production.** It was merged in PR #1 on 2026-10-12. The `remainingOccurrences` column was added on prod by hand (Supabase SQL editor); the migration file uses `IF NOT EXISTS`, so `prisma migrate deploy` is still safe.
   - QA'd on prod with Claude in Chrome: all pass. Two are only partly checked because no data exists yet: recurring "N left / No end" labels, and the "due in N days" banner.
-- **Harvest parity pass: PR #2 open, not merged** (branch `claude/quirky-galileo-23agcn`, no DB changes, Vercel preview green).
-  - Teammates button, amber banner, and timers for teammates.
-  - Grouped/searchable project and task pickers.
-  - Harvest invoice status words and colors.
-  - Semimonth period, with one shared timeframe module (`modules/shared/timeframe.ts`).
-  - Sortable project Tasks/Team tables.
-  - Timesheet opens on the current week.
-  - Expenses table scrolls sideways.
+- **Harvest parity pass (PR #2): merged and live.**
+- **Harvest UI layout pass, screens 1–6 (merged 2026-10-12, from the captured notes in [specs/24](specs/24-harvest-ui-capture.md)).** No schema changes. Smoke-tested against a local Postgres seeded with `prisma/seed.ts` (every changed page rendered, no server errors), but not yet against production data.
+  - **Timesheet:** week pill ("This week 12 – 18 Oct 2026") with "Return to this week"; "Mon / 05 Oct" headers; rows read "[CODE] Project (Client)"; Day view (`?view=day&date=`) with Day/Week toggle, day tabs and totals; Teammates grouped Employees/Contractors with a "{Name}'s timesheet" banner; empty-state card.
+  - **Clients:** card per client with its contacts, live "Filter by client or contact" (matches contacts too) with Clear filter, 100 per page; new pages `/clients/new`, `/clients/[id]/contacts/new` and `/clients/[id]/contacts/[contactId]/edit` (Update/Delete contact); archive/reactivate box on Edit client.
+  - **Project page:** Harvest header (client, type pill, dates + weeks left, notes Show more); five all-time summary cards; toolbar "All time" / "[←][→] This Month: …"; Tasks (billable/non-billable sections) and Team tables expand to people/tasks; Invoices tab with Status/Issue date/Paid on/ID/Subject/Pre-tax amount and "+ New invoice". Monthly-reset budget card now measures the current calendar month.
+  - **Edit project Team card:** Billable rate column only for person-rate T&M projects (switches live with the form), Person default / Custom / Missing rate cells, Apply custom rate, Manages-this-project checkboxes with Select All/None, archived people greyed, "Assign a person..." combobox, leave-page guard.
+  - **Reports > Time:** Clients | Projects | Tasks | Teammates tabs (`?tab=`; old `?group=` still works), summary card with billable donut, billable-share bar, "1.30 (9%)" billable hours, Total row, Employees/Contractors subtotals, "Active projects only". **Uninvoiced amount now excludes Fixed Fee projects** (Harvest behavior), so the figure may drop.
+  - **Not done from the notes:** AI boxes, copy-from-last-week, editable week-grid cells, Fax and CC/BCC contact fields (schema), project charts, Duplicate/Delete/Pin project actions, detailed time report (no route yet) so Hours aren't links, Scheduled/Delta/Utilization, cost-rate slide-over, Restore for archived people. Orange accents use Tailwind's `orange-*`; swap for brand tokens if wanted.
 
 **Next steps, in order**
-1. **Review and merge PR #2.** Click through the preview first. It deploys to production on merge, and nothing needs to happen in the DB.
-2. **Harvest UI notes:** run the capture prompt in [specs/24](specs/24-harvest-ui-capture.md) if it isn't back yet. Paste the results into that file, then do the layout pass screen by screen.
+1. **Click through the layout pass on production** (Timesheet Day/Week + Teammates, Clients, a project page and its Edit page, Reports > Time) and check the Uninvoiced figure.
+2. **Harvest UI notes:** screens 7–12 (expense reports, recurring invoices, invoice statuses, expenses form, team list, edit person tabs) still need capturing with the prompt in [specs/24](specs/24-harvest-ui-capture.md).
 3. **Decisions (Dzuy):**
    - **Assigned people:** build Harvest's manager → people assignment (new table + "Assigned people" tab + timesheet/report scope)? Today managers act only on projects they manage.
    - **Project page default:** Harvest opens on All time; Track2 opens monthly-reset budgets on Month. Switch to Harvest's behavior?
@@ -32,7 +32,7 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
    - #4/#10 Google Drive export: is a CSV saved to a Drive folder enough, or should it create a Google Sheet? Whose Drive?
    - #5, #7, #15: need the BugHerd pin/screenshot to know which element.
    - #12: keep, move or remove the "By Category" expense report?
-   - Post the card comments/status updates listed at the end of [specs/23](specs/23-bugherd-feedback.md) (needs `BUGHERD_API_KEY` + `www.bugherd.com` allowed in the cloud environment).
+   - Card comments and status updates were posted on 2026-10-12 (record at the end of [specs/23](specs/23-bugherd-feedback.md)). FIXED cards are in DONE for Chasity to close; NEEDS INFO cards are assigned to her. New cards #22 and #23 (nice-to-haves) aren't triaged yet.
 5. **Small data fixes on prod:**
    - Rename the account from "Big Sea (demo)" (left over from the seed; shows on invoices). There's no Settings field for it yet, so it's one SQL `UPDATE "Account" SET name = '…'`.
    - Cost-rate backfill: Profitability shows $0 cost ([spec 19](specs/19-migration-followups.md) item 4).
@@ -44,7 +44,7 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
    - The Projects → Archived filter takes ~4s (2,227 rows); paginate it.
 
 **Working from a cloud Claude session**
-- bugherd.com, track2.bigseabridge.com and *.vercel.app are blocked by the environment's network policy. Add them under Allowed domains to let Claude read BugHerd or check pages itself.
+- The BugHerd API (`www.bugherd.com`, `BUGHERD_API_KEY`) is reachable from cloud sessions as of 2026-10-12. Python's default user agent gets a Cloudflare 403, so use curl or set a User-Agent. track2.bigseabridge.com and *.vercel.app may still be blocked; add them under Allowed domains to let Claude check pages itself.
 - There's no prod DB access, so anything touching data (migrations, scripts, renames) is done by hand in Supabase or locally.
 
 ### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)

@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { filterPeople, timesheetHrefFor } from '@/lib/teammates'
+import { useRouter } from 'next/navigation'
+import { filterPeople, groupTeammates, timesheetHrefFor, type TeammateOption } from '@/lib/teammates'
 
 /**
  * Harvest's "Teammates" switcher: a button in the top-right of /timesheet that opens a searchable
- * list of people; picking one opens their timesheet (`?user=<id>`, other params kept). Shown only
+ * list of people, grouped under Employees then Contractors; picking one opens their timesheet
+ * (`?user=<id>`, the current Day/Week view and date kept). Shown only
  * to people with `view_edit_others_time`. It only changes the URL; the page and every server
  * action re-authorize the chosen person.
  */
@@ -14,29 +15,30 @@ export function TimesheetPersonSwitcher({
   people,
   selectedId,
   selfId,
-  week,
+  query,
 }: {
-  people: { id: string; name: string }[]
+  people: TeammateOption[]
   selectedId: string
   selfId: string
-  /** The week on screen, so switching person keeps it. */
-  week: string
+  /** The view/date/week on screen (without `user`), so switching person keeps it. */
+  query: string
 }) {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const uid = useId()
   const listId = `${uid}-list`
   const wrapRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
 
-  const filtered = useMemo(() => filterPeople(people, query), [people, query])
+  const [search, setSearch] = useState('')
+  const groups = useMemo(() => groupTeammates(filterPeople(people, search)), [people, search])
+  // Keyboard order follows the on-screen grouping.
+  const filtered = useMemo(() => groups.flatMap((g) => g.people), [groups])
 
   const close = () => {
     setOpen(false)
-    setQuery('')
+    setSearch('')
   }
 
   useEffect(() => {
@@ -51,9 +53,7 @@ export function TimesheetPersonSwitcher({
 
   const choose = (id: string) => {
     close()
-    const params = new URLSearchParams(searchParams?.toString() ?? '')
-    params.set('week', week)
-    router.push(timesheetHrefFor(params, id, selfId))
+    router.push(timesheetHrefFor(query, id, selfId))
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -74,7 +74,9 @@ export function TimesheetPersonSwitcher({
     <div className="relative" ref={wrapRef}>
       <button
         type="button"
-        onClick={() => (open ? close() : (setActive(Math.max(0, people.findIndex((p) => p.id === selectedId))), setOpen(true)))}
+        onClick={() =>
+          open ? close() : (setActive(Math.max(0, groupTeammates(people).flatMap((g) => g.people).findIndex((p) => p.id === selectedId))), setOpen(true))
+        }
         aria-haspopup="dialog"
         aria-expanded={open}
         className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -94,10 +96,10 @@ export function TimesheetPersonSwitcher({
               aria-autocomplete="list"
               aria-activedescendant={filtered[active] ? `${uid}-p-${filtered[active].id}` : undefined}
               autoComplete="off"
-              placeholder="Search by name"
-              value={query}
+              placeholder="Search..."
+              value={search}
               onChange={(e) => {
-                setQuery(e.target.value)
+                setSearch(e.target.value)
                 setActive(0)
               }}
               onKeyDown={onKeyDown}
@@ -106,28 +108,36 @@ export function TimesheetPersonSwitcher({
           </div>
           <ul id={listId} role="listbox" className="max-h-72 overflow-auto py-1 text-sm">
             {filtered.length === 0 && <li className="px-3 py-2 text-gray-400">No teammates found</li>}
-            {filtered.map((p, i) => {
-              const current = p.id === selectedId
-              return (
-                <li
-                  key={p.id}
-                  id={`${uid}-p-${p.id}`}
-                  role="option"
-                  aria-selected={current}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => choose(p.id)}
-                  className={`flex cursor-pointer items-center justify-between px-3 py-1.5 ${
-                    i === active ? 'bg-brand-teal-50 text-brand-teal' : 'text-gray-800'
-                  } ${current ? 'font-medium' : ''}`}
-                >
-                  <span className="truncate">
-                    {p.name}
-                    {p.id === selfId && <span className="font-normal text-gray-400"> (you)</span>}
-                  </span>
-                  {current && <span aria-hidden className="ml-2 text-brand-teal">✓</span>}
-                </li>
-              )
-            })}
+            {groups.map((g) => (
+              <li key={g.label} role="presentation">
+                <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">{g.label}</div>
+                <ul role="group" aria-label={g.label}>
+                  {g.people.map((p) => {
+                    const i = filtered.indexOf(p)
+                    const current = p.id === selectedId
+                    return (
+                      <li
+                        key={p.id}
+                        id={`${uid}-p-${p.id}`}
+                        role="option"
+                        aria-selected={current}
+                        onMouseEnter={() => setActive(i)}
+                        onClick={() => choose(p.id)}
+                        className={`flex cursor-pointer items-center justify-between px-3 py-1.5 ${
+                          i === active ? 'bg-brand-teal-50 text-brand-teal' : 'text-gray-800'
+                        } ${current ? 'font-medium' : ''}`}
+                      >
+                        <span className="truncate">
+                          {p.name}
+                          {p.id === selfId && <span className="font-normal text-gray-400"> (you)</span>}
+                        </span>
+                        {current && <span aria-hidden className="ml-2 text-brand-teal">✓</span>}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </li>
+            ))}
           </ul>
         </div>
       )}

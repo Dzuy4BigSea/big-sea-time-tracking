@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveTimeframe, needsFallbackAnchor, timeframeQuery, inTimeframe, buildHref, parsePeriod, customSeed, defaultPeriodFor, endExclusive, PERIODS,
+  resolveTimeframe, needsFallbackAnchor, timeframeQuery, inTimeframe, buildHref, parsePeriod, customSeed, defaultPeriodFor, endExclusive, PERIODS, periodHeading,
 } from './timeframe'
 import { parseYmd } from '@/lib/week'
 
@@ -258,5 +258,21 @@ describe('project page', () => {
     expect(customSeed(tf({ period: 'month', date: '2026-02-03' }), now)).toEqual({ from: '2026-02-01', to: '2026-02-28' })
     expect(customSeed(tf({ period: 'all' }), now)).toEqual({ from: '2026-10-01', to: '2026-10-12' })
     expect(customSeed(tf({ period: 'custom', from: '2026-09-03' }), now)).toEqual({ from: '2026-09-03', to: '2026-10-12' })
+  })
+})
+
+describe('periodHeading', () => {
+  const now = new Date('2026-10-12T15:00:00.000Z')
+  it('prefixes the current period with "This <Period>:"', () => {
+    const tf = resolveTimeframe({ period: 'month' }, { now })
+    expect(periodHeading(tf, now)).toBe('This Month: October 2026')
+  })
+  it('shows the plain label for another period (after stepping)', () => {
+    const tf = resolveTimeframe({ period: 'month', anchor: '2026-09-01' }, { now })
+    expect(periodHeading(tf, now)).toBe('September 2026')
+  })
+  it('passes All time and custom ranges through', () => {
+    expect(periodHeading(resolveTimeframe({}, { now }), now)).toBe('All time')
+    expect(periodHeading(resolveTimeframe({ period: 'custom', from: '2026-01-01', to: '2026-01-31' }, { now }), now)).toBe('1/1/2026 – 1/31/2026')
   })
 })

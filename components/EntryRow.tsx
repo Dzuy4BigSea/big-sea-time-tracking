@@ -36,7 +36,11 @@ function SaveButton() {
   )
 }
 
-export function EntryRow({ entry }: { entry: EntryRowData }) {
+/**
+ * One time entry with inline edit / lock-guarded delete. `layout="day"` is Harvest's Day view row:
+ * bold project (client), task beneath, notes small grey, duration right; no date column.
+ */
+export function EntryRow({ entry, layout = 'list' }: { entry: EntryRowData; layout?: 'list' | 'day' }) {
   const [editing, setEditing] = useState(false)
   const [state, formAction] = useFormState<EditTimeState, FormData>(updateTimeEntryAction, {})
 
@@ -52,7 +56,7 @@ export function EntryRow({ entry }: { entry: EntryRowData }) {
       <li className="px-4 py-2">
         <form action={formAction} className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="entryId" value={entry.id} />
-          <span className="w-12 shrink-0 text-gray-400">{entry.dateLabel}</span>
+          {layout === 'list' && <span className="w-12 shrink-0 text-gray-400">{entry.dateLabel}</span>}
           <span className="min-w-0 flex-1 text-gray-700">
             <span className="font-medium text-gray-900">{entry.projectLabel}</span>
             <span className="text-gray-500"> · {entry.taskName}</span>
@@ -78,6 +82,45 @@ export function EntryRow({ entry }: { entry: EntryRowData }) {
     )
   }
 
+  const actions = editable ? (
+    <>
+      <button
+        onClick={() => setEditing(true)}
+        className="shrink-0 rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      >
+        Edit
+      </button>
+      <form action={deleteTimeEntryAction}>
+        <input type="hidden" name="entryId" value={entry.id} />
+        <input type="hidden" name="userId" value={entry.userId} />
+        <button className="shrink-0 rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600">
+          Delete
+        </button>
+      </form>
+    </>
+  ) : (
+    <span className="w-12 shrink-0 text-right text-xs text-gray-300" title={`Locked: ${entry.lockState}`}>
+      🔒
+    </span>
+  )
+
+  if (layout === 'day') {
+    return (
+      <li className="flex items-start gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-gray-900">{entry.projectLabel}</div>
+          <div className="text-gray-700">{entry.taskName}</div>
+          {entry.notes && <div className="mt-0.5 whitespace-pre-line text-xs text-gray-500">{entry.notes}</div>}
+        </div>
+        {!entry.isBillable && <span className="mt-1 shrink-0 text-xs text-gray-400">non-billable</span>}
+        <span className="w-16 shrink-0 text-right text-base font-semibold tabular-nums text-gray-900">
+          {entry.isRunning ? <span className="text-sm font-medium text-brand-teal">▶ running</span> : entry.minutesLabel}
+        </span>
+        <div className="flex shrink-0 items-center">{actions}</div>
+      </li>
+    )
+  }
+
   return (
     <li className="flex items-center gap-3 px-4 py-2">
       <span className="w-12 shrink-0 text-gray-400">{entry.dateLabel}</span>
@@ -90,27 +133,7 @@ export function EntryRow({ entry }: { entry: EntryRowData }) {
       <span className="w-14 shrink-0 text-right tabular-nums">
         {entry.isRunning ? <span className="text-brand-teal">▶ running</span> : entry.minutesLabel}
       </span>
-      {editable ? (
-        <>
-          <button
-            onClick={() => setEditing(true)}
-            className="shrink-0 rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-          >
-            Edit
-          </button>
-          <form action={deleteTimeEntryAction}>
-            <input type="hidden" name="entryId" value={entry.id} />
-            <input type="hidden" name="userId" value={entry.userId} />
-            <button className="shrink-0 rounded px-2 py-0.5 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600">
-              Delete
-            </button>
-          </form>
-        </>
-      ) : (
-        <span className="w-12 shrink-0 text-right text-xs text-gray-300" title={`Locked: ${entry.lockState}`}>
-          🔒
-        </span>
-      )}
+      {actions}
     </li>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterPeople, timesheetHrefFor } from './teammates'
+import { filterPeople, groupTeammates, timesheetHrefFor } from './teammates'
 
 const people = [
   { id: 'u1', name: 'Dzuy Linh' },
@@ -36,5 +36,25 @@ describe('timesheetHrefFor', () => {
   it('drops ?user when picking yourself', () => {
     expect(timesheetHrefFor('week=2026-10-05&user=u3', 'u1', 'u1')).toBe('/timesheet?week=2026-10-05')
     expect(timesheetHrefFor('user=u3', 'u1', 'u1')).toBe('/timesheet')
+  })
+  it('keeps the day view and date', () => {
+    expect(timesheetHrefFor('view=day&date=2026-10-07', 'u3', 'u1')).toBe('/timesheet?view=day&date=2026-10-07&user=u3')
+  })
+})
+
+describe('groupTeammates', () => {
+  it('puts employees first, then contractors, keeping order and dropping empty groups', () => {
+    const ppl = [
+      { id: 'a', name: 'Me', type: 'contractor' as const },
+      { id: 'b', name: 'Ann', type: 'employee' as const },
+      { id: 'c', name: 'Bob' },
+      { id: 'd', name: 'Cal', type: 'contractor' as const },
+    ]
+    expect(groupTeammates(ppl).map((g) => [g.label, g.people.map((p) => p.id)])).toEqual([
+      ['Employees', ['b', 'c']],
+      ['Contractors', ['a', 'd']],
+    ])
+    expect(groupTeammates(ppl.slice(1, 3)).map((g) => g.label)).toEqual(['Employees'])
+    expect(groupTeammates([])).toEqual([])
   })
 })
