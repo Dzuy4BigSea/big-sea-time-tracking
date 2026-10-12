@@ -1,11 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { loggableProjectsFor } from '@/lib/timesheetSubject'
+import { toTimeEntryProject, type TimeEntryProject } from '@/lib/timeEntryProjects'
 
-export interface TopBarProject {
-  id: string
-  name: string
-  tasks: { id: string; name: string }[]
-}
+/** Same shape the shared "New time entry" dialog takes. */
+export type TopBarProject = TimeEntryProject
 
 export interface TopBarRunning {
   id: string
@@ -40,11 +38,7 @@ export async function getTopBarData(userId: string): Promise<TopBarData> {
     }),
   ])
 
-  const projects: TopBarProject[] = loggable.map((p) => ({
-    id: p.id,
-    name: p.code ? `[${p.code}] ${p.name}` : p.name,
-    tasks: p.tasks,
-  }))
+  const projects: TopBarProject[] = loggable.map(toTimeEntryProject)
 
   const runningData: TopBarRunning | null =
     running && running.timerStartedAt
