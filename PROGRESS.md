@@ -32,7 +32,7 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
    - #4/#10 Google Drive export: is a CSV saved to a Drive folder enough, or should it create a Google Sheet? Whose Drive?
    - #5, #7, #15: need the BugHerd pin/screenshot to know which element.
    - #12: keep, move or remove the "By Category" expense report?
-   - Also: mark the 15 fixed items done in BugHerd once Chasity confirms.
+   - Post the card comments/status updates listed at the end of [specs/23](specs/23-bugherd-feedback.md) (needs `BUGHERD_API_KEY` + `www.bugherd.com` allowed in the cloud environment).
 5. **Small data fixes on prod:**
    - Rename the account from "Big Sea (demo)" (left over from the seed; shows on invoices). There's no Settings field for it yet, so it's one SQL `UPDATE "Account" SET name = '…'`.
    - Cost-rate backfill: Profitability shows $0 cost ([spec 19](specs/19-migration-followups.md) item 4).
