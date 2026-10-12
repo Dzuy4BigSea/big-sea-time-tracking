@@ -23,11 +23,11 @@ export function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Parse a YYYY-MM-DD string to a UTC-midnight Date, or null. */
-export function parseYmd(s: string | undefined): Date | null {
+/** Parse a YYYY-MM-DD string to a UTC-midnight Date, or null (also for impossible dates like 2026-02-30). */
+export function parseYmd(s: string | undefined | null): Date | null {
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
   const d = new Date(`${s}T00:00:00.000Z`)
-  return isNaN(d.getTime()) ? null : d
+  return isNaN(d.getTime()) || ymd(d) !== s ? null : d
 }
 
 export function sameDay(a: Date, b: Date): boolean {

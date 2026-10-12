@@ -39,7 +39,32 @@ data or in a browser yet; each needs a click-through on a preview deploy.
 | 15 | /expenses | "What's over here?" | Which element? Needs the pin. |
 
 ## Follow-ups noticed while fixing
-- Two timeframe helpers now exist (`modules/reports/timeframe.ts`, `modules/projects/timeframe.ts`). Merge them into one.
 - The time CSV export (`app/reports/export/route.ts`) still `findMany`s matching entries. It is bounded by the timeframe now, but "All time" loads the whole table. Stream it or chunk it.
 - Other row-action menus (/projects, /clients, invoice detail) could adopt `DropdownMenu` for the same single-open behavior as #18.
 - The time-entry modal's project/task pickers could adopt `Combobox` (#17 behavior on the timesheet).
+
+## Harvest parity pass (2026-10-12)
+Goal: match Harvest's UI and behavior, not invent new behavior. Reference is Harvest's help center plus
+[findings](findings.md); screen-layout details wait on UI notes captured from the live Harvest account.
+
+- **#2:**
+  - "Teammates ▾" button (top right, searchable list) replaces the "Timesheet for" dropdown.
+  - Amber banner reads "Changes will save to {name}'s timesheet." with a "Resume editing your own timesheet" link.
+  - Admins and managers can start and stop timers for a teammate (Harvest allows it).
+- **#1 / timesheet:** project and task pickers are grouped by client with type-to-filter, as in Harvest.
+- **#14:** the banner headline uses Harvest's status words (Draft / Sent / Late / Paid / Written off) and
+  colors (AC-UI-003). A partly paid invoice stays Sent or Late; there is no separate "partial" status.
+- **#6 / #11:**
+  - Harvest's **Semimonth** period (1st–15th, 16th–end).
+  - One shared timeframe module (`modules/shared/timeframe.ts`) and picker for Reports and the project page.
+- **#8:** Tasks and Team tables on the project page have sortable headers, as in Harvest.
+
+**Still diverging from Harvest; decisions needed:**
+- **Manager scope:** Harvest managers act for people on projects they manage *and* for their
+  **assigned people** (a manager→people assignment). Track2 has no assigned-people model yet; the
+  person page's "Assigned people" tab (#20) lists teammates who share a project instead.
+- **Project page default timeframe:** Harvest shows the project's lifetime (All time) by default. Track2 opens
+  monthly-reset budgets on Month (Chasity's #6 note, "default to a specific one dep…", is cut off).
+- **Client contacts (#3):**
+  - Harvest has a **Fax** field (needs a column).
+  - Harvest manages contacts from the Clients list (Add contact / Edit next to each contact); Track2 does it on the client page.

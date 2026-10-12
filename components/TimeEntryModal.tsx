@@ -1,50 +1,62 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import { logTimeAction, startTimerAction, type LogTimeState } from '@/app/timesheet/actions'
+import { Combobox } from '@/components/Combobox'
+import {
+  defaultTaskId,
+  projectComboOptions,
+  taskComboOptions,
+  type TimeEntryProject,
+} from '@/lib/timeEntryProjects'
 
-export interface TimeEntryProject {
-  id: string
-  name: string
-  tasks: { id: string; name: string }[]
-}
+export type { TimeEntryProject }
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
-function ProjectTaskSelects({ projects }: { projects: TimeEntryProject[] }) {
+/**
+ * Harvest's project -> task pickers: the project list is grouped by client and filters as you type;
+ * the task list follows the chosen project (and resets to its first task when the project changes).
+ * Posts `projectId` / `taskId` like the old <select>s. Shared with the top-bar Timer popover.
+ */
+export function ProjectTaskPicker({ projects }: { projects: TimeEntryProject[] }) {
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
-  const tasks = projects.find((p) => p.id === projectId)?.tasks ?? []
+  const projectOptions = useMemo(() => projectComboOptions(projects), [projects])
+  const taskOptions = useMemo(() => taskComboOptions(projects, projectId), [projects, projectId])
   return (
     <div className="space-y-2">
-      <select
+      <Combobox
         name="projectId"
-        value={projectId}
-        onChange={(e) => setProjectId(e.target.value)}
-        className={`${input} w-full`}
-      >
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <select name="taskId" className={`${input} w-full`}>
-        {tasks.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
+        options={projectOptions}
+        defaultValue={projectId}
+        placeholder="Choose a project…"
+        emptyText="No matching projects"
+        required
+        onValueChange={setProjectId}
+        aria-label="Project"
+      />
+      <Combobox
+        // Remount on project change so the task resets to the new project's first task.
+        key={projectId}
+        name="taskId"
+        options={taskOptions}
+        defaultValue={defaultTaskId(projects, projectId)}
+        placeholder={taskOptions.length ? 'Choose a task…' : 'No tasks on this project'}
+        emptyText="No matching tasks"
+        required
+        disabled={taskOptions.length === 0}
+        aria-label="Task"
+      />
     </div>
   )
 }
 
-function PrimaryButton({ hasDuration, allowTimer }: { hasDuration: boolean; allowTimer: boolean }) {
+function PrimaryButton({ hasDuration }: { hasDuration: boolean }) {
   const { pending } = useFormStatus()
   // With a duration entered the green button logs the entry; empty → it starts a timer (Harvest).
-  // When logging for someone else timers are off, so it always logs (the action asks for a duration).
-  const startsTimer = allowTimer && !hasDuration
+  // On a teammate's timesheet the timer is theirs (forUserId is posted and re-authorized server-side).
+  const startsTimer = !hasDuration
   return (
     <button
       type="submit"
@@ -115,7 +127,7 @@ export function TimeEntryModal({
 
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-gray-700">Project / Task</span>
-              <ProjectTaskSelects projects={projects} />
+              <ProjectTaskPicker projects={projects} />
             </div>
 
             <div className="flex gap-2">
@@ -136,7 +148,7 @@ export function TimeEntryModal({
             </div>
 
             <div className="flex items-center gap-3 pt-1">
-              <PrimaryButton hasDuration={hasDuration} allowTimer={!forUser} />
+              <PrimaryButton hasDuration={hasDuration} />
               <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">
                 Cancel
               </button>

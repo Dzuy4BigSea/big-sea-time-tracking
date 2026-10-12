@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { startTimerAction, stopTimerAction } from '@/app/timesheet/actions'
 import type { TopBarProject, TopBarRunning } from '@/lib/topbar'
-import { TimeEntryModal } from '@/components/TimeEntryModal'
+import { ProjectTaskPicker, TimeEntryModal } from '@/components/TimeEntryModal'
 import { GlobalSearch } from '@/components/GlobalSearch'
 
 // Route prefix → section title shown on the left of the bar.
@@ -57,33 +57,6 @@ function IconMore() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
       <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
     </svg>
-  )
-}
-
-/* ---------- project + task cascading selects (shared) ---------- */
-function ProjectTaskSelects({ projects }: { projects: TopBarProject[] }) {
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
-  const tasks = projects.find((p) => p.id === projectId)?.tasks ?? []
-  return (
-    <>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs uppercase tracking-wide text-gray-400">Project / Task</span>
-        <select name="projectId" value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputCls}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <select name="taskId" className={inputCls}>
-        {tasks.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
-    </>
   )
 }
 
@@ -180,7 +153,10 @@ export function TopBar({
                   <p className="text-sm text-gray-400">No projects assigned to you yet.</p>
                 ) : (
                   <form action={startTimerAction} className="space-y-2">
-                    <ProjectTaskSelects projects={projects} />
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs uppercase tracking-wide text-gray-400">Project / Task</span>
+                      <ProjectTaskPicker projects={projects} />
+                    </div>
                     <input name="notes" placeholder="Notes (optional)" className={`${inputCls} w-full`} />
                     <div className="flex items-center gap-2 pt-1">
                       <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">

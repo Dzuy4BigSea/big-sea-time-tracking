@@ -5,11 +5,11 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import {
-  PERIODS, defaultPeriodFor, resolveTimeframe, shiftAnchor, timeframeLabel, timeframeQuery, customSeed, ymd,
-  type Period, type Timeframe, type WeekStart,
-} from '@/modules/projects/timeframe'
-import { ProjectTaskBreakdown, type TaskRow } from '@/components/ProjectTaskBreakdown'
+import { defaultPeriodFor, resolveTimeframe, timeframeQuery, endExclusive, buildHref, type Timeframe, type WeekStart } from '@/modules/shared/timeframe'
+import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
+import { ReportTimeframe } from '@/components/ReportTimeframe'
+import { SortableTh } from '@/components/SortableTh'
+import { ProjectTaskBreakdown, type TaskRow, type TaskSortKey } from '@/components/ProjectTaskBreakdown'
 import { ColumnChart } from '@/components/ColumnChart'
 import {
   addTaskToProjectAction,
@@ -30,16 +30,26 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const hrs = (m: number) => (m / 60).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = (v: unknown) => Number(v ?? 0)
 
-/** `AND col >= start AND col < end` for the bounded side(s) of a timeframe (empty for All time). */
+/** `AND col >= from AND col <= till` for the bounded side(s) of a timeframe (empty for All time). `col` is a DATE column. */
 function rangeSql(tf: Timeframe, col: string): Prisma.Sql {
   const c = Prisma.raw(col)
   const parts: Prisma.Sql[] = []
-  if (tf.start) parts.push(Prisma.sql`AND ${c} >= ${tf.start}`)
-  if (tf.end) parts.push(Prisma.sql`AND ${c} < ${tf.end}`)
+  if (tf.from) parts.push(Prisma.sql`AND ${c} >= ${tf.from}`)
+  if (tf.till) parts.push(Prisma.sql`AND ${c} <= ${tf.till}`)
   return parts.length ? Prisma.join(parts, ' ') : Prisma.empty
 }
 
-type SearchParams = { tab?: string; period?: string; date?: string; from?: string; to?: string; month?: string; year?: string; cy?: string }
+// (Defined here, not in the client component: a server component can't read a 'use client' module's values.)
+const TASK_SORT_KEYS: readonly TaskSortKey[] = ['name', 'hours', 'billable', 'costs']
+const TEAM_SORT_KEYS = ['name', 'hours', 'billableHours', 'nonBillableHours', 'billable'] as const
+type TeamSortKey = (typeof TEAM_SORT_KEYS)[number]
+// Default order on both tables: most hours first (the order before headers became sortable).
+const DEFAULT_SORT = { key: 'hours', dir: 'desc' } as const
+
+type SearchParams = {
+  tab?: string; period?: string; anchor?: string; date?: string; from?: string; to?: string; month?: string; year?: string; cy?: string
+  sort?: string; dir?: string
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -69,19 +79,19 @@ export default async function ProjectDetailPage({
   const tab = ['tasks', 'team', 'invoices'].includes(searchParams.tab ?? '') ? searchParams.tab! : 'tasks'
   const weekStartsOn = (account?.weekStartsOn ?? 'monday') as WeekStart
   // Timeframe for the whole page (hours card + every tab). Default: Month for monthly-reset budgets,
-  // otherwise All time (modules/projects/timeframe.ts → defaultPeriodFor). Legacy ?month= links map to Month.
+  // otherwise All time (modules/shared/timeframe.ts → defaultPeriodFor). ?date= and legacy ?month=/?year= links still resolve.
   const tf = resolveTimeframe(searchParams, { now, weekStartsOn, defaultPeriod: defaultPeriodFor(project) })
-  const tfLabel = timeframeLabel(tf)
+  const tfLabel = tf.label
   // The hours chart is always a calendar year: the timeframe's year unless navigated (?cy=).
   const cyParam = /^\d{4}$/.test(searchParams.cy ?? '') ? Number(searchParams.cy) : null
-  const chartYear = cyParam ?? (tf.start ? tf.start.getUTCFullYear() : now.getUTCFullYear())
+  const chartYear = cyParam ?? (tf.from ? tf.from.getUTCFullYear() : now.getUTCFullYear())
   const yStart = new Date(Date.UTC(chartYear, 0, 1))
   const yEnd = new Date(Date.UTC(chartYear + 1, 0, 1))
 
   // Monthly budgets are measured against a calendar month: the selected one, else the current one.
   const budgetHoursMin = project.budgetMethod.startsWith('hours') && project.budgetValue ? project.budgetValue : null
   const monthlyBudget = project.budgetResetsMonthly && budgetHoursMin ? budgetHoursMin : null
-  const bAnchor = tf.period === 'month' && tf.start ? tf.start : now
+  const bAnchor = tf.period === 'month' && tf.from ? tf.from : now
   const bStart = new Date(Date.UTC(bAnchor.getUTCFullYear(), bAnchor.getUTCMonth(), 1))
   const bEnd = new Date(Date.UTC(bAnchor.getUTCFullYear(), bAnchor.getUTCMonth() + 1, 1))
 
@@ -130,30 +140,24 @@ export default async function ProjectDetailPage({
   const months = MONTHS.map((_, i) => chartMap.get(i + 1) ?? 0)
   // Highlight the chart months that overlap the selected timeframe (the current month for All time).
   const inTimeframe = (i: number) => {
-    if (!tf.start && !tf.end) return chartYear === now.getUTCFullYear() && i === now.getUTCMonth()
+    if (!tf.from && !tf.till) return chartYear === now.getUTCFullYear() && i === now.getUTCMonth()
     const ms = new Date(Date.UTC(chartYear, i, 1))
-    const me = new Date(Date.UTC(chartYear, i + 1, 1))
-    return (!tf.end || ms < tf.end) && (!tf.start || me > tf.start)
+    const me = new Date(Date.UTC(chartYear, i + 1, 0)) // last day of the month
+    return (!tf.till || ms <= tf.till) && (!tf.from || me >= tf.from)
   }
 
+  // Sortable Tasks / Team tables (?sort=&dir=). Only a non-default sort goes in the URL; tab switches drop it.
+  const taskSort = parseSort<TaskSortKey>(searchParams, TASK_SORT_KEYS, DEFAULT_SORT)
+  const teamSort = parseSort<TeamSortKey>(searchParams, TEAM_SORT_KEYS, DEFAULT_SORT)
+  const activeSort = tab === 'tasks' ? taskSort : tab === 'team' ? teamSort : null
+  const sortq = activeSort && !(activeSort.key === DEFAULT_SORT.key && activeSort.dir === DEFAULT_SORT.dir) ? { sort: activeSort.key, dir: activeSort.dir } : {}
+
   const tfQuery = timeframeQuery(tf)
-  const qp = (over: Record<string, string | undefined>) => {
-    const base: Record<string, string | undefined> = { tab, ...tfQuery, cy: cyParam ? String(cyParam) : undefined, ...over }
-    const p = new URLSearchParams()
-    for (const [k, v] of Object.entries(base)) if (v !== undefined) p.set(k, v)
-    return `/projects/${pid}?${p.toString()}`
-  }
-  // Switching period keeps the current anchor (e.g. Oct 2026 → Q4 2026); Custom seeds from/to.
-  const periodHref = (key: Period) => {
-    const reset = { period: key, date: undefined, from: undefined, to: undefined, cy: undefined }
-    if (key === 'all') return qp(reset)
-    if (key === 'custom') return qp({ ...reset, ...customSeed(tf, now) })
-    return qp({ ...reset, date: tf.start ? ymd(tf.start) : ymd(now) })
-  }
-  const prevAnchor = shiftAnchor(tf, -1, weekStartsOn)
-  const nextAnchor = shiftAnchor(tf, 1, weekStartsOn)
-  const exportHref = `/projects/${pid}/tasks/export?${new URLSearchParams(tfQuery).toString()}`
-  const seed = customSeed(tf, now)
+  const basePath = `/projects/${pid}`
+  const pageQuery: Record<string, string | undefined> = { tab, ...tfQuery, ...sortq, cy: cyParam ? String(cyParam) : undefined }
+  const qp = (over: Record<string, string | undefined>) => buildHref(basePath, { ...pageQuery, ...over })
+  const sortBase = { ...pageQuery, sort: undefined, dir: undefined }
+  const exportHref = buildHref(`/projects/${pid}/tasks/export`, tfQuery)
 
   return (
     <div>
@@ -176,37 +180,10 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
-      {/* Timeframe selector: applies to the hours card and every tab below */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="inline-flex overflow-hidden rounded border border-gray-300 text-sm">
-          {PERIODS.map((p) => (
-            <Link
-              key={p.key}
-              href={periodHref(p.key)}
-              className={`border-l border-gray-300 px-3 py-1 first:border-l-0 ${tf.period === p.key ? 'bg-brand-teal font-medium text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-            >
-              {p.label}
-            </Link>
-          ))}
-        </div>
-        {prevAnchor && nextAnchor && (
-          <div className="flex items-center gap-1">
-            <Link href={qp({ date: prevAnchor, cy: undefined })} aria-label="Previous period" className="rounded border border-gray-300 px-2 py-0.5 text-sm text-gray-600 hover:bg-gray-50">←</Link>
-            <Link href={qp({ date: nextAnchor, cy: undefined })} aria-label="Next period" className="rounded border border-gray-300 px-2 py-0.5 text-sm text-gray-600 hover:bg-gray-50">→</Link>
-          </div>
-        )}
-        {tf.period === 'custom' ? (
-          <form method="get" action={`/projects/${pid}`} className="flex flex-wrap items-center gap-2 text-sm">
-            <input type="hidden" name="tab" value={tab} />
-            <input type="hidden" name="period" value="custom" />
-            <input type="date" name="from" defaultValue={seed.from} aria-label="From" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-            <span className="text-gray-400">to</span>
-            <input type="date" name="to" defaultValue={seed.to} aria-label="To" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-            <button className="rounded bg-brand-green px-3 py-1 text-sm font-medium text-white hover:opacity-90">Apply</button>
-          </form>
-        ) : (
-          <h2 className="text-base font-semibold text-gray-800">{tfLabel}</h2>
-        )}
+      {/* Timeframe selector (the same picker as Reports): applies to the hours card and every tab below.
+          Changing it keeps the tab and sort, and resets the chart year (?cy=) to follow the timeframe. */}
+      <div className="mb-1">
+        <ReportTimeframe basePath={basePath} tf={tf} keep={{ tab, ...sortq }} submitLabel="Apply" />
       </div>
 
       {/* Monthly hours chart */}
@@ -281,14 +258,24 @@ export default async function ProjectDetailPage({
       {/* Tabs */}
       <div className="mb-5 flex gap-6 border-b border-gray-200 text-sm">
         {[{ k: 'tasks', l: 'Tasks' }, { k: 'team', l: 'Team' }, { k: 'invoices', l: 'Invoices' }].map((t) => (
-          <Link key={t.k} href={qp({ tab: t.k })} className={`-mb-px border-b-2 pb-2 ${tab === t.k ? 'border-brand-teal font-medium text-brand-teal' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+          <Link key={t.k} href={qp({ tab: t.k, sort: undefined, dir: undefined })} className={`-mb-px border-b-2 pb-2 ${tab === t.k ? 'border-brand-teal font-medium text-brand-teal' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
             {t.l}
           </Link>
         ))}
       </div>
 
-      {tab === 'tasks' && <TasksTab pid={pid} accountId={accountId} tf={tf} tfLabel={tfLabel} showCosts={showCosts} exportHref={exportHref} canManage={canManage} project={project} />}
-      {tab === 'team' && <TeamTab project={project} canManage={canManage} accountId={accountId} tf={tf} tfLabel={tfLabel} />}
+      {tab === 'tasks' && (
+        <TasksTab
+          pid={pid} accountId={accountId} tf={tf} tfLabel={tfLabel} showCosts={showCosts} exportHref={exportHref} canManage={canManage} project={project}
+          sort={taskSort} basePath={basePath} sortBase={sortBase}
+        />
+      )}
+      {tab === 'team' && (
+        <TeamTab
+          project={project} canManage={canManage} accountId={accountId} tf={tf} tfLabel={tfLabel}
+          sort={teamSort} sortHref={(st: SortState<TeamSortKey>) => buildHref(basePath, { ...sortBase, sort: st.key, dir: st.dir })}
+        />
+      )}
       {tab === 'invoices' && <InvoicesTab pid={pid} accountId={accountId} tf={tf} tfLabel={tfLabel} />}
     </div>
   )
@@ -296,7 +283,7 @@ export default async function ProjectDetailPage({
 
 /* ---------- Tasks tab: billable-tasks breakdown for the selected timeframe ---------- */
 async function TasksTab({
-  pid, accountId, tf, tfLabel, showCosts, exportHref, canManage, project,
+  pid, accountId, tf, tfLabel, showCosts, exportHref, canManage, project, sort, basePath, sortBase,
 }: any) {
   const w = Prisma.sql`te."accountId" = ${accountId} AND te."projectId" = ${pid} ${rangeSql(tf, 'te."spentDate"')}`
   const [taskRows, personRows] = await Promise.all([
@@ -315,10 +302,21 @@ async function TasksTab({
     arr.push({ name: `${p.fn} ${p.ln}`.trim(), minutes: num(p.mins), billableCents: Math.round(num(p.bc)), costCents: 0 })
     personsByTask.set(p.task_id, arr)
   }
-  const tasks: TaskRow[] = taskRows.map((t) => ({
-    taskId: t.id, name: t.name, minutes: num(t.mins), billableCents: Math.round(num(t.bc)), costCents: 0,
-    persons: personsByTask.get(t.id) ?? [],
-  }))
+  // Sort the aggregated rows (and each task's people) by the selected column; SQL order (most hours) breaks ties.
+  const byCol = {
+    name: (r: { name: string }) => r.name,
+    hours: (r: { minutes: number }) => r.minutes,
+    billable: (r: { billableCents: number }) => r.billableCents,
+    costs: (r: { costCents: number }) => r.costCents,
+  }
+  const tasks: TaskRow[] = sortRows(
+    taskRows.map((t) => ({
+      taskId: t.id, name: t.name, minutes: num(t.mins), billableCents: Math.round(num(t.bc)), costCents: 0,
+      persons: sortRows(personsByTask.get(t.id) ?? [], sort as SortState<TaskSortKey>, byCol),
+    })),
+    sort as SortState<TaskSortKey>,
+    byCol,
+  )
 
   return (
     <div>
@@ -326,14 +324,14 @@ async function TasksTab({
         <h2 className="text-base font-semibold">{tfLabel}</h2>
         <a href={exportHref} className="ml-auto text-sm text-brand-teal hover:underline">Export CSV</a>
       </div>
-      <ProjectTaskBreakdown tasks={tasks} showCosts={showCosts} />
+      <ProjectTaskBreakdown tasks={tasks} showCosts={showCosts} sort={sort} basePath={basePath} query={sortBase} />
       {canManage && <TaskManagement project={project} accountId={accountId} />}
     </div>
   )
 }
 
 /* ---------- Team tab: read-only time tracked per person (editing lives on the Edit page) ---------- */
-async function TeamTab({ project, canManage, accountId, tf, tfLabel }: any) {
+async function TeamTab({ project, canManage, accountId, tf, tfLabel, sort, sortHref }: any) {
   const rows = await prisma.$queryRaw<{ uid: string; fn: string; ln: string; mins: number; bmins: number; bc: number }[]>`
     SELECT te."userId" AS uid, u."firstName" AS fn, u."lastName" AS ln,
       COALESCE(SUM(te.minutes),0)::int AS mins,
@@ -356,7 +354,15 @@ async function TeamTab({ project, canManage, accountId, tf, tfLabel }: any) {
     p.billableCents = Math.round(num(r.bc))
     people.set(r.uid, p)
   }
-  const list = Array.from(people.values()).sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name))
+  // Pre-sort by name so ties in the selected column (default: most hours first) read alphabetically.
+  const byName = Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name))
+  const list = sortRows<Person, TeamSortKey>(byName, sort, {
+    name: (p) => p.name,
+    hours: (p) => p.minutes,
+    billableHours: (p) => p.billableMin,
+    nonBillableHours: (p) => p.minutes - p.billableMin,
+    billable: (p) => p.billableCents,
+  })
   const total = list.reduce(
     (t, p) => ({ minutes: t.minutes + p.minutes, billableMin: t.billableMin + p.billableMin, billableCents: t.billableCents + p.billableCents }),
     { minutes: 0, billableMin: 0, billableCents: 0 },
@@ -372,11 +378,11 @@ async function TeamTab({ project, canManage, accountId, tf, tfLabel }: any) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3 font-medium">Person</th>
-              <th className="px-4 py-3 text-right font-medium">Hours</th>
-              <th className="px-4 py-3 text-right font-medium">Billable hours</th>
-              <th className="px-4 py-3 text-right font-medium">Non-billable hours</th>
-              <th className="px-4 py-3 text-right font-medium">Billable amount</th>
+              <SortableTh label="Person" col="name" sort={sort} hrefFor={sortHref} />
+              <SortableTh label="Hours" col="hours" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Billable hours" col="billableHours" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Non-billable hours" col="nonBillableHours" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Billable amount" col="billable" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
             </tr>
           </thead>
           <tbody>
@@ -468,8 +474,9 @@ async function TaskManagement({ project, accountId }: any) {
 /* ---------- Invoices tab ---------- */
 async function InvoicesTab({ pid, accountId, tf, tfLabel }: { pid: string; accountId: string; tf: Timeframe; tfLabel: string }) {
   // Invoices are dated by issue date; drafts (no issue date yet) fall back to when they were created.
-  const range = { ...(tf.start ? { gte: tf.start } : {}), ...(tf.end ? { lt: tf.end } : {}) }
-  const bounded = Boolean(tf.start || tf.end)
+  const end = endExclusive(tf) // createdAt is a timestamp, so compare against the day after `till`
+  const range = { ...(tf.from ? { gte: tf.from } : {}), ...(end ? { lt: end } : {}) }
+  const bounded = Boolean(tf.from || tf.till)
   const invoices = await prisma.invoice.findMany({
     where: {
       accountId,

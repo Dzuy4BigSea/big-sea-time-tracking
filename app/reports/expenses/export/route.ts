@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { toCsv, csvResponse } from '@/lib/csv'
-import { resolveTimeframe, type TimeframeParams } from '@/modules/reports/timeframe'
+import { resolveTimeframe, type TimeframeParams } from '@/modules/shared/timeframe'
 
 export const dynamic = 'force-dynamic'
 

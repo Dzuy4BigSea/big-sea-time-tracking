@@ -9,6 +9,7 @@ import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 import { listActablePeople, loggableProjectsFor, managedProjectIdsFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
 import { TimesheetPersonSwitcher } from '@/components/TimesheetPersonSwitcher'
+import { toTimeEntryProject } from '@/lib/timeEntryProjects'
 
 const timeFmt = (d: Date) =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
@@ -39,12 +40,8 @@ export default async function TimesheetPage({
   if (people.length > 0 && !people.some((p) => p.id === userId)) people.push({ id: userId, name: userName })
   const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
 
-  // Default to the week containing the user's most recent entry, so there's data to see.
-  let anchor = parseYmd(searchParams.week)
-  if (!anchor) {
-    const latest = await prisma.timeEntry.aggregate({ where: { accountId, userId }, _max: { spentDate: true } })
-    anchor = latest._max.spentDate ?? new Date()
-  }
+  // Open on the current week, as Harvest does (?week= navigates elsewhere).
+  const anchor = parseYmd(searchParams.week) ?? new Date()
   const weekStart = startOfWeek(anchor, weekStartsOn)
   const weekEnd = addDays(weekStart, 6)
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -60,7 +57,7 @@ export default async function TimesheetPage({
   const managed = isSelf ? null : await managedProjectIdsFor(current)
   const projectOptions = (await loggableProjectsFor(userId))
     .filter((p) => managed === null || managed.has(p.id))
-    .map((p) => ({ id: p.id, name: p.name, tasks: p.tasks }))
+    .map(toTimeEntryProject)
 
   // Any running timer for this user (shown regardless of the viewed week).
   const running = await prisma.timeEntry.findFirst({
@@ -94,27 +91,38 @@ export default async function TimesheetPage({
 
   const prevWeek = ymd(addDays(weekStart, -7))
   const nextWeek = ymd(addDays(weekStart, 7))
+  const userParam = isSelf ? '' : `&user=${encodeURIComponent(userId)}`
+  // On a teammate's sheet a project manager may stop their timer only on a project they manage.
+  const canStopRunning = !!running && (managed === null || managed.has(running.projectId))
 
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between">
+      {!isSelf && (
+        // Harvest: an amber banner while you're on someone else's timesheet.
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800"
+        >
+          <span>Changes will save to {userName}’s timesheet.</span>
+          <Link href={`/timesheet?week=${ymd(weekStart)}`} className="font-medium text-amber-900 underline hover:no-underline">
+            Resume editing your own timesheet
+          </Link>
+        </div>
+      )}
+      <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Timesheet</h1>
-        {people.length > 1 ? (
+        {/* Harvest's "Teammates" switcher, top-right; only for people who may act for others. */}
+        {people.length > 1 && (
           <TimesheetPersonSwitcher people={people} selectedId={userId} selfId={current.userId} week={ymd(weekStart)} />
-        ) : (
-          <span className="text-sm text-gray-500">{userName}</span>
         )}
       </div>
-      <p className="mb-4 text-xs text-gray-400">
-        {isSelf ? 'Your week' : `${userName}’s week — you’re viewing and editing their time`} · live from Supabase
-      </p>
 
       <div className="mb-4 flex items-center gap-2 text-sm">
-        <NavLink href={`/timesheet?week=${prevWeek}&user=${userId}`}>← Prev</NavLink>
+        <NavLink href={`/timesheet?week=${prevWeek}${userParam}`}>← Prev</NavLink>
         <span className="rounded border border-gray-200 bg-white px-3 py-1">
           {formatRange(weekStart, weekEnd)}
         </span>
-        <NavLink href={`/timesheet?week=${nextWeek}&user=${userId}`}>Next →</NavLink>
+        <NavLink href={`/timesheet?week=${nextWeek}${userParam}`}>Next →</NavLink>
       </div>
 
       {running && (
@@ -129,9 +137,10 @@ export default async function TimesheetPage({
               <span className="ml-2 text-xs text-gray-500">since {timeFmt(running.timerStartedAt)} UTC</span>
             )}
           </div>
-          {/* Timers are personal: only the owner stops their own running timer. */}
-          {isSelf && (
+          {/* On a teammate's sheet the timer is theirs to stop too (re-authorized server-side). */}
+          {canStopRunning && (
             <form action={stopTimerAction}>
+              {!isSelf && <input type="hidden" name="forUserId" value={userId} />}
               <button className="rounded bg-brand-teal px-3 py-1 text-sm font-medium text-white hover:opacity-90">
                 ■ Stop
               </button>

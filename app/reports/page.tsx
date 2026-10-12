@@ -8,7 +8,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
-import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref } from '@/modules/reports/timeframe'
+import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'

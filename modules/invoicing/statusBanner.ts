@@ -1,6 +1,9 @@
 /**
  * Invoice status banner (BugHerd #14): the big, color-coded "where does this invoice stand"
- * notice at the top of the internal invoice page, modeled on Harvest's.
+ * notice at the top of the internal invoice page. Headlines use Harvest's status vocabulary
+ * (Draft, Sent, Late, Paid, Written off; specs/findings.md) and its colors (AC-UI-003: gray Draft,
+ * blue Sent, red Late, green Paid). A partly paid invoice is still Sent (or Late) in Harvest; the
+ * partial payment shows in the detail line.
  *
  * Pure derivation from the stored status (the INV-7 state machine in ./invoiceState) plus
  * dates and integer-cent amounts (INV-1). No I/O; the page only renders the result.
@@ -8,7 +11,7 @@
 import type { StoredStatus } from './invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 
-export type BannerKind = 'draft' | 'open' | 'partial' | 'overdue' | 'paid' | 'written_off' | 'closed'
+export type BannerKind = 'draft' | 'sent' | 'late' | 'paid' | 'written_off' | 'closed'
 export type BannerTone = 'neutral' | 'info' | 'warning' | 'danger' | 'success' | 'muted'
 
 export interface StatusBannerInput {
@@ -25,9 +28,9 @@ export interface StatusBannerInput {
 export interface StatusBanner {
   kind: BannerKind
   tone: BannerTone
-  /** short, big headline, e.g. "Overdue by 12 days" */
+  /** Harvest status word: Draft, Sent, Late, Paid, Written off, Closed */
   headline: string
-  /** the supporting key fact, e.g. "$1,200.00 due · was due 07/01/2026" */
+  /** the supporting key fact, e.g. "12 days late · $1,200.00 due · was due 07/01/2026" */
   detail: string
   balanceCents: number
   /** whole days past the due date (open invoices only), else 0 */
@@ -66,8 +69,10 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
         ...base,
         kind: 'paid',
         tone: 'success',
-        headline: v.lastPaymentOn ? `Paid on ${formatDate(v.lastPaymentOn)}` : 'Paid in full',
-        detail: `${money(v.paidCents)} received`,
+        headline: 'Paid',
+        detail: v.lastPaymentOn
+          ? `Paid on ${formatDate(v.lastPaymentOn)} · ${money(v.paidCents)} received`
+          : `${money(v.paidCents)} received`,
       }
     case 'written_off':
       return {
@@ -92,7 +97,7 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
       break
   }
 
-  // open
+  // open: Sent, or Late once past due with a balance (Harvest has no separate "partial" status)
   const partial = v.paidCents > 0 && balanceCents > 0
   const dueText = `${money(balanceCents)} due`
   const paidText = partial ? ` · ${money(v.paidCents)} of ${money(v.totalCents)} paid` : ''
@@ -103,29 +108,29 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
       const daysOverdue = -daysUntil
       return {
         ...base,
-        kind: 'overdue',
+        kind: 'late',
         tone: 'danger',
         daysOverdue,
-        headline: `Overdue by ${plural(daysOverdue, 'day')}`,
-        detail: `${dueText} · was due ${formatDate(v.dueDate)}${paidText}`,
+        headline: 'Late',
+        detail: `${plural(daysOverdue, 'day')} late · ${dueText} · was due ${formatDate(v.dueDate)}${paidText}`,
       }
     }
     const when = daysUntil === 0 ? 'Due today' : `Due in ${plural(daysUntil, 'day')}`
     return {
       ...base,
-      kind: partial ? 'partial' : 'open',
-      tone: partial ? 'warning' : 'info',
+      kind: 'sent',
+      tone: 'info',
       daysUntilDue: daysUntil,
-      headline: partial ? `Partially paid · ${when.toLowerCase()}` : v.sentAt ? `Sent · ${when.toLowerCase()}` : when,
-      detail: `${dueText} on ${formatDate(v.dueDate)}${paidText}`,
+      headline: 'Sent',
+      detail: `${when} · ${dueText} on ${formatDate(v.dueDate)}${paidText}`,
     }
   }
 
   return {
     ...base,
-    kind: partial ? 'partial' : 'open',
-    tone: partial ? 'warning' : 'info',
-    headline: partial ? 'Partially paid' : v.sentAt ? `Sent ${formatDate(v.sentAt)}` : 'Open',
-    detail: `${dueText}${paidText}`,
+    kind: 'sent',
+    tone: 'info',
+    headline: 'Sent',
+    detail: `${v.sentAt ? `Sent ${formatDate(v.sentAt)} · ` : ''}${dueText}${paidText}`,
   }
 }
