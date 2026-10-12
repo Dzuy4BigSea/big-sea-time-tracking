@@ -42,12 +42,36 @@ const TABS = [
   { key: 'security', label: 'Security' },
 ] as const
 
+type StatusFilter = 'active' | 'archived' | 'all'
+const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
+  { key: 'active', label: 'Active' },
+  { key: 'archived', label: 'Archived' },
+  { key: 'all', label: 'All' },
+]
+
+/** Active / Archived / All pills, driven by `?status=` (default active), like the Projects list filter. */
+function StatusPills({ base, status, counts }: { base: string; status: StatusFilter; counts: Record<StatusFilter, number> }) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
+      {STATUS_OPTIONS.map((o) => (
+        <Link
+          key={o.key}
+          href={o.key === 'active' ? base : `${base}&status=${o.key}`}
+          className={`border-l border-gray-300 px-3 py-1.5 first:border-l-0 ${status === o.key ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+        >
+          {o.label} <span className="text-gray-400">({counts[o.key]})</span>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 export default async function TeamMemberPage({
   params,
   searchParams,
 }: {
   params: { id: string }
-  searchParams: { tab?: string }
+  searchParams: { tab?: string; status?: string }
 }) {
   const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'team')
@@ -68,6 +92,8 @@ export default async function TeamMemberPage({
   if (!person) notFound()
 
   const tab = TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab! : 'basic'
+  const status: StatusFilter = searchParams.status === 'archived' || searchParams.status === 'all' ? searchParams.status : 'active'
+  const matchesStatus = (active: boolean) => status === 'all' || (status === 'active' ? active : !active)
   const fullName = `${person.firstName} ${person.lastName}`.trim()
   const initials = `${person.firstName[0] ?? ''}${person.lastName[0] ?? ''}`.toUpperCase()
   const entityOpts = entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))
@@ -81,15 +107,24 @@ export default async function TeamMemberPage({
       ? await Promise.all([
           prisma.projectUserAssignment.findMany({
             where: { userId: person.id, isActive: true },
-            include: { project: { select: { id: true, name: true, client: { select: { name: true } } } } },
+            include: { project: { select: { id: true, name: true, isActive: true, client: { select: { name: true } } } } },
+            orderBy: [{ project: { client: { name: 'asc' } } }, { project: { name: 'asc' } }],
           }),
+          // Only active projects can be newly assigned.
           prisma.project.findMany({
-            where: { accountId, userAssignments: { none: { userId: person.id, isActive: true } } },
+            where: { accountId, isActive: true, userAssignments: { none: { userId: person.id, isActive: true } } },
             select: { id: true, name: true, client: { select: { name: true } } },
             orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
             take: 500,
           }),
-        ]).then(([assignments, addable]) => ({ assignments, addable }))
+        ]).then(([all, addable]) => {
+          const activeN = all.filter((a) => a.project.isActive).length
+          return {
+            assignments: all.filter((a) => matchesStatus(a.project.isActive)),
+            addable,
+            counts: { active: activeN, archived: all.length - activeN, all: all.length } as Record<StatusFilter, number>,
+          }
+        })
       : null
 
   const ratesData =
@@ -107,14 +142,22 @@ export default async function TeamMemberPage({
       ? await (async () => {
           const mine = await prisma.projectUserAssignment.findMany({ where: { userId: person.id, isActive: true }, select: { projectId: true } })
           const ids = mine.map((m) => m.projectId)
-          if (ids.length === 0) return [] as { id: string; name: string }[]
+          type P = { id: string; name: string; active: boolean }
+          if (ids.length === 0) return { people: [] as P[], counts: { active: 0, archived: 0, all: 0 } as Record<StatusFilter, number> }
           const others = await prisma.projectUserAssignment.findMany({
-            where: { projectId: { in: ids }, userId: { not: person.id }, isActive: true },
-            select: { user: { select: { id: true, firstName: true, lastName: true } } },
+            where: { projectId: { in: ids }, userId: { not: person.id }, isActive: true, user: { accountId } },
+            select: { user: { select: { id: true, firstName: true, lastName: true, isActive: true, archivedAt: true } } },
           })
-          const seen = new Map<string, { id: string; name: string }>()
-          for (const o of others) seen.set(o.user.id, { id: o.user.id, name: `${o.user.firstName} ${o.user.lastName}`.trim() })
-          return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+          const seen = new Map<string, P>()
+          for (const o of others) {
+            seen.set(o.user.id, { id: o.user.id, name: `${o.user.firstName} ${o.user.lastName}`.trim(), active: o.user.isActive && !o.user.archivedAt })
+          }
+          const all = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+          const activeN = all.filter((p) => p.active).length
+          return {
+            people: all.filter((p) => matchesStatus(p.active)),
+            counts: { active: activeN, archived: all.length - activeN, all: all.length } as Record<StatusFilter, number>,
+          }
         })()
       : null
 
@@ -229,6 +272,7 @@ export default async function TeamMemberPage({
               )}
 
               {/* Assigned list */}
+              <StatusPills base={`/team/${person.id}?tab=projects`} status={status} counts={projectsData.counts} />
               <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
@@ -244,6 +288,7 @@ export default async function TeamMemberPage({
                         <td className="px-4 py-2">
                           <span className="text-gray-400">{a.project.client.name} · </span>
                           <Link href={`/projects/${a.project.id}`} className="text-gray-800 hover:text-brand-teal">{a.project.name}</Link>
+                          {!a.project.isActive && <span className="ml-2 text-xs text-gray-400">(archived)</span>}
                         </td>
                         <td className="px-4 py-2 text-center">
                           <form action={toggleManagesProjectAction}>
@@ -264,7 +309,7 @@ export default async function TeamMemberPage({
                       </tr>
                     ))}
                     {projectsData.assignments.length === 0 && (
-                      <tr><td colSpan={3} className="px-4 py-4 text-center text-gray-400">Not assigned to any projects yet.</td></tr>
+                      <tr><td colSpan={3} className="px-4 py-4 text-center text-gray-400">{projectsData.counts.all === 0 ? 'Not assigned to any projects yet.' : `No ${status === 'archived' ? 'archived' : 'active'} projects.`}</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -290,15 +335,23 @@ export default async function TeamMemberPage({
 
           {tab === 'people' && peopleData && (
             <div className="rounded-lg border border-gray-200 bg-white p-5">
-              <h2 className="mb-1 text-sm font-semibold text-gray-800">People they work with</h2>
-              <p className="mb-3 text-xs text-gray-500">Teammates assigned to the same projects.</p>
-              {peopleData.length === 0 ? (
-                <p className="text-sm text-gray-400">No shared projects yet.</p>
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="mb-1 text-sm font-semibold text-gray-800">People they work with</h2>
+                  <p className="text-xs text-gray-500">Teammates assigned to the same projects.</p>
+                </div>
+                <StatusPills base={`/team/${person.id}?tab=people`} status={status} counts={peopleData.counts} />
+              </div>
+              {peopleData.people.length === 0 ? (
+                <p className="text-sm text-gray-400">{peopleData.counts.all === 0 ? 'No shared projects yet.' : `No ${status === 'archived' ? 'archived' : 'active'} teammates.`}</p>
               ) : (
                 <ul className="flex flex-wrap gap-2">
-                  {peopleData.map((p) => (
+                  {peopleData.people.map((p) => (
                     <li key={p.id}>
-                      <Link href={`/team/${p.id}`} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700 hover:bg-brand-teal-50 hover:text-brand-teal">{p.name}</Link>
+                      <Link href={`/team/${p.id}`} className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700 hover:bg-brand-teal-50 hover:text-brand-teal">
+                        {p.name}
+                        {!p.active && <span className="ml-1 text-xs text-gray-400">(inactive)</span>}
+                      </Link>
                     </li>
                   ))}
                 </ul>
