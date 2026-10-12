@@ -1,7 +1,9 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { toCsv, csvResponse } from '@/lib/csv'
+import { resolveTimeframe, type TimeframeParams } from '@/modules/reports/timeframe'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,13 +11,19 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10)
 const billed = (c: number, m: unknown) => Math.round(c * (1 + (m ? Number(m) : 0) / 100))
 
 /** Detailed expense export (Reports → Expenses → Export CSV). */
-export async function GET() {
+export async function GET(req: Request) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')) {
     return new Response('Forbidden', { status: 403 })
   }
+  // Same timeframe params as the report screen (the Export link carries them); none = all time.
+  const sp = new URL(req.url).searchParams
+  const tf = resolveTimeframe(Object.fromEntries(['period', 'anchor', 'from', 'to'].map((k) => [k, sp.get(k) ?? undefined])) as TimeframeParams, {
+    weekStartsOn: await accountWeekStartsOn(accountId),
+  })
+  const spentDate = tf.from || tf.till ? { ...(tf.from ? { gte: tf.from } : {}), ...(tf.till ? { lte: tf.till } : {}) } : undefined
   const expenses = await prisma.expense.findMany({
-    where: { accountId },
+    where: { accountId, ...(spentDate ? { spentDate } : {}) },
     orderBy: { spentDate: 'asc' },
     select: {
       spentDate: true, totalCents: true, markupPercent: true, isBillable: true, notes: true,

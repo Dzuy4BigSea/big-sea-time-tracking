@@ -2,12 +2,13 @@
  * Recurring-invoice generation service (specs/10 §recurring).
  *
  * For each due active profile: clone its template line items into a DRAFT invoice and
- * advance nextIssueDate by one interval. Re-checks the due condition inside the transaction
+ * advance nextIssueDate by one interval. A profile with an occurrence limit counts down and
+ * pauses after its last invoice. Re-checks the due condition inside the transaction
  * so a retry for the same date cannot double-generate (AC-REC-003). Pure of HTTP/session
  * concerns so it is callable from both a server action and the cron route.
  */
 import type { PrismaClient, PaymentTerm } from '@prisma/client'
-import { advanceIssueDate, isDue } from '@/modules/invoicing/recurring'
+import { advanceIssueDate, afterIssue, isDue } from '@/modules/invoicing/recurring'
 
 interface TemplateLine {
   description: string
@@ -20,7 +21,7 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
   const profiles = await db.recurringInvoiceProfile.findMany({ where: { accountId, status: 'active' } })
   let created = 0
   for (const p of profiles) {
-    if (!isDue(p.nextIssueDate, asOf, 'active')) continue
+    if (!isDue(p.nextIssueDate, asOf, 'active', p.remainingOccurrences)) continue
     const client = await db.client.findUnique({ where: { id: p.clientId }, select: { currency: true } })
     const lines = (p.templateLineItems as unknown as TemplateLine[]) ?? []
     const subtotal = lines.reduce((s, li) => s + li.amountCents, 0)
@@ -30,9 +31,19 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
       // Re-check inside the txn so a retry for the same date can't double-generate (AC-REC-003).
       const fresh = await tx.recurringInvoiceProfile.findUnique({
         where: { id: p.id },
-        select: { nextIssueDate: true, status: true },
+        select: { nextIssueDate: true, status: true, remainingOccurrences: true },
       })
-      if (!fresh || !isDue(fresh.nextIssueDate, asOf, fresh.status as 'active' | 'paused')) return
+      if (!fresh || !isDue(fresh.nextIssueDate, asOf, fresh.status as 'active' | 'paused', fresh.remainingOccurrences)) return
+      // Claim this issue date before creating anything: advance the schedule and count down the
+      // "number of invoices to issue" limit (the last one pauses the profile, BugHerd #13). The update
+      // only matches the row as read, so an overlapping run (cron + manual) blocks on the row lock,
+      // then matches 0 rows and issues nothing.
+      const limit = afterIssue(fresh.remainingOccurrences)
+      const claimed = await tx.recurringInvoiceProfile.updateMany({
+        where: { id: p.id, status: 'active', nextIssueDate: fresh.nextIssueDate, remainingOccurrences: fresh.remainingOccurrences },
+        data: { nextIssueDate: nextDate, remainingOccurrences: limit.remainingOccurrences, status: limit.status },
+      })
+      if (claimed.count === 0) return
       const invoice = await tx.invoice.create({
         data: {
           accountId,
@@ -62,7 +73,6 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
           },
         })
       }
-      await tx.recurringInvoiceProfile.update({ where: { id: p.id }, data: { nextIssueDate: nextDate } })
       created++
     })
   }

@@ -6,7 +6,7 @@ import type { RecurringFrequency as DbFreq } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { advanceIssueDate } from '@/modules/invoicing/recurring'
+import { advanceIssueDate, isCompleted, parseOccurrenceLimit } from '@/modules/invoicing/recurring'
 import { generateDueRecurring } from '@/modules/invoicing/generateRecurring'
 import { parseYmd } from '@/lib/week'
 
@@ -42,12 +42,14 @@ export async function createRecurringAction(_prev: RecurringState, formData: For
   const intervalCount = Math.max(1, Math.floor(Number(String(formData.get('intervalCount') ?? '1')) || 1))
   const nextIssueDate = parseYmd(String(formData.get('nextIssueDate') ?? ''))
   const amountCents = centsFrom(formData.get('amount'))
+  const remainingOccurrences = parseOccurrenceLimit(formData.get('occurrences'))
 
   const client = await prisma.client.findFirst({ where: { id: clientId, accountId: actor.accountId }, select: { id: true } })
   if (!client) return { error: 'Pick a client.' }
   if (!subject) return { error: 'Subject is required.' }
   if (!nextIssueDate) return { error: 'Pick the next issue date.' }
   if (!amountCents) return { error: 'Enter an amount.' }
+  if (remainingOccurrences === 'invalid') return { error: 'Number of invoices must be a whole number of 1 or more (or blank to recur indefinitely).' }
 
   const templateLineItems: TemplateLine[] = [
     { description: subject, quantity: 1, unitPriceCents: amountCents, amountCents },
@@ -64,6 +66,7 @@ export async function createRecurringAction(_prev: RecurringState, formData: For
         nextIssueDate,
         amountCents,
         status: 'active',
+        remainingOccurrences,
         templateLineItems: templateLineItems as unknown as object,
       },
     })
@@ -124,10 +127,34 @@ export async function toggleRecurringStatusAction(formData: FormData): Promise<v
   const actor = await requireInvoiceAdmin()
   if (!actor) return
   const id = String(formData.get('id') ?? '')
-  const p = await prisma.recurringInvoiceProfile.findFirst({ where: { id, accountId: actor.accountId }, select: { status: true } })
+  const p = await prisma.recurringInvoiceProfile.findFirst({
+    where: { id, accountId: actor.accountId },
+    select: { status: true, remainingOccurrences: true },
+  })
   if (!p) return
+  // A completed profile (issue limit used up) can't resume until it is given more invoices to issue.
+  if (p.status === 'paused' && isCompleted(p.remainingOccurrences)) return
   await prisma.recurringInvoiceProfile.update({ where: { id }, data: { status: p.status === 'active' ? 'paused' : 'active' } })
   revalidatePath('/recurring')
+}
+
+/**
+ * Set how many more invoices a profile issues (BugHerd #13). Blank = recur indefinitely.
+ * Giving a completed profile more occurrences leaves it paused; the user resumes it explicitly.
+ */
+export async function updateRecurringLimitAction(_prev: RecurringState, formData: FormData): Promise<RecurringState> {
+  const actor = await requireInvoiceAdmin()
+  if (!actor) return { error: 'You do not have permission to manage recurring invoices.' }
+  const id = String(formData.get('id') ?? '')
+  const remainingOccurrences = parseOccurrenceLimit(formData.get('occurrences'))
+  if (remainingOccurrences === 'invalid') return { error: 'Enter a whole number of 1 or more, or leave blank.' }
+  const { count } = await prisma.recurringInvoiceProfile.updateMany({
+    where: { id, accountId: actor.accountId },
+    data: { remainingOccurrences },
+  })
+  if (count === 0) return { error: 'Recurring profile not found.' }
+  revalidatePath('/recurring')
+  return { ok: true }
 }
 
 export async function deleteRecurringAction(formData: FormData): Promise<void> {

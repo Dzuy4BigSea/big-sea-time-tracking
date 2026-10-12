@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
+import { parseContactForm } from '@/modules/clients/contactInput'
 
 export type NewClientState = { error?: string; ok?: boolean }
 export type EditClientState = { error?: string; ok?: boolean }
@@ -111,28 +112,40 @@ async function clientAdmin(clientId: string) {
   return client ? accountId : null
 }
 
-/** Add a contact to a client (specs/12 — client contact management). */
-export async function addContactAction(formData: FormData): Promise<void> {
+export type ContactFormState = { error?: string; ok?: boolean; savedAt?: number }
+
+/**
+ * Add or edit a client's point of contact (specs/12 — client contact management; BugHerd #3).
+ * With `contactId` it updates that contact (scoped to the client + account), otherwise it creates one.
+ */
+export async function saveContactAction(_prev: ContactFormState, formData: FormData): Promise<ContactFormState> {
   const clientId = String(formData.get('clientId') ?? '')
   const accountId = await clientAdmin(clientId)
-  if (!accountId) return
-  const firstName = String(formData.get('firstName') ?? '').trim()
-  const lastName = String(formData.get('lastName') ?? '').trim()
-  if (!firstName && !lastName) return
-  await prisma.clientContact.create({
-    data: {
-      accountId,
-      clientId,
-      firstName: firstName || '—',
-      lastName,
-      title: String(formData.get('title') ?? '').trim() || null,
-      email: String(formData.get('email') ?? '').trim() || null,
-      phoneOffice: String(formData.get('phoneOffice') ?? '').trim() || null,
-      phoneMobile: String(formData.get('phoneMobile') ?? '').trim() || null,
-      isInvoiceRecipient: formData.get('isInvoiceRecipient') === 'on',
-    },
-  })
+  if (!accountId) return { error: 'You do not have permission to edit this client’s contacts.' }
+
+  const contactId = String(formData.get('contactId') ?? '')
+  const stored = contactId
+    ? await prisma.clientContact.findFirst({ where: { id: contactId, clientId, accountId }, select: { email: true } })
+    : null
+  const parsed = parseContactForm(formData, stored?.email)
+  if (!parsed.ok) return { error: parsed.error }
+
+  try {
+    if (contactId) {
+      const { count } = await prisma.clientContact.updateMany({
+        where: { id: contactId, clientId, accountId },
+        data: parsed.data,
+      })
+      if (count === 0) return { error: 'Contact not found.' }
+    } else {
+      await prisma.clientContact.create({ data: { accountId, clientId, ...parsed.data } })
+    }
+  } catch {
+    return { error: 'Could not save the contact.' }
+  }
+
   revalidatePath(`/clients/${clientId}`)
+  return { ok: true, savedAt: Date.now() }
 }
 
 export async function deleteContactAction(formData: FormData): Promise<void> {

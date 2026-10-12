@@ -40,17 +40,19 @@ function ProjectTaskSelects({ projects }: { projects: TimeEntryProject[] }) {
   )
 }
 
-function PrimaryButton({ hasDuration }: { hasDuration: boolean }) {
+function PrimaryButton({ hasDuration, allowTimer }: { hasDuration: boolean; allowTimer: boolean }) {
   const { pending } = useFormStatus()
   // With a duration entered the green button logs the entry; empty → it starts a timer (Harvest).
+  // When logging for someone else timers are off, so it always logs (the action asks for a duration).
+  const startsTimer = allowTimer && !hasDuration
   return (
     <button
       type="submit"
-      formAction={hasDuration ? undefined : startTimerAction}
+      formAction={startsTimer ? startTimerAction : undefined}
       disabled={pending}
       className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
     >
-      {pending ? 'Saving…' : hasDuration ? 'Log time' : 'Start timer'}
+      {pending ? 'Saving…' : startsTimer ? 'Start timer' : 'Log time'}
     </button>
   )
 }
@@ -64,11 +66,14 @@ export function TimeEntryModal({
   onClose,
   projects,
   defaultDate,
+  forUser,
 }: {
   open: boolean
   onClose: () => void
   projects: TimeEntryProject[]
   defaultDate: string
+  /** Logging on someone else's timesheet (person switcher). Re-authorized server-side. */
+  forUser?: { id: string; name: string }
 }) {
   const [state, formAction] = useFormState<LogTimeState, FormData>(logTimeAction, {})
   const [duration, setDuration] = useState('')
@@ -86,16 +91,23 @@ export function TimeEntryModal({
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 p-4 pt-24" onMouseDown={onClose}>
       <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-gray-800">New time entry</h3>
+          <h3 className="text-base font-semibold text-gray-800">
+            New time entry{forUser && <span className="font-normal text-gray-500"> for {forUser.name}</span>}
+          </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close">
             ✕
           </button>
         </div>
 
         {noProjects ? (
-          <p className="text-sm text-gray-400">No projects assigned to you yet — ask a manager to add you to a project.</p>
+          <p className="text-sm text-gray-400">
+            {forUser
+              ? `${forUser.name} has no active projects assigned.`
+              : 'No projects assigned to you yet — ask a manager to add you to a project.'}
+          </p>
         ) : (
           <form action={formAction} className="space-y-4">
+            {forUser && <input type="hidden" name="forUserId" value={forUser.id} />}
             <label className="flex flex-col gap-1">
               <span className="text-sm font-medium text-gray-700">Date</span>
               <input type="date" name="spentDate" defaultValue={defaultDate} className={input} />
@@ -124,7 +136,7 @@ export function TimeEntryModal({
             </div>
 
             <div className="flex items-center gap-3 pt-1">
-              <PrimaryButton hasDuration={hasDuration} />
+              <PrimaryButton hasDuration={hasDuration} allowTimer={!forUser} />
               <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">
                 Cancel
               </button>

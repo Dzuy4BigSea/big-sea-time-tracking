@@ -5,6 +5,8 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { NewPersonForm } from '@/components/NewPersonForm'
 import { EntityChip } from '@/components/EntitySelect'
+import { LiveSearchInput, LiveSelect } from '@/components/LiveFilters'
+import { DropdownMenu } from '@/components/DropdownMenu'
 import { listEntities } from '@/lib/entities'
 import { startOfWeek, addDays, ymd, parseYmd } from '@/lib/week'
 
@@ -153,20 +155,15 @@ export default async function TeamPage({
             </div>
           </div>
 
-          {/* Filters */}
-          <form className="mb-3 flex flex-wrap items-center gap-2">
-            {searchParams.week && <input type="hidden" name="week" value={searchParams.week} />}
-            <input name="q" defaultValue={q} placeholder="Filter by name" className="w-56 rounded border border-gray-300 px-3 py-1.5 text-sm" />
-            <select name="role" defaultValue={role} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-              {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {showArchived && <input type="hidden" name="archived" value="1" />}
-            <button className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Apply</button>
+          {/* Filters (apply live; no Apply button) */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <LiveSearchInput param="q" placeholder="Filter by name" className="w-56 rounded border border-gray-300 px-3 py-1.5 text-sm" />
+            <LiveSelect param="role" options={ROLE_OPTIONS} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
             {(q || role) && <Link href={qp({ q: '', role: '' })} className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>}
             <Link href={showArchived ? qp({ archived: '' }) : qp({ archived: '1' })} className="ml-auto text-sm text-brand-teal hover:underline">
               {showArchived ? 'Hide inactive people' : `View archived people${archivedCount > 0 ? ` (${archivedCount})` : ''} →`}
             </Link>
-          </form>
+          </div>
 
           <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
             <table className="w-full text-sm">
@@ -209,15 +206,12 @@ export default async function TeamPage({
                       <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(billMin)}</td>
                       {canManage && (
                         <td className="px-4 py-3 text-right">
-                          <details className="relative inline-block text-left">
-                            <summary className="cursor-pointer list-none rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">Actions ▾</summary>
-                            <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-left shadow-lg">
-                              <Link href={`/team/${u.id}`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Manage</Link>
-                              <Link href={`/team/${u.id}?tab=rates`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Rates</Link>
-                              <Link href={`/team/${u.id}?tab=permissions`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Permissions</Link>
-                              <Link href={`/reports?group=teammate`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">View in reports</Link>
-                            </div>
-                          </details>
+                          <DropdownMenu label="Actions ▾">
+                            <Link href={`/team/${u.id}`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Manage</Link>
+                            <Link href={`/team/${u.id}?tab=rates`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Rates</Link>
+                            <Link href={`/team/${u.id}?tab=permissions`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Permissions</Link>
+                            <Link href={`/reports?group=teammate`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">View in reports</Link>
+                          </DropdownMenu>
                         </td>
                       )}
                     </tr>

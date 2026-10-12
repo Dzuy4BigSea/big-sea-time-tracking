@@ -12,7 +12,7 @@ export default defineConfig({
   },
   test: {
     // Integration tests (live DB) run via `npm run test:integration`, not the default suite.
-    exclude: ['**/node_modules/**', '**/*.integration.test.ts'],
+    exclude: ['**/node_modules/**', '.claude/**', '**/*.integration.test.ts'],
   },
 })
 

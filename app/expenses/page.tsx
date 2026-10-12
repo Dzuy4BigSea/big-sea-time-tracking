@@ -30,8 +30,9 @@ export default async function ExpensesPage() {
     }),
     prisma.project.findMany({
       where: { accountId, isActive: true },
-      select: { id: true, name: true, code: true },
-      orderBy: { name: 'asc' },
+      select: { id: true, name: true, code: true, client: { select: { name: true } } },
+      // Grouped by client in the picker (Harvest-style), so order client → project.
+      orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
     }),
     prisma.expenseCategory.findMany({
       where: { accountId, isActive: true },
@@ -41,7 +42,7 @@ export default async function ExpensesPage() {
   ])
 
   const today = new Date().toISOString().slice(0, 10)
-  const projectOptions = projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name }))
+  const projectOptions = projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name, group: p.client.name }))
   const categoryOptions = categories.map((c) => ({ id: c.id, label: c.name }))
 
   const withMarkup = (e: (typeof expenses)[number]) => {

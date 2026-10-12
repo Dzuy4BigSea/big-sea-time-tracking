@@ -13,12 +13,22 @@ export default async function EditExpensePage({ params }: { params: { id: string
   const { accountId, userId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'expenseTracking')
 
-  const [expense, projects, categories] = await Promise.all([
-    prisma.expense.findFirst({ where: { id: params.id, accountId } }),
-    prisma.project.findMany({ where: { accountId, isActive: true }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } }),
-    prisma.expenseCategory.findMany({ where: { accountId, isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-  ])
+  const expense = await prisma.expense.findFirst({ where: { id: params.id, accountId } })
   if (!expense) notFound()
+  // Active projects/categories, plus the expense's current ones even if since archived (so the
+  // picker shows the real value instead of silently swapping it).
+  const [projects, categories] = await Promise.all([
+    prisma.project.findMany({
+      where: { accountId, OR: [{ isActive: true }, { id: expense.projectId }] },
+      select: { id: true, name: true, code: true, client: { select: { name: true } } },
+      orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
+    }),
+    prisma.expenseCategory.findMany({
+      where: { accountId, OR: [{ isActive: true }, { id: expense.categoryId }] },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+  ])
 
   const canOthers = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'view_edit_others_time')
   if ((expense.userId !== userId && !canOthers) || expense.lockState === 'invoiced') redirect('/expenses')
@@ -39,7 +49,7 @@ export default async function EditExpensePage({ params }: { params: { id: string
           notes: expense.notes ?? '',
           receiptFileUrl: expense.receiptFileUrl ?? '',
         }}
-        projects={projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name }))}
+        projects={projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name, group: p.client.name }))}
         categories={categories.map((c) => ({ id: c.id, label: c.name }))}
       />
     </div>

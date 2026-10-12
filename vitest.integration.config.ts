@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     include: ['**/*.integration.test.ts'],
+    exclude: ['**/node_modules/**', '.claude/**'],
     setupFiles: ['./test/load-env.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,

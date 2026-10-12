@@ -2,21 +2,29 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-09-30._
+_Last updated: 2026-10-12._
 
 ## ▶ Resume here (next session)
 
-### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29)
-Catching up ~7 weeks of Harvest changes since the Aug 6–7 import. **Nothing pulled or imported yet.**
-- **Use the in-app page (Settings → Migrate), not the offline script.** It runs on Vercel, which already has `INTEGRATION_ENC_KEY` (Vercel marks it Sensitive, so it can't be copied into a local `.env`).
-- **Fixed 2026-09-30:** the Incremental button was locked because the Aug full backup ended "partial" (estimates 403 on Big Sea's plan) and `lastPulledAt` was only saved on "complete". Now it deltas from the last finished full backup, and a pull whose only failure is estimates counts as clean ([modules/migration/deltaSince.ts](modules/migration/deltaSince.ts)).
-- **State checked 2026-09-29:** Track2 hasn't been used for real work since the import (time entries still exactly 388,607; only Track2-native rows are 2 empty draft invoices from 2026-08-08). So replacing from Harvest won't clobber anything.
-- **Next steps:**
+### 🐞 BugHerd round 1 (2026-10-12), PR branch `claude/quirky-galileo-23agcn`
+15 of Chasity's 21 BugHerd items are fixed in code ([specs/23](specs/23-bugherd-feedback.md) has the per-item table); the other 6 need input (Google Drive export #4/#10, plus #5, #7, #12, #15). Not yet clicked through against real data.
+- ⚠️ **Before deploying:** run `npx prisma migrate deploy` on prod. Migration `20261012120000_recurring_remaining_occurrences` adds one nullable column that the recurring screens read.
+- Then QA on a Vercel preview: timesheet person switcher, project timeframe bar + Team tab, report sorting/timeframes, expense combobox, invoice banner, client contact edit, recurring "invoices to issue".
+
+### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
+Catching up Harvest changes since the Aug 6–7 import. **All the code is built; what's left is running it against production** (needs the prod `DATABASE_URL`, so it can't be done from a cloud Claude session).
+- **2026-09-30:** the in-app Incremental button is unlocked (it deltas from the last finished full backup; an estimates-only 403 counts as clean, [modules/migration/deltaSince.ts](modules/migration/deltaSince.ts)).
+- **2026-10-07:** time entries are now keyed by `TimeEntry.harvestId` (unique per account; migration `20261007120000_time_entry_harvest_id` applied). [scripts/rebuild-timesheets.mjs](scripts/rebuild-timesheets.mjs) composes the full snapshot + every delta (newest `updated_at` wins), replaces each year with keyed rows in one transaction, never touches Track2-native entries, and writes the `time_harvest_ids` marker when done. After that, the importer's time stage upserts by `harvestId` instead of skipping.
+- **State checked 2026-09-29:** Track2 hasn't been used for real work since the import (388,607 time entries; only native rows are 2 empty draft invoices). Replacing from Harvest won't clobber anything.
+- **Run order (whoever has prod access):**
   1. Settings → Migrate → **Incremental (delta since last)**. Read-only on Harvest.
-  2. Review the delta counts; **Preview import (dry run)** only.
-  3. Time entries: the importer now **skips time for incremental snapshots** (bulk-imported entries have no `MigrationIdMap`, so upserting would duplicate). Still to build: replace changed years (2025–2026) from a whole-year pull, which also catches Harvest-side deletions. Then Apply for the rest + re-run `scripts/sync-assignments.mjs`.
-  4. Reconcile, then update the `migration-progress` notes.
-- ⚠️ **Re-importing the Aug full snapshot via the button would still duplicate all 388k time entries** (same missing id-map). Don't.
+  2. **Preview import (dry run)**, review counts, then **Apply import**. Time is skipped this pass (not keyed yet); new people/projects/tasks land so step 3 can map to them.
+  3. Locally: `node --env-file=.env scripts/rebuild-timesheets.mjs` (dry run: per-year reconciliation) → check the numbers → `--apply`. Needs only `DATABASE_URL` (reads snapshots from the DB). Resumable.
+  4. `INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs` to refresh the roster (this one calls Harvest).
+  5. Reconcile counts vs Harvest, then update the `migration-progress` notes.
+  6. Future syncs: just steps 1–2; time now upserts by `harvestId`.
+- **Known gap:** entries **deleted** in Harvest after the Aug snapshot are not removed (deltas only carry changed rows). Fix if it matters: pull the full id list for the affected years and delete keyed rows whose `harvestId` is missing (only safe for `harvestId` rows, never Track2-native ones).
+- ⚠️ **Never re-import the Aug full snapshot via the button before step 3 has run.** Until entries are keyed, the importer would duplicate time (it now skips the time stage in that state, but don't rely on it).
 
 **Track2 is a working, deployed, authenticated app with the full Harvest history migrated in.** Live at `big-sea-time-tracking.vercel.app` (alias `track2.bigseabridge.com`). Sign in with `dzuy@bigsea.co` or `andi@bigsea.co` (admins). Everything is committed + pushed to `main`; `tsc` + `next build` green; **227 unit tests pass**.
 

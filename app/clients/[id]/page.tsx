@@ -6,12 +6,11 @@ import { formatMinutes } from '@/modules/shared/duration'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { setClientArchivedAction, addContactAction, deleteContactAction, toggleInvoiceRecipientAction } from '@/app/clients/actions'
+import { setClientArchivedAction, deleteContactAction, toggleInvoiceRecipientAction } from '@/app/clients/actions'
 import { ConfirmSubmit } from '@/components/ConfirmSubmit'
+import { ClientContactForm } from '@/components/ClientContactForm'
 
 export const dynamic = 'force-dynamic'
-
-const inp = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
 const STATUS_STYLE: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -27,7 +26,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   const client = await prisma.client.findFirst({
     where: { id: params.id, accountId },
     include: {
-      contacts: { orderBy: { isInvoiceRecipient: 'desc' } },
+      contacts: { orderBy: [{ isInvoiceRecipient: 'desc' }, { lastName: 'asc' }, { firstName: 'asc' }] },
       projects: {
         orderBy: { name: 'asc' },
         include: {
@@ -106,14 +105,25 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         <div className="rounded-lg border border-gray-200 bg-white">
           <ul className="divide-y divide-gray-100 text-sm">
             {client.contacts.map((ct) => (
-              <li key={ct.id} className="flex flex-wrap items-center gap-2 px-4 py-2">
+              <li key={ct.id} className="px-4 py-2">
+                <details className="group">
+                <summary className="flex list-none flex-wrap items-center gap-2">
                 <span className="font-medium text-gray-800">{ct.firstName} {ct.lastName}</span>
                 {ct.title && <span className="text-xs text-gray-400">{ct.title}</span>}
-                {ct.email && <span className="text-gray-500">{ct.email}</span>}
-                {(ct.phoneOffice || ct.phoneMobile) && <span className="text-xs text-gray-400">{ct.phoneOffice ?? ct.phoneMobile}</span>}
+                {ct.email && (
+                  <a href={`mailto:${ct.email}`} className="text-gray-500 hover:text-brand-teal">
+                    {ct.email}
+                  </a>
+                )}
+                {ct.phoneOffice && <span className="text-xs text-gray-400">Office {ct.phoneOffice}</span>}
+                {ct.phoneMobile && <span className="text-xs text-gray-400">Mobile {ct.phoneMobile}</span>}
                 {ct.isInvoiceRecipient && <span className="rounded bg-brand-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-teal">invoices</span>}
                 {canManage && (
                   <span className="ml-auto flex items-center gap-2 text-xs">
+                    <span className="cursor-pointer text-gray-500 hover:text-brand-teal">
+                      <span className="group-open:hidden">Edit</span>
+                      <span className="hidden group-open:inline">Cancel</span>
+                    </span>
                     <form action={toggleInvoiceRecipientAction}>
                       <input type="hidden" name="clientId" value={client.id} />
                       <input type="hidden" name="contactId" value={ct.id} />
@@ -126,20 +136,25 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     </form>
                   </span>
                 )}
+                </summary>
+                {canManage && (
+                  <div className="mt-2 rounded border border-gray-100 bg-gray-50 px-3 py-3">
+                    <ClientContactForm
+                      key={ct.id}
+                      clientId={client.id}
+                      contact={ct}
+                    />
+                  </div>
+                )}
+                </details>
               </li>
             ))}
             {client.contacts.length === 0 && <li className="px-4 py-3 text-gray-400">No contacts yet.</li>}
           </ul>
           {canManage && (
-            <form action={addContactAction} className="flex flex-wrap items-end gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3">
-              <input type="hidden" name="clientId" value={client.id} />
-              <input name="firstName" placeholder="First name" className={`${inp} w-32`} />
-              <input name="lastName" placeholder="Last name" className={`${inp} w-32`} />
-              <input name="email" type="email" placeholder="Email" className={`${inp} w-52`} />
-              <input name="phoneOffice" placeholder="Phone" className={`${inp} w-36`} />
-              <label className="flex items-center gap-1.5 pb-2 text-sm text-gray-600"><input type="checkbox" name="isInvoiceRecipient" /> Invoice recipient</label>
-              <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add contact</button>
-            </form>
+            <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
+              <ClientContactForm clientId={client.id} />
+            </div>
           )}
         </div>
       </div>

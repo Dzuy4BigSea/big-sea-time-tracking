@@ -17,6 +17,8 @@ export interface EntryRowData {
   durationValue: string // pre-filled H:MM for the edit field
   minutesLabel: string
   userId: string
+  /** False when the viewer may see but not change this entry (a PM on a project they don't manage). */
+  canEdit?: boolean
 }
 
 const input = 'rounded border border-gray-300 px-2 py-1 text-sm'
@@ -43,7 +45,7 @@ export function EntryRow({ entry }: { entry: EntryRowData }) {
     if (state.ok) setEditing(false)
   }, [state])
 
-  const editable = entry.lockState === 'open' && !entry.isRunning
+  const editable = entry.lockState === 'open' && !entry.isRunning && entry.canEdit !== false
 
   if (editing) {
     return (

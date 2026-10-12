@@ -1,18 +1,47 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { ReportTimeframe } from '@/components/ReportTimeframe'
+import { SortableTh } from '@/components/SortableTh'
+import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/reports/timeframe'
+import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'
 
 const billed = (totalCents: number, markup: unknown) => Math.round(totalCents * (1 + (markup ? Number(markup) : 0) / 100))
 
-export default async function ExpensesReportPage() {
+const SORT_KEYS = ['name', 'count', 'cost', 'billable'] as const
+type SortKey = (typeof SORT_KEYS)[number]
+type Row = { count: number; cost: number; billable: number }
+
+export default async function ExpensesReportPage({
+  searchParams,
+}: {
+  searchParams: TimeframeParams & { sort?: string; dir?: string }
+}) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
+  const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'cost', dir: 'desc' })
+
+  // Anchored periods without an anchor open on the latest expense, so the default view has data.
+  let fallbackAnchor: Date | null = null
+  if (needsFallbackAnchor(searchParams)) {
+    const latest = await prisma.expense.aggregate({ where: { accountId }, _max: { spentDate: true } })
+    fallbackAnchor = latest._max.spentDate ?? new Date()
+  }
+  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
+  const tfq = timeframeQuery(tf)
+  const sortq = sort.key === 'cost' && sort.dir === 'desc' ? {} : { sort: sort.key, dir: sort.dir }
+  const sortHref = (s: SortState<SortKey>) => buildHref('/reports/expenses', { ...tfq, sort: s.key, dir: s.dir })
+
   const expenses = await prisma.expense.findMany({
-    where: { accountId },
+    where: {
+      accountId,
+      ...(tf.from || tf.till ? { spentDate: { ...(tf.from ? { gte: tf.from } : {}), ...(tf.till ? { lte: tf.till } : {}) } } : {}),
+    },
     select: {
       totalCents: true,
       markupPercent: true,
@@ -22,7 +51,6 @@ export default async function ExpensesReportPage() {
     },
   })
 
-  type Row = { count: number; cost: number; billable: number }
   const byCategory = new Map<string, Row>()
   const byClient = new Map<string, Row>()
   const totals: Row = { count: 0, cost: 0, billable: 0 }
@@ -41,18 +69,26 @@ export default async function ExpensesReportPage() {
     totals.billable += e.isBillable ? billed(e.totalCents, e.markupPercent) : 0
   }
 
-  const cats = [...byCategory.entries()].sort((a, b) => b[1].cost - a[1].cost)
-  const clients = [...byClient.entries()].sort((a, b) => b[1].cost - a[1].cost)
+  // Both groupings share columns, so one sort applies to both (rows are already aggregated).
+  const accessors = {
+    name: (e: [string, Row]) => e[0],
+    count: (e: [string, Row]) => e[1].count,
+    cost: (e: [string, Row]) => e[1].cost,
+    billable: (e: [string, Row]) => e[1].billable,
+  }
+  const cats = sortRows([...byCategory.entries()], sort, accessors)
+  const clients = sortRows([...byClient.entries()], sort, accessors)
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Reports</h1>
         {canExport && (
-          <a href="/reports/expenses/export" className="text-sm text-brand-teal hover:underline">Export CSV</a>
+          <a href={buildHref('/reports/expenses/export', tfq)} className="text-sm text-brand-teal hover:underline">Export CSV</a>
         )}
       </div>
-      <ReportsTabs active="Expenses" />
+      <ReportsTabs active="Expenses" timeframe={tfq} />
+      <ReportTimeframe basePath="/reports/expenses" tf={tf} keep={sortq} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Tile label="Total expenses" value={formatCents(totals.cost)} sub={`${totals.count} entries`} />
@@ -60,14 +96,24 @@ export default async function ExpensesReportPage() {
         <Tile label="Non-billable" value={formatCents(totals.cost - expenses.filter((e) => e.isBillable).reduce((s, e) => s + e.totalCents, 0))} sub="absorbed cost" />
       </div>
 
-      <Grouping title="By category" rows={cats} />
+      <Grouping title="By category" rows={cats} sort={sort} sortHref={sortHref} />
       <div className="h-6" />
-      <Grouping title="By client" rows={clients} />
+      <Grouping title="By client" rows={clients} sort={sort} sortHref={sortHref} />
     </div>
   )
 }
 
-function Grouping({ title, rows }: { title: string; rows: [string, { count: number; cost: number; billable: number }][] }) {
+function Grouping({
+  title,
+  rows,
+  sort,
+  sortHref,
+}: {
+  title: string
+  rows: [string, Row][]
+  sort: SortState<SortKey>
+  sortHref: (s: SortState<SortKey>) => string
+}) {
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold text-gray-700">{title}</h2>
@@ -75,10 +121,10 @@ function Grouping({ title, rows }: { title: string; rows: [string, { count: numb
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3 font-medium">{title.replace('By ', '')}</th>
-              <th className="px-4 py-3 text-right font-medium">Entries</th>
-              <th className="px-4 py-3 text-right font-medium">Cost</th>
-              <th className="px-4 py-3 text-right font-medium">Billable</th>
+              <SortableTh label={title.replace('By ', '')} col="name" sort={sort} hrefFor={sortHref} />
+              <SortableTh label="Entries" col="count" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Cost" col="cost" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Billable" col="billable" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
             </tr>
           </thead>
           <tbody>
@@ -90,7 +136,7 @@ function Grouping({ title, rows }: { title: string; rows: [string, { count: numb
                 <td className="px-4 py-2 text-right tabular-nums text-brand-green">{formatCents(r.billable)}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No expenses.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No expenses in this period.</td></tr>}
           </tbody>
         </table>
       </div>

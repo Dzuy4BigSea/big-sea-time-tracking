@@ -1,3 +1,4 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -5,7 +6,10 @@ import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { startOfWeekMonday, addDays, ymd, parseYmd } from '@/lib/week'
+import { ReportTimeframe } from '@/components/ReportTimeframe'
+import { SortableTh } from '@/components/SortableTh'
+import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref } from '@/modules/reports/timeframe'
+import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,57 +24,33 @@ const GROUPS: { key: Group; label: string; column: string }[] = [
   { key: 'teammates', label: 'Teammates', column: 'Teammate' },
 ]
 
-type Period = 'week' | 'month' | 'all'
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const md = (d: Date) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+const SORT_KEYS = ['name', 'hours', 'billable', 'amount', 'uninvoiced'] as const
+type SortKey = (typeof SORT_KEYS)[number]
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: { group?: string; period?: string; anchor?: string }
+  searchParams: { group?: string; period?: string; anchor?: string; from?: string; to?: string; sort?: string; dir?: string }
 }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
   const group: Group = (['clients', 'projects', 'tasks', 'teammates'] as const).includes(searchParams.group as Group)
     ? (searchParams.group as Group)
     : 'clients'
-  const period: Period = (['week', 'month', 'all'] as const).includes(searchParams.period as Period)
-    ? (searchParams.period as Period)
-    : 'all'
+  const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'hours', dir: 'desc' })
 
-  // Anchor date for week/month navigation (defaults to the latest tracked day, so there's data).
-  let anchor = parseYmd(searchParams.anchor)
-  if (!anchor && period !== 'all') {
+  // Anchor for week/month/… navigation defaults to the latest tracked day, so there's data.
+  let fallbackAnchor: Date | null = null
+  if (needsFallbackAnchor(searchParams)) {
     const latest = await prisma.timeEntry.aggregate({ where: { accountId }, _max: { spentDate: true } })
-    anchor = latest._max.spentDate ?? new Date()
+    fallbackAnchor = latest._max.spentDate ?? new Date()
   }
-
-  // Resolve [from, till] for the selected period.
-  let from: Date | null = null
-  let till: Date | null = null
-  let rangeLabel = 'All time'
-  let prevAnchor: string | null = null
-  let nextAnchor: string | null = null
-  if (period === 'week' && anchor) {
-    const monday = startOfWeekMonday(anchor)
-    from = monday
-    till = addDays(monday, 6)
-    rangeLabel = `${md(from)} – ${md(till)} ${till.getUTCFullYear()}`
-    prevAnchor = ymd(addDays(monday, -7))
-    nextAnchor = ymd(addDays(monday, 7))
-  } else if (period === 'month' && anchor) {
-    const y = anchor.getUTCFullYear()
-    const m = anchor.getUTCMonth()
-    from = new Date(Date.UTC(y, m, 1))
-    till = new Date(Date.UTC(y, m + 1, 0))
-    rangeLabel = `${MONTHS[m]} ${y}`
-    prevAnchor = ymd(new Date(Date.UTC(y, m - 1, 1)))
-    nextAnchor = ymd(new Date(Date.UTC(y, m + 1, 1)))
-  }
+  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
+  const { from, till } = tf
 
   // Aggregate in the DB (never load raw entries — 388k rows). Metric expressions are shared;
   // only the grouping key/label/join differ per dimension.
-  const dateFilter = from && till ? Prisma.sql`AND te."spentDate" >= ${from} AND te."spentDate" <= ${till}` : Prisma.empty
+  const dateFilter = Prisma.sql`${from ? Prisma.sql`AND te."spentDate" >= ${from}` : Prisma.empty} ${till ? Prisma.sql`AND te."spentDate" <= ${till}` : Prisma.empty}`
   const metrics = Prisma.sql`
     SUM(te.minutes)::int AS minutes,
     SUM(CASE WHEN te."isBillable" THEN te.minutes ELSE 0 END)::int AS bmin,
@@ -98,7 +78,7 @@ export default async function ReportsPage({
   }
 
   type Row = { key: string; label: string; href: string | null; minutes: number; billableMinutes: number; billableCents: number; uninvoicedCents: number }
-  const rows: Row[] = raw.map((r) => ({
+  const unsorted: Row[] = raw.map((r) => ({
     key: r.key,
     label: group === 'projects' ? `${r.code ? `[${r.code}] ` : ''}${r.name}` : group === 'teammates' ? `${r.fn ?? ''} ${r.ln ?? ''}`.trim() : r.name,
     href: group === 'projects' ? `/projects/${r.key}` : group === 'clients' ? `/clients/${r.key}` : null,
@@ -107,6 +87,14 @@ export default async function ReportsPage({
     billableCents: Math.round(Number(r.bcents)),
     uninvoicedCents: Math.round(Number(r.ucents)),
   }))
+  // Sort the aggregated rows (one per client/project/task/person — small), never raw entries.
+  const rows = sortRows(unsorted, sort, {
+    name: (r) => r.label,
+    hours: (r) => r.minutes,
+    billable: (r) => r.billableMinutes,
+    amount: (r) => r.billableCents,
+    uninvoiced: (r) => r.uninvoicedCents,
+  })
   const totals = rows.reduce(
     (a, r) => ({ minutes: a.minutes + r.minutes, billableMinutes: a.billableMinutes + r.billableMinutes, billableCents: a.billableCents + r.billableCents, uninvoicedCents: a.uninvoicedCents + r.uninvoicedCents }),
     { minutes: 0, billableMinutes: 0, billableCents: 0, uninvoicedCents: 0 },
@@ -116,49 +104,24 @@ export default async function ReportsPage({
   const billablePct = totals.minutes > 0 ? Math.round((totals.billableMinutes / totals.minutes) * 100) : 0
 
   // Query-string builders that preserve the other params.
-  const withParams = (o: { group?: Group; period?: Period; anchor?: string | null }) => {
-    const p = new URLSearchParams()
-    p.set('group', o.group ?? group)
-    p.set('period', o.period ?? period)
-    const a = o.anchor === undefined ? (searchParams.anchor ?? null) : o.anchor
-    if (a && (o.period ?? period) !== 'all') p.set('anchor', a)
-    return `/reports?${p.toString()}`
-  }
+  const tfq = timeframeQuery(tf)
+  const sortq = sort.key === 'hours' && sort.dir === 'desc' ? {} : { sort: sort.key, dir: sort.dir }
+  const sortHref = (s: SortState<SortKey>) => buildHref('/reports', { group, ...tfq, sort: s.key, dir: s.dir })
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Reports</h1>
         {canExport && (
-          <Link href="/reports/export" prefetch={false} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
+          <Link href={buildHref('/reports/export', tfq)} prefetch={false} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
             Export CSV
           </Link>
         )}
       </div>
       <p className="mb-4 text-sm text-gray-500">Time report · live from Supabase</p>
-      <ReportsTabs active="Time" />
+      <ReportsTabs active="Time" timeframe={tfq} />
 
-      {/* Period selector */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 text-sm">
-          {(['week', 'month', 'all'] as Period[]).map((p) => (
-            <Link
-              key={p}
-              href={withParams({ period: p, anchor: p === 'all' ? null : undefined })}
-              className={`rounded px-3 py-1 ${period === p ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              {p === 'week' ? 'This week' : p === 'month' ? 'This month' : 'All time'}
-            </Link>
-          ))}
-        </div>
-        {period !== 'all' && (
-          <div className="flex items-center gap-2 text-sm">
-            <Link href={withParams({ anchor: prevAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-teal">←</Link>
-            <span className="rounded border border-gray-200 bg-white px-3 py-1">{rangeLabel}</span>
-            <Link href={withParams({ anchor: nextAnchor })} className="rounded border border-gray-200 bg-white px-2 py-1 text-gray-600 hover:text-brand-teal">→</Link>
-          </div>
-        )}
-      </div>
+      <ReportTimeframe basePath="/reports" tf={tf} keep={{ group, ...sortq }} />
 
       {/* Summary band */}
       <div className="mb-4 grid gap-4 rounded-lg border border-gray-200 bg-white p-5 sm:grid-cols-4">
@@ -173,7 +136,7 @@ export default async function ReportsPage({
         {GROUPS.map((g) => (
           <Link
             key={g.key}
-            href={withParams({ group: g.key })}
+            href={buildHref('/reports', { group: g.key, ...tfq, ...sortq })}
             className={`rounded-full px-3 py-1 ${g.key === group ? 'bg-brand-teal-50 font-medium text-brand-teal' : 'text-gray-500 hover:bg-gray-50'}`}
           >
             {g.label}
@@ -185,11 +148,11 @@ export default async function ReportsPage({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3 font-medium">{column}</th>
-              <th className="px-4 py-3 text-right font-medium">Hours</th>
-              <th className="px-4 py-3 text-right font-medium">Billable hours</th>
-              <th className="px-4 py-3 text-right font-medium">Billable amount</th>
-              <th className="px-4 py-3 text-right font-medium">Uninvoiced</th>
+              <SortableTh label={column} col="name" sort={sort} hrefFor={sortHref} />
+              <SortableTh label="Hours" col="hours" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Billable hours" col="billable" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Billable amount" col="amount" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Uninvoiced" col="uninvoiced" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
             </tr>
           </thead>
           <tbody>
