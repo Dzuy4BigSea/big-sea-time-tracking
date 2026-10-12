@@ -8,7 +8,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
  * owns one query param; the rest of the query string is preserved. Empty values drop the param.
  * Text input is debounced so typing doesn't navigate on every keystroke.
  */
-function useSetParam(param: string) {
+function useSetParam(param: string, resetParams: string[] = []) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -18,6 +18,7 @@ function useSetParam(param: string) {
     const p = new URLSearchParams(window.location.search)
     if (value) p.set(param, value)
     else p.delete(param)
+    for (const r of resetParams) p.delete(r)
     const s = p.toString()
     startTransition(() => router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false }))
   }
@@ -29,13 +30,22 @@ export function LiveSearchInput({
   placeholder,
   className = '',
   delayMs = 300,
+  activeClassName,
+  clearLabel,
+  resetParams,
 }: {
   param: string
   placeholder?: string
   className?: string
   delayMs?: number
+  /** Extra classes while a term is entered (e.g. a tinted background). */
+  activeClassName?: string
+  /** When set, a button with this label appears beside the input while a term is entered. */
+  clearLabel?: string
+  /** Other params dropped whenever the term changes (e.g. "page"). */
+  resetParams?: string[]
 }) {
-  const { current, set } = useSetParam(param)
+  const { current, set } = useSetParam(param, resetParams)
   const [value, setValue] = useState(current)
   const lastSent = useRef(current)
 
@@ -57,14 +67,36 @@ export function LiveSearchInput({
     return () => clearTimeout(id)
   }, [value, delayMs])
 
-  return (
+  const active = value.trim() !== ''
+  const input = (
     <input
       type="search"
       value={value}
       onChange={(e) => setValue(e.target.value)}
       placeholder={placeholder}
-      className={className}
+      aria-label={placeholder}
+      className={active && activeClassName ? `${className} ${activeClassName}` : className}
     />
+  )
+  if (!clearLabel) return input
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {input}
+      {(active || current) && (
+        <button
+          type="button"
+          onClick={() => {
+            setValue('')
+            lastSent.current = ''
+            set('')
+          }}
+          className="whitespace-nowrap text-sm text-gray-500 hover:text-gray-800"
+        >
+          ✕ {clearLabel}
+        </button>
+      )}
+    </span>
   )
 }
 
