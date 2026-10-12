@@ -6,6 +6,11 @@ _Last updated: 2026-10-12._
 
 ## ▶ Resume here (next session)
 
+### 🐞 BugHerd round 1 (2026-10-12), PR branch `claude/quirky-galileo-23agcn`
+15 of Chasity's 21 BugHerd items are fixed in code ([specs/23](specs/23-bugherd-feedback.md) has the per-item table); the other 6 need input (Google Drive export #4/#10, plus #5, #7, #12, #15). Not yet clicked through against real data.
+- ⚠️ **Before deploying:** run `npx prisma migrate deploy` on prod. Migration `20261012120000_recurring_remaining_occurrences` adds one nullable column that the recurring screens read.
+- Then QA on a Vercel preview: timesheet person switcher, project timeframe bar + Team tab, report sorting/timeframes, expense combobox, invoice banner, client contact edit, recurring "invoices to issue".
+
 ### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
 Catching up Harvest changes since the Aug 6–7 import. **All the code is built; what's left is running it against production** (needs the prod `DATABASE_URL`, so it can't be done from a cloud Claude session).
 - **2026-09-30:** the in-app Incremental button is unlocked (it deltas from the last finished full backup; an estimates-only 403 counts as clean, [modules/migration/deltaSince.ts](modules/migration/deltaSince.ts)).
