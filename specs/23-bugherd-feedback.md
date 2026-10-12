@@ -68,3 +68,40 @@ Goal: match Harvest's UI and behavior, not invent new behavior. Reference is Har
 - **Client contacts (#3):**
   - Harvest has a **Fax** field (needs a column).
   - Harvest manages contacts from the Clients list (Add contact / Edit next to each contact); Track2 does it on the client page.
+
+## BugHerd card updates to post (pending)
+To be posted on each card in BugHerd project 541260 (via the API with `BUGHERD_API_KEY`, or Claude in
+Chrome). **FIXED** cards: post the comment, then move to a "Ready for review"/QA column if one exists,
+otherwise "Done". Never close or delete (Chasity closes after checking). **NEEDS INFO** cards: post the
+comment, leave the status, and assign to Chasity if possible. Afterwards, record what was posted here.
+
+API notes (BugHerd API v2):
+- Base: `https://www.bugherd.com/api_v2/`. Auth: HTTP basic, API key as the username, `x` as the password.
+- List tasks: `GET projects/541260/tasks.json`. The `local_task_id` is the #number on the board.
+- Comment: `POST projects/541260/tasks/{id}/comments.json`
+- Status: `PUT projects/541260/tasks/{id}.json`
+- Check the project's columns first; boards can have custom ones.
+
+| # | Type | Comment |
+|---|---|---|
+| 1 | FIXED | Fixed and live (Oct 12). The time entry Project dropdown now lists only active projects (archived projects and projects of archived clients are hidden). It's grouped by client and you can type to filter. Please check and close if it looks right. |
+| 2 | FIXED | Fixed and live. Admins and project managers have a "Teammates" button at the top right of the timesheet. Pick a person to view, add and edit their time and start or stop their timers; an amber banner shows whose timesheet you're editing. Project managers can do this on projects they manage. Please check and close if it looks right. |
+| 3 | FIXED + Q | Fixed and live. On a client's page each contact now has Edit (first and last name, title, email, office and mobile phone). Question: Harvest also has a Fax field and edits contacts from the Clients list. Do you want either of those? |
+| 6 | FIXED + Q | Fixed and live. The project page has a timeframe picker: Week, Semimonth, Month, Quarter, Year, All time and Custom, with arrows. Question: your note was cut off after "it should default to a specific one dep…". What should it default to? Harvest uses All time; right now projects with a monthly budget open on Month and everything else on All time. |
+| 8 | FIXED | Fixed and live. The Team tab now only shows hours per person (billable, non-billable, billable amount) for the selected timeframe. Adding or removing people and PM settings moved to Edit project, linked from the tab as "Manage team". Please check and close if it looks right. |
+| 9 | FIXED | Fixed and live. Report column headers sort when clicked; click again to reverse. Please check and close if it looks right. |
+| 11 | FIXED | Fixed and live. The Time, Expenses and Profitability reports all have the timeframe picker (including Semimonth and Custom). It carries across tabs and into the CSV export. Receivables stays "as of today" because it's an aging report. Please check and close if it looks right. |
+| 13 | FIXED | Fixed and live. Recurring invoices have "Invoices to issue" (blank means no limit). Each profile shows how many are left or "No end", and it stops after the last one. Please check and close if it looks right. |
+| 14 | FIXED | Fixed and live. Invoices now show a large status banner at the top using Harvest's statuses and colors: Draft, Sent (due in N days), Late (N days late), Paid (paid on date), Written off. Please check and close if it looks right. |
+| 16 | FIXED | Fixed and live. The Project dropdown on the expense form is grouped by client. Please check and close if it looks right. |
+| 17 | FIXED + Q | Fixed and live. The Project and Category fields on expenses filter as you type (the time entry form does too). Question: is there anywhere else you want type-to-filter? |
+| 18 | FIXED | Fixed and live. Opening one Actions menu closes any other; Escape or clicking outside also closes it. Please check and close if it looks right. |
+| 19 | FIXED | Fixed and live. The Assigned projects tab defaults to active projects, with Active / Archived / All. Please check and close if it looks right. |
+| 20 | FIXED + Q | Fixed and live. The tab defaults to active people, with Active / Archived / All. Question: in Harvest this tab is "Assigned people", meaning the people a manager manages (for approvals, reports and editing their time). Track2 currently shows teammates who share a project. Do you want Harvest's version? |
+| 21 | FIXED | Fixed and live. Team filters apply as you type; there's no Apply button. Please check and close if it looks right. |
+| 4 | NEEDS INFO | Question: for "Export to Google Drive", should it save the CSV file into a Drive folder or create a Google Sheet? And into whose Drive: yours, or a shared Big Sea folder? |
+| 10 | NEEDS INFO | Same question as #4; one Google Drive integration would cover both. |
+| 5 | NEEDS INFO | Question: which element is "What is this?" about? The note doesn't say. Could you circle it or add a screenshot? |
+| 7 | NEEDS INFO | Question: which section is too easy to click by accident? Once we know, we'll move it or add a confirmation. |
+| 12 | NEEDS INFO | Question: should "By Category" be removed, moved below "By client", or left as it is? |
+| 15 | NEEDS INFO | Question: which element is "over here"? Could you circle it or add a screenshot? |
