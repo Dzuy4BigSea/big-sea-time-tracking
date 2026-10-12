@@ -1,26 +1,29 @@
 import Link from 'next/link'
-import { PERIODS, buildHref, inTimeframe, type Timeframe } from '@/modules/reports/timeframe'
+import { PERIODS, buildHref, customSeed, inTimeframe, type Timeframe } from '@/modules/shared/timeframe'
 import { ymd } from '@/lib/week'
 
 /**
- * Timeframe picker shared by every report (Week / Month / Quarter / Year / All time / Custom, with
- * ← → stepping and a custom from/to form). Server-rendered: plain links and a GET form, URL-driven.
- * `keep` holds the page's other params (grouping, sort) so changing the timeframe preserves them.
+ * Timeframe picker shared by every report and the project detail page (Week / Semimonth / Month /
+ * Quarter / Year / All time / Custom, with ← → stepping and a custom from/to form). Server-rendered:
+ * plain links and a GET form, URL-driven. `keep` holds the page's other params (grouping, tab, sort)
+ * so changing the timeframe preserves them.
  */
 export function ReportTimeframe({
   basePath,
   tf,
   keep = {},
+  submitLabel = 'Update report',
 }: {
   basePath: string
   tf: Timeframe
   keep?: Record<string, string | null | undefined>
+  submitLabel?: string
 }) {
   const href = (q: Record<string, string | null | undefined>) => buildHref(basePath, { ...keep, ...q })
   const todayYmd = ymd(new Date())
   const anchorFor = (p: string) => {
     if (p === 'all') return { period: 'all' }
-    if (p === 'custom') return { period: 'custom', from: tf.from ? ymd(tf.from) : todayYmd, to: tf.till ? ymd(tf.till) : todayYmd }
+    if (p === 'custom') return { period: 'custom', ...customSeed(tf) }
     // Switching granularity keeps you near what you were looking at.
     return { period: p, anchor: tf.anchor ?? (tf.from ? ymd(tf.from) : todayYmd) }
   }
@@ -65,7 +68,7 @@ export function ReportTimeframe({
             <input type="date" name="to" defaultValue={tf.till ? ymd(tf.till) : ''} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-800" />
           </label>
           <button type="submit" className="rounded border border-gray-300 bg-white px-3 py-1 text-gray-700 hover:bg-gray-50">
-            Update report
+            {submitLabel}
           </button>
         </form>
       )}

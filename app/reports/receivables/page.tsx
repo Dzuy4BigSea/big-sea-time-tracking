@@ -3,7 +3,7 @@ import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
 import { SortableTh } from '@/components/SortableTh'
-import { buildHref } from '@/modules/reports/timeframe'
+import { buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'

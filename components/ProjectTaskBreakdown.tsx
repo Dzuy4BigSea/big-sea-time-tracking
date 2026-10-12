@@ -2,15 +2,34 @@
 
 import { useState } from 'react'
 import { formatCents } from '@/lib/format'
+import { SortableTh } from '@/components/SortableTh'
+import { buildHref } from '@/modules/shared/timeframe'
+import type { SortState } from '@/modules/reports/sort'
 
 export type PersonRow = { name: string; minutes: number; billableCents: number; costCents: number }
 export type TaskRow = { taskId: string; name: string; minutes: number; billableCents: number; costCents: number; persons: PersonRow[] }
+export type TaskSortKey = 'name' | 'hours' | 'billable' | 'costs'
 
 const hrs = (m: number) => (m / 60).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /** Harvest-style "Billable tasks" breakdown: task → hours / billable amount / cost, each row
- *  expandable to its per-person split. Costs column shown only when the account tracks cost rates. */
-export function ProjectTaskBreakdown({ tasks, showCosts }: { tasks: TaskRow[]; showCosts: boolean }) {
+ *  expandable to its per-person split. Costs column shown only when the account tracks cost rates.
+ *  Rows arrive already sorted (server-side); the headers are URL-driven sort links built from
+ *  `basePath` + `query` (the page's other params: tab, timeframe, chart year). */
+export function ProjectTaskBreakdown({
+  tasks,
+  showCosts,
+  sort,
+  basePath,
+  query,
+}: {
+  tasks: TaskRow[]
+  showCosts: boolean
+  sort: SortState<TaskSortKey>
+  basePath: string
+  query: Record<string, string | null | undefined>
+}) {
+  const hrefFor = (s: SortState<TaskSortKey>) => buildHref(basePath, { ...query, sort: s.key, dir: s.dir })
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const total = tasks.reduce(
     (a, t) => ({ minutes: a.minutes + t.minutes, billableCents: a.billableCents + t.billableCents, costCents: a.costCents + t.costCents }),
@@ -22,10 +41,10 @@ export function ProjectTaskBreakdown({ tasks, showCosts }: { tasks: TaskRow[]; s
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-            <th className="px-4 py-3 font-medium">Billable tasks</th>
-            <th className="px-4 py-3 text-right font-medium">Hours</th>
-            <th className="px-4 py-3 text-right font-medium">Billable amount</th>
-            {showCosts && <th className="px-4 py-3 text-right font-medium">Costs</th>}
+            <SortableTh label="Billable tasks" col="name" sort={sort} hrefFor={hrefFor} />
+            <SortableTh label="Hours" col="hours" sort={sort} hrefFor={hrefFor} firstDir="desc" align="right" />
+            <SortableTh label="Billable amount" col="billable" sort={sort} hrefFor={hrefFor} firstDir="desc" align="right" />
+            {showCosts && <SortableTh label="Costs" col="costs" sort={sort} hrefFor={hrefFor} firstDir="desc" align="right" />}
           </tr>
         </thead>
         <tbody>

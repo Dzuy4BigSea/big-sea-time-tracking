@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client'
 import { requireUser } from '@/lib/session'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
-import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/reports/timeframe'
+import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'
