@@ -35,55 +35,55 @@ describe('deriveStatusBanner', () => {
     expect(b.detail).toContain('$1,200.00')
   })
 
-  it('open, not yet due: info tone with days until due and amount due', () => {
+  it('sent, not yet due: blue "Sent" with days until due and amount due', () => {
     const b = deriveStatusBanner(inv(), TODAY)
-    expect(b.kind).toBe('open')
+    expect(b.kind).toBe('sent')
     expect(b.tone).toBe('info')
     expect(b.daysUntilDue).toBe(10)
-    expect(b.headline).toBe('Sent · due in 10 days')
-    expect(b.detail).toBe('$1,200.00 due on 07/30/2026')
+    expect(b.headline).toBe('Sent')
+    expect(b.detail).toBe('Due in 10 days · $1,200.00 due on 07/30/2026')
   })
 
-  it('open, due today', () => {
+  it('sent, due today', () => {
     const b = deriveStatusBanner(inv({ dueDate: d('2026-07-20') }), TODAY)
-    expect(b.kind).toBe('open')
-    expect(b.headline).toBe('Sent · due today')
+    expect(b.headline).toBe('Sent')
+    expect(b.detail).toMatch(/^Due today/)
   })
 
-  it('open, past due: danger tone with days overdue', () => {
+  it('past due with a balance: red "Late" with days late', () => {
     const b = deriveStatusBanner(inv({ dueDate: d('2026-07-08') }), TODAY)
-    expect(b.kind).toBe('overdue')
+    expect(b.kind).toBe('late')
     expect(b.tone).toBe('danger')
     expect(b.daysOverdue).toBe(12)
-    expect(b.headline).toBe('Overdue by 12 days')
-    expect(b.detail).toBe('$1,200.00 due · was due 07/08/2026')
+    expect(b.headline).toBe('Late')
+    expect(b.detail).toBe('12 days late · $1,200.00 due · was due 07/08/2026')
   })
 
   it('singular day', () => {
-    expect(deriveStatusBanner(inv({ dueDate: d('2026-07-19') }), TODAY).headline).toBe('Overdue by 1 day')
-    expect(deriveStatusBanner(inv({ dueDate: d('2026-07-21') }), TODAY).headline).toBe('Sent · due in 1 day')
+    expect(deriveStatusBanner(inv({ dueDate: d('2026-07-19') }), TODAY).detail).toMatch(/^1 day late/)
+    expect(deriveStatusBanner(inv({ dueDate: d('2026-07-21') }), TODAY).detail).toMatch(/^Due in 1 day /)
   })
 
-  it('partially paid, not yet due: warning tone with balance and paid-of-total', () => {
+  it('partially paid stays "Sent" (Harvest has no partial status); detail shows balance and paid-of-total', () => {
     const b = deriveStatusBanner(inv({ paidCents: 20000 }), TODAY)
-    expect(b.kind).toBe('partial')
-    expect(b.tone).toBe('warning')
+    expect(b.kind).toBe('sent')
+    expect(b.tone).toBe('info')
     expect(b.balanceCents).toBe(100000)
-    expect(b.headline).toBe('Partially paid · due in 10 days')
-    expect(b.detail).toBe('$1,000.00 due on 07/30/2026 · $200.00 of $1,200.00 paid')
+    expect(b.headline).toBe('Sent')
+    expect(b.detail).toBe('Due in 10 days · $1,000.00 due on 07/30/2026 · $200.00 of $1,200.00 paid')
   })
 
-  it('partially paid AND past due: overdue wins, still mentions the partial payment', () => {
+  it('partially paid AND past due: Late, still mentions the partial payment', () => {
     const b = deriveStatusBanner(inv({ paidCents: 20000, dueDate: d('2026-07-01') }), TODAY)
-    expect(b.kind).toBe('overdue')
+    expect(b.kind).toBe('late')
     expect(b.detail).toContain('$200.00 of $1,200.00 paid')
   })
 
-  it('open with no due date', () => {
+  it('sent with no due date', () => {
     const b = deriveStatusBanner(inv({ dueDate: null }), TODAY)
-    expect(b.kind).toBe('open')
-    expect(b.headline).toBe('Sent 06/30/2026')
-    expect(b.detail).toBe('$1,200.00 due')
+    expect(b.kind).toBe('sent')
+    expect(b.headline).toBe('Sent')
+    expect(b.detail).toBe('Sent 06/30/2026 · $1,200.00 due')
   })
 
   it('paid: success tone with the paid-on date', () => {
@@ -93,13 +93,13 @@ describe('deriveStatusBanner', () => {
     )
     expect(b.kind).toBe('paid')
     expect(b.tone).toBe('success')
-    expect(b.headline).toBe('Paid on 07/15/2026')
-    expect(b.detail).toBe('$1,200.00 received')
+    expect(b.headline).toBe('Paid')
+    expect(b.detail).toBe('Paid on 07/15/2026 · $1,200.00 received')
     expect(b.daysOverdue).toBe(0)
   })
 
-  it('paid without payment records falls back to "Paid in full"', () => {
-    expect(deriveStatusBanner(inv({ status: 'paid', paidCents: 120000 }), TODAY).headline).toBe('Paid in full')
+  it('paid without payment records omits the date', () => {
+    expect(deriveStatusBanner(inv({ status: 'paid', paidCents: 120000 }), TODAY).detail).toBe('$1,200.00 received')
   })
 
   it('written off: muted, shows the amount written off', () => {
@@ -120,7 +120,7 @@ describe('deriveStatusBanner', () => {
     expect(deriveStatusBanner(inv({ currency: 'EUR' }), TODAY).detail).toContain('€1,200.00')
   })
 
-  it('open but never sent: does not claim it was sent', () => {
-    expect(deriveStatusBanner(inv({ sentAt: null }), TODAY).headline).toBe('Due in 10 days')
+  it('open with no sent date and no due date: no "Sent <date>" in the detail', () => {
+    expect(deriveStatusBanner(inv({ sentAt: null, dueDate: null }), TODAY).detail).toBe('$1,200.00 due')
   })
 })

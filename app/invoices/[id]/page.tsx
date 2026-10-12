@@ -340,7 +340,7 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
   )
 }
 
-/** Status palette per DESIGN-SYSTEM.md §1.2 (blue open, amber warning, red overdue, green paid). */
+/** Harvest status colors (AC-UI-003): gray Draft, blue Sent, red Late, green Paid; muted for written off / closed. */
 const BANNER_STYLES: Record<BannerTone, string> = {
   neutral: 'border-gray-400 bg-gray-100 text-gray-800',
   info: 'border-blue-500 bg-blue-50 text-blue-800',
