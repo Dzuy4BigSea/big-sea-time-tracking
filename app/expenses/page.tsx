@@ -58,7 +58,7 @@ export default async function ExpensesPage() {
       <NewExpenseForm projects={projectOptions} categories={categoryOptions} today={today} />
       {canManageSettings && <NewCategoryForm />}
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">

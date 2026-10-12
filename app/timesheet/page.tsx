@@ -40,12 +40,8 @@ export default async function TimesheetPage({
   if (people.length > 0 && !people.some((p) => p.id === userId)) people.push({ id: userId, name: userName })
   const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
 
-  // Default to the week containing the user's most recent entry, so there's data to see.
-  let anchor = parseYmd(searchParams.week)
-  if (!anchor) {
-    const latest = await prisma.timeEntry.aggregate({ where: { accountId, userId }, _max: { spentDate: true } })
-    anchor = latest._max.spentDate ?? new Date()
-  }
+  // Open on the current week, as Harvest does (?week= navigates elsewhere).
+  const anchor = parseYmd(searchParams.week) ?? new Date()
   const weekStart = startOfWeek(anchor, weekStartsOn)
   const weekEnd = addDays(weekStart, 6)
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
