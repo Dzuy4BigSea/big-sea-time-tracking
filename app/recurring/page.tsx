@@ -4,8 +4,9 @@ import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
-import { cadenceLabel, type RecurringFrequency } from '@/modules/invoicing/recurring'
+import { cadenceLabel, isCompleted, type RecurringFrequency } from '@/modules/invoicing/recurring'
 import { NewRecurringForm } from '@/components/NewRecurringForm'
+import { RecurringLimitForm } from '@/components/RecurringLimitForm'
 import { generateDueAction, toggleRecurringStatusAction, deleteRecurringAction } from '@/app/recurring/actions'
 
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,11 @@ export default async function RecurringPage() {
 
   const today = new Date().toISOString().slice(0, 10)
   const dueCount = profiles.filter(
-    (p) => p.status === 'active' && p.nextIssueDate && p.nextIssueDate.toISOString().slice(0, 10) <= today,
+    (p) =>
+      p.status === 'active' &&
+      !isCompleted(p.remainingOccurrences) &&
+      p.nextIssueDate &&
+      p.nextIssueDate.toISOString().slice(0, 10) <= today,
   ).length
 
   return (
@@ -63,23 +68,28 @@ export default async function RecurringPage() {
                 <td className="px-4 py-3 font-medium text-gray-900">{p.client.name}</td>
                 <td className="px-4 py-3 text-gray-700">{p.subject}</td>
                 <td className="px-4 py-3 text-gray-600">
-                  {formatDate(p.nextIssueDate)}
+                  {isCompleted(p.remainingOccurrences) ? '—' : formatDate(p.nextIssueDate)}
                   <div className="text-xs text-gray-400">{cadenceLabel(p.frequency as RecurringFrequency, p.intervalCount)}</div>
+                  <RecurringLimitForm id={p.id} remaining={p.remainingOccurrences} />
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-gray-700">{formatCents(p.amountCents, p.client.currency)}</td>
                 <td className="px-4 py-3">
                   {p.status === 'active' ? (
                     <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Active</span>
+                  ) : isCompleted(p.remainingOccurrences) ? (
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Completed</span>
                   ) : (
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Paused</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <form action={toggleRecurringStatusAction}>
-                      <input type="hidden" name="id" value={p.id} />
-                      <button className="text-xs text-gray-500 hover:text-brand-teal">{p.status === 'active' ? 'Pause' : 'Resume'}</button>
-                    </form>
+                    {!(p.status === 'paused' && isCompleted(p.remainingOccurrences)) && (
+                      <form action={toggleRecurringStatusAction}>
+                        <input type="hidden" name="id" value={p.id} />
+                        <button className="text-xs text-gray-500 hover:text-brand-teal">{p.status === 'active' ? 'Pause' : 'Resume'}</button>
+                      </form>
+                    )}
                     <form action={deleteRecurringAction}>
                       <input type="hidden" name="id" value={p.id} />
                       <button className="text-xs text-gray-400 hover:text-red-600">Delete</button>
@@ -99,7 +109,8 @@ export default async function RecurringPage() {
 
       <p className="mt-3 text-xs text-gray-400">
         Generation is manual here (“Generate due”) as a stand-in for the scheduled job; each run creates one draft per due
-        profile and advances its next issue date.
+        profile and advances its next issue date. A profile with a number of invoices to issue counts down and is marked
+        Completed after its last one; leave the number blank to recur indefinitely.
       </p>
     </div>
   )
