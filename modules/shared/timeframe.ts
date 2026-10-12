@@ -184,6 +184,17 @@ export function inTimeframe(tf: Pick<Timeframe, 'from' | 'till'>, d: Date): bool
   return (!tf.from || d >= tf.from) && (!tf.till || d <= tf.till)
 }
 
+/**
+ * Table-toolbar heading for a timeframe, Harvest-style: "This Month: October 2026" when the anchored
+ * period contains today, else the plain period label ("September 2026"); "All time" / the custom
+ * range label otherwise.
+ */
+export function periodHeading(tf: Timeframe, now: Date = new Date()): string {
+  if (!isAnchored(tf.period)) return tf.label
+  const p = PERIODS.find((x) => x.key === tf.period)!
+  return inTimeframe(tf, dayOf(now)) ? `This ${p.label}: ${tf.label}` : tf.label
+}
+
 /** URL params that reproduce this timeframe (so links, tabs and exports keep it). */
 export function timeframeQuery(tf: Timeframe): Record<string, string> {
   if (tf.period === 'custom') {
