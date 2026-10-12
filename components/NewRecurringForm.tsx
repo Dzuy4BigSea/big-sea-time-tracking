@@ -64,6 +64,17 @@ export function NewRecurringForm({ clients, today }: { clients: { id: string; na
         <Field label="Amount">
           <input name="amount" placeholder="2,500.00" className={`${input} w-28`} />
         </Field>
+        <Field label="Invoices to issue">
+          <input
+            name="occurrences"
+            type="number"
+            min={1}
+            step={1}
+            placeholder="No limit"
+            title="Leave blank to keep recurring until you pause or delete the profile."
+            className={`${input} w-28`}
+          />
+        </Field>
         <Submit />
         {state.error && <span className="pb-2 text-sm text-red-600">{state.error}</span>}
         {state.ok && <span className="pb-2 text-sm text-brand-green">Created ✓</span>}

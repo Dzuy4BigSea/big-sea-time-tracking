@@ -44,12 +44,52 @@ export function advanceIssueDate(date: Date, frequency: RecurringFrequency, inte
   }
 }
 
-/** Is this profile due to generate as of `asOf` (date-only comparison)? */
-export function isDue(nextIssueDate: Date | null, asOf: Date, status: 'active' | 'paused'): boolean {
+/**
+ * Is this profile due to generate as of `asOf` (date-only comparison)?
+ * `remainingOccurrences`: null/undefined = recur indefinitely; ≤ 0 = the issue limit is used up.
+ */
+export function isDue(
+  nextIssueDate: Date | null,
+  asOf: Date,
+  status: 'active' | 'paused',
+  remainingOccurrences: number | null = null,
+): boolean {
   if (status !== 'active' || !nextIssueDate) return false
+  if (remainingOccurrences != null && remainingOccurrences <= 0) return false
   const a = Date.UTC(nextIssueDate.getUTCFullYear(), nextIssueDate.getUTCMonth(), nextIssueDate.getUTCDate())
   const b = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate())
   return a <= b
+}
+
+/**
+ * Occurrence limit after one invoice is issued (BugHerd #13 — "number of invoices to issue").
+ * Indefinite (null) stays indefinite; a count decrements, and when it reaches 0 the profile
+ * pauses (it reads as "Completed" in the UI and cannot resume until given more occurrences).
+ */
+export function afterIssue(remainingOccurrences: number | null): {
+  remainingOccurrences: number | null
+  status: 'active' | 'paused'
+} {
+  if (remainingOccurrences == null) return { remainingOccurrences: null, status: 'active' }
+  const left = Math.max(0, remainingOccurrences - 1)
+  return { remainingOccurrences: left, status: left === 0 ? 'paused' : 'active' }
+}
+
+/** A profile whose occurrence limit is used up. */
+export function isCompleted(remainingOccurrences: number | null): boolean {
+  return remainingOccurrences != null && remainingOccurrences <= 0
+}
+
+/**
+ * Parse the "Number of invoices to issue" form field. Blank → null (recur indefinitely);
+ * a whole number ≥ 1 → that count; anything else → 'invalid'.
+ */
+export function parseOccurrenceLimit(raw: unknown): number | null | 'invalid' {
+  const s = String(raw ?? '').trim()
+  if (s === '') return null
+  if (!/^\d+$/.test(s)) return 'invalid'
+  const n = Number(s)
+  return n >= 1 && n <= 10_000 ? n : 'invalid'
 }
 
 /** Human label for the cadence, e.g. "every month", "every 2 weeks". */
