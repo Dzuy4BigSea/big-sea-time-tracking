@@ -7,6 +7,8 @@ import { EntryRow } from '@/components/EntryRow'
 import { stopTimerAction } from '@/app/timesheet/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
+import { listActablePeople, loggableProjectsFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
+import { TimesheetPersonSwitcher } from '@/components/TimesheetPersonSwitcher'
 
 const timeFmt = (d: Date) =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
@@ -18,20 +20,29 @@ const dow = (d: Date) => new Intl.DateTimeFormat('en-US', { weekday: 'short', ti
 export default async function TimesheetPage({
   searchParams,
 }: {
-  searchParams: { week?: string }
+  searchParams: { week?: string; user?: string }
 }) {
-  const { userId, accountId } = await requireUser()
+  const current = await requireUser()
+  const { accountId } = current
   await requireModule(accountId, 'timeTracking')
-  const [user, account] = await Promise.all([
+  // Whose timesheet: ?user=<id> when the actor may act for that person (view_edit_others_time,
+  // scope + tenancy re-checked server-side); anything else falls back to the actor's own.
+  const userId = (await resolveSubjectUserId(current, searchParams.user)) ?? current.userId
+  const isSelf = userId === current.userId
+  const [user, account, people] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } }),
     prisma.account.findUnique({ where: { id: accountId }, select: { weekStartsOn: true } }),
+    listActablePeople(current),
   ])
+  const userName = user ? `${user.firstName} ${user.lastName}`.trim() : userId
+  // The switcher lists active people; keep a permitted-but-archived subject selectable too.
+  if (people.length > 0 && !people.some((p) => p.id === userId)) people.push({ id: userId, name: userName })
   const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
 
   // Default to the week containing the user's most recent entry, so there's data to see.
   let anchor = parseYmd(searchParams.week)
   if (!anchor) {
-    const latest = await prisma.timeEntry.aggregate({ where: { userId }, _max: { spentDate: true } })
+    const latest = await prisma.timeEntry.aggregate({ where: { accountId, userId }, _max: { spentDate: true } })
     anchor = latest._max.spentDate ?? new Date()
   }
   const weekStart = startOfWeek(anchor, weekStartsOn)
@@ -39,33 +50,17 @@ export default async function TimesheetPage({
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
   const entries = await prisma.timeEntry.findMany({
-    where: { userId, spentDate: { gte: weekStart, lte: weekEnd } },
+    where: { accountId, userId, spentDate: { gte: weekStart, lte: weekEnd } },
     include: { project: { select: { name: true, code: true } }, task: { select: { name: true } } },
   })
 
-  // Projects (with their tasks) this user may log against, to populate the log-time form.
-  const assignments = await prisma.projectUserAssignment.findMany({
-    where: { userId, isActive: true },
-    select: {
-      project: {
-        select: {
-          id: true,
-          name: true,
-          taskAssignments: { where: { isActive: true }, select: { task: { select: { id: true, name: true } } } },
-        },
-      },
-    },
-    orderBy: { project: { name: 'asc' } },
-  })
-  const projectOptions = assignments.map((a) => ({
-    id: a.project.id,
-    name: a.project.name,
-    tasks: a.project.taskAssignments.map((ta) => ta.task),
-  }))
+  // Active projects (with their tasks) this user may log against, to populate the log-time form.
+  // Archived projects / clients are excluded (BugHerd #1).
+  const projectOptions = (await loggableProjectsFor(userId)).map((p) => ({ id: p.id, name: p.name, tasks: p.tasks }))
 
   // Any running timer for this user (shown regardless of the viewed week).
   const running = await prisma.timeEntry.findFirst({
-    where: { userId, isRunning: true },
+    where: { accountId, userId, isRunning: true },
     include: { project: { select: { name: true, code: true } }, task: { select: { name: true } } },
   })
 
@@ -100,12 +95,14 @@ export default async function TimesheetPage({
     <div>
       <div className="mb-1 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Timesheet</h1>
-        <span className="text-sm text-gray-500">
-          {user ? `${user.firstName} ${user.lastName}` : userId}
-        </span>
+        {people.length > 1 ? (
+          <TimesheetPersonSwitcher people={people} selectedId={userId} selfId={current.userId} week={ymd(weekStart)} />
+        ) : (
+          <span className="text-sm text-gray-500">{userName}</span>
+        )}
       </div>
       <p className="mb-4 text-xs text-gray-400">
-        Your week · live from Supabase
+        {isSelf ? 'Your week' : `${userName}’s week — you’re viewing and editing their time`} · live from Supabase
       </p>
 
       <div className="mb-4 flex items-center gap-2 text-sm">
@@ -128,17 +125,24 @@ export default async function TimesheetPage({
               <span className="ml-2 text-xs text-gray-500">since {timeFmt(running.timerStartedAt)} UTC</span>
             )}
           </div>
-          <form action={stopTimerAction}>
-            <input type="hidden" name="userId" value={userId} />
-            <button className="rounded bg-brand-teal px-3 py-1 text-sm font-medium text-white hover:opacity-90">
-              ■ Stop
-            </button>
-          </form>
+          {/* Timers are personal: only the owner stops their own running timer. */}
+          {isSelf && (
+            <form action={stopTimerAction}>
+              <button className="rounded bg-brand-teal px-3 py-1 text-sm font-medium text-white hover:opacity-90">
+                ■ Stop
+              </button>
+            </form>
+          )}
         </div>
       )}
 
       <div className="mb-4">
-        <TimeEntryButton projects={projectOptions} defaultDate={ymd(weekStart)} />
+        <TimeEntryButton
+          key={userId}
+          projects={projectOptions}
+          defaultDate={ymd(weekStart)}
+          forUser={isSelf ? undefined : { id: userId, name: userName }}
+        />
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">

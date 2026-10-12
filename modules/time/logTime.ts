@@ -7,6 +7,7 @@
  */
 import type { PrismaClient } from '@prisma/client'
 import { resolveRate } from '@/modules/projects/resolveRate'
+import { loggableProjectError } from '@/modules/time/actingFor'
 
 export interface LogTimeInput {
   userId: string
@@ -92,4 +93,39 @@ export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
       billableRateCents,
     },
   })
+}
+
+/**
+ * Server-side guard before new time is logged or a timer started: the project must belong to the
+ * actor's account (INV-5), be active (not archived, nor its client), and the person must have an
+ * active assignment to it and to the task. Returns a user-facing error, or null when OK.
+ */
+export async function checkLoggable(
+  prisma: PrismaClient,
+  ctx: { accountId: string; userId: string; projectId: string; taskId: string },
+): Promise<string | null> {
+  const [project, userAssignment, taskAssignment] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id: ctx.projectId },
+      select: {
+        accountId: true,
+        isActive: true,
+        archivedAt: true,
+        client: { select: { isActive: true, archivedAt: true } },
+      },
+    }),
+    prisma.projectUserAssignment.findUnique({
+      where: { projectId_userId: { projectId: ctx.projectId, userId: ctx.userId } },
+      select: { isActive: true },
+    }),
+    prisma.projectTaskAssignment.findUnique({
+      where: { projectId_taskId: { projectId: ctx.projectId, taskId: ctx.taskId } },
+      select: { isActive: true, task: { select: { isActive: true } } },
+    }),
+  ])
+  const projectError = loggableProjectError(project, ctx.accountId)
+  if (projectError) return projectError
+  if (!userAssignment?.isActive) return 'This person isn’t assigned to that project.'
+  if (!taskAssignment?.isActive || !taskAssignment.task.isActive) return 'That task isn’t available on this project.'
+  return null
 }

@@ -8,10 +8,13 @@ export function TimeEntryButton({
   projects,
   defaultDate,
   label = 'New time entry',
+  forUser,
 }: {
   projects: TimeEntryProject[]
   defaultDate: string
   label?: string
+  /** Set when the timesheet is showing someone else (person switcher). */
+  forUser?: { id: string; name: string }
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -22,7 +25,7 @@ export function TimeEntryButton({
       >
         + {label}
       </button>
-      <TimeEntryModal open={open} onClose={() => setOpen(false)} projects={projects} defaultDate={defaultDate} />
+      <TimeEntryModal open={open} onClose={() => setOpen(false)} projects={projects} defaultDate={defaultDate} forUser={forUser} />
     </>
   )
 }
