@@ -119,4 +119,8 @@ describe('deriveStatusBanner', () => {
   it('uses the invoice currency', () => {
     expect(deriveStatusBanner(inv({ currency: 'EUR' }), TODAY).detail).toContain('€1,200.00')
   })
+
+  it('open but never sent: does not claim it was sent', () => {
+    expect(deriveStatusBanner(inv({ sentAt: null }), TODAY).headline).toBe('Due in 10 days')
+  })
 })

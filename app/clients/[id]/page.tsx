@@ -140,7 +140,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 {canManage && (
                   <div className="mt-2 rounded border border-gray-100 bg-gray-50 px-3 py-3">
                     <ClientContactForm
-                      key={`${ct.firstName}|${ct.lastName}|${ct.title}|${ct.email}|${ct.phoneOffice}|${ct.phoneMobile}|${ct.isInvoiceRecipient}`}
+                      key={ct.id}
                       clientId={client.id}
                       contact={ct}
                     />

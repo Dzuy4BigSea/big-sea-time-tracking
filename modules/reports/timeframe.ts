@@ -1,4 +1,4 @@
-import { startOfWeekMonday, addDays, ymd, parseYmd } from '@/lib/week'
+import { startOfWeek, addDays, ymd, parseYmd } from '@/lib/week'
 
 /**
  * Report timeframe (Harvest-style "Week / Month / Quarter / Year / All time / Custom").
@@ -51,7 +51,7 @@ export function needsFallbackAnchor(params: TimeframeParams, defaultPeriod: Peri
  */
 export function resolveTimeframe(
   params: TimeframeParams,
-  opts: { defaultPeriod?: Period; fallbackAnchor?: Date | null } = {},
+  opts: { defaultPeriod?: Period; fallbackAnchor?: Date | null; weekStartsOn?: 'monday' | 'sunday' } = {},
 ): Timeframe {
   const period = parsePeriod(params.period, opts.defaultPeriod ?? 'all')
 
@@ -75,7 +75,7 @@ export function resolveTimeframe(
   let prev: Date
   let next: Date
   if (period === 'week') {
-    from = startOfWeekMonday(a)
+    from = startOfWeek(a, opts.weekStartsOn ?? 'monday') // account preference, like the timesheet
     till = addDays(from, 6)
     label = `${md(from)} – ${md(till)} ${till.getUTCFullYear()}`
     prev = addDays(from, -7)

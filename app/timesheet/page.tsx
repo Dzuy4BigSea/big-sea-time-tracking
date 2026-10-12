@@ -7,7 +7,7 @@ import { EntryRow } from '@/components/EntryRow'
 import { stopTimerAction } from '@/app/timesheet/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
-import { listActablePeople, loggableProjectsFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
+import { listActablePeople, loggableProjectsFor, managedProjectIdsFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
 import { TimesheetPersonSwitcher } from '@/components/TimesheetPersonSwitcher'
 
 const timeFmt = (d: Date) =>
@@ -56,7 +56,11 @@ export default async function TimesheetPage({
 
   // Active projects (with their tasks) this user may log against, to populate the log-time form.
   // Archived projects / clients are excluded (BugHerd #1).
-  const projectOptions = (await loggableProjectsFor(userId)).map((p) => ({ id: p.id, name: p.name, tasks: p.tasks }))
+  // On someone else's sheet a project manager only acts on projects they manage (null = no limit).
+  const managed = isSelf ? null : await managedProjectIdsFor(current)
+  const projectOptions = (await loggableProjectsFor(userId))
+    .filter((p) => managed === null || managed.has(p.id))
+    .map((p) => ({ id: p.id, name: p.name, tasks: p.tasks }))
 
   // Any running timer for this user (shown regardless of the viewed week).
   const running = await prisma.timeEntry.findFirst({
@@ -220,6 +224,7 @@ export default async function TimesheetPage({
                     durationValue: formatMinutes(e.minutes),
                     minutesLabel: formatMinutes(e.minutes),
                     userId,
+                    canEdit: managed === null || managed.has(e.projectId),
                   }}
                 />
               ))}

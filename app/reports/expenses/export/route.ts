@@ -1,3 +1,4 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -17,7 +18,9 @@ export async function GET(req: Request) {
   }
   // Same timeframe params as the report screen (the Export link carries them); none = all time.
   const sp = new URL(req.url).searchParams
-  const tf = resolveTimeframe(Object.fromEntries(['period', 'anchor', 'from', 'to'].map((k) => [k, sp.get(k) ?? undefined])) as TimeframeParams)
+  const tf = resolveTimeframe(Object.fromEntries(['period', 'anchor', 'from', 'to'].map((k) => [k, sp.get(k) ?? undefined])) as TimeframeParams, {
+    weekStartsOn: await accountWeekStartsOn(accountId),
+  })
   const spentDate = tf.from || tf.till ? { ...(tf.from ? { gte: tf.from } : {}), ...(tf.till ? { lte: tf.till } : {}) } : undefined
   const expenses = await prisma.expense.findMany({
     where: { accountId, ...(spentDate ? { spentDate } : {}) },

@@ -25,12 +25,16 @@ function text(form: FormLike, name: string): string {
   return typeof v === 'string' ? v.trim().slice(0, MAX) : ''
 }
 
-export function parseContactForm(form: FormLike): ContactParseResult {
+/**
+ * `storedEmail`: the contact's current email when editing. An unchanged stored value is accepted
+ * as-is, so a migrated contact with an odd email can still have its other fields edited.
+ */
+export function parseContactForm(form: FormLike, storedEmail?: string | null): ContactParseResult {
   const firstName = text(form, 'firstName')
   const lastName = text(form, 'lastName')
   const email = text(form, 'email')
   if (!firstName && !lastName) return { ok: false, error: 'A contact needs a first or last name.' }
-  if (email && !EMAIL_RE.test(email)) return { ok: false, error: 'That email address doesn’t look right.' }
+  if (email && email !== (storedEmail ?? '').trim() && !EMAIL_RE.test(email)) return { ok: false, error: 'That email address doesn’t look right.' }
   return {
     ok: true,
     data: {

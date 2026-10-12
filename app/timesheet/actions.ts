@@ -8,7 +8,7 @@ import { assertDeletable, type LockState } from '@/modules/time/timeEntry'
 import { parseDurationToMinutes } from '@/modules/shared/duration'
 import { parseYmd } from '@/lib/week'
 import { requireUser } from '@/lib/session'
-import { mayActFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
+import { mayActForOnProject, resolveSubjectUserId } from '@/lib/timesheetSubject'
 
 export type LogTimeState = { error?: string; ok?: boolean }
 
@@ -28,6 +28,8 @@ export async function logTimeAction(_prev: LogTimeState, formData: FormData): Pr
   if (!spentDate) return { error: 'Pick a valid date.' }
   if (!minutes || minutes <= 0) return { error: 'Enter a duration like 1:30, 1.5, or 90m.' }
 
+  // A project manager may log for someone only on projects they manage.
+  if (!(await mayActForOnProject(current, userId, projectId))) return { error: 'You can’t log time for that person on this project.' }
   const notLoggable = await checkLoggable(prisma, { accountId: current.accountId, userId, projectId, taskId })
   if (notLoggable) return { error: notLoggable }
 
@@ -76,10 +78,10 @@ export async function updateTimeEntryAction(_prev: EditTimeState, formData: Form
 
   const entry = await prisma.timeEntry.findFirst({
     where: { id, accountId: current.accountId }, // tenancy (INV-5)
-    select: { userId: true, lockState: true, isRunning: true },
+    select: { userId: true, projectId: true, lockState: true, isRunning: true },
   })
-  // Own entry, or someone the actor may act for (view_edit_others_time, scope re-checked).
-  if (!entry || !(await mayActFor(current, entry.userId))) return { error: 'Entry not found.' }
+  // Own entry, or someone the actor may act for on this project (view_edit_others_time, scope re-checked).
+  if (!entry || !(await mayActForOnProject(current, entry.userId, entry.projectId))) return { error: 'Entry not found.' }
   if (entry.isRunning) return { error: 'Stop the timer before editing this entry.' }
   if (entry.lockState !== 'open') return { error: 'This entry is locked and can’t be edited.' } // INV-3
 
@@ -87,7 +89,12 @@ export async function updateTimeEntryAction(_prev: EditTimeState, formData: Form
   if (!minutes || minutes <= 0) return { error: 'Enter a duration like 1:30, 1.5, or 90m.' }
   const notes = String(formData.get('notes') ?? '').trim() || null
 
-  await prisma.timeEntry.update({ where: { id }, data: { minutes, notes } })
+  // Conditional write: if an invoice/approval locked the entry since the read above, nothing changes (INV-3).
+  const { count } = await prisma.timeEntry.updateMany({
+    where: { id, accountId: current.accountId, lockState: 'open', isRunning: false },
+    data: { minutes, notes },
+  })
+  if (count === 0) return { error: 'This entry is locked and can’t be edited.' }
   revalidatePath('/timesheet')
   return { ok: true }
 }
@@ -98,15 +105,18 @@ export async function deleteTimeEntryAction(formData: FormData): Promise<void> {
   if (!id) return
   const entry = await prisma.timeEntry.findFirst({
     where: { id, accountId: current.accountId }, // tenancy (INV-5)
-    select: { userId: true, lockState: true, isRunning: true },
+    select: { userId: true, projectId: true, lockState: true, isRunning: true },
   })
-  if (!entry || !(await mayActFor(current, entry.userId))) return // own entry or permitted person
+  if (!entry || !(await mayActForOnProject(current, entry.userId, entry.projectId))) return // own entry or permitted person + project
   if (entry.isRunning && entry.userId !== current.userId) return // only the owner stops/discards a live timer
   try {
     assertDeletable(entry.lockState as LockState) // approved/invoiced are immutable (INV-3)
   } catch {
     return
   }
-  await prisma.timeEntry.delete({ where: { id } })
+  // Conditional delete so an entry locked since the read above is never removed (INV-3).
+  await prisma.timeEntry.deleteMany({
+    where: { id, accountId: current.accountId, lockState: 'open', ...(entry.userId !== current.userId ? { isRunning: false } : {}) },
+  })
   revalidatePath('/timesheet')
 }

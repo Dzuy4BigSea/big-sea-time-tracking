@@ -1,3 +1,4 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
@@ -31,7 +32,7 @@ export default async function ExpensesReportPage({
     const latest = await prisma.expense.aggregate({ where: { accountId }, _max: { spentDate: true } })
     fallbackAnchor = latest._max.spentDate ?? new Date()
   }
-  const tf = resolveTimeframe(searchParams, { fallbackAnchor })
+  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
   const tfq = timeframeQuery(tf)
   const sortq = sort.key === 'cost' && sort.dir === 'desc' ? {} : { sort: sort.key, dir: sort.dir }
   const sortHref = (s: SortState<SortKey>) => buildHref('/reports/expenses', { ...tfq, sort: s.key, dir: s.dir })

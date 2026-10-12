@@ -51,6 +51,30 @@ export async function mayActFor(current: CurrentUser, targetUserId: string): Pro
 }
 
 /**
+ * Project ids where a scoped actor (project manager) is an active PM, or null when the actor's
+ * `view_edit_others_time` is account-wide. A PM may only touch someone else's time on these.
+ */
+export async function managedProjectIdsFor(current: CurrentUser): Promise<Set<string> | null> {
+  if (!isCapabilityScoped(actorOf(current), 'view_edit_others_time')) return null
+  const rows = await prisma.projectUserAssignment.findMany({
+    where: { accountId: current.accountId, userId: current.userId, isProjectManager: true, isActive: true },
+    select: { projectId: true },
+  })
+  return new Set(rows.map((r) => r.projectId))
+}
+
+/**
+ * mayActFor narrowed to one project: a project manager may act for someone only on projects they
+ * manage, not on every project that person is on.
+ */
+export async function mayActForOnProject(current: CurrentUser, targetUserId: string, projectId: string): Promise<boolean> {
+  if (targetUserId === current.userId) return true
+  if (!(await mayActFor(current, targetUserId))) return false
+  const managed = await managedProjectIdsFor(current)
+  return managed === null || managed.has(projectId)
+}
+
+/**
  * The user id an action should operate on: the requested one if permitted, otherwise null.
  * An empty request means "myself".
  */

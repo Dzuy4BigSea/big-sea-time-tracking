@@ -5,6 +5,15 @@ const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
 const ymd = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null)
 
 describe('resolveTimeframe', () => {
+  it('week honors a Sunday week start (account preference)', () => {
+    // 2026-10-14 is a Wednesday
+    const mon = resolveTimeframe({ period: 'week', anchor: '2026-10-14' })
+    const sun = resolveTimeframe({ period: 'week', anchor: '2026-10-14' }, { weekStartsOn: 'sunday' })
+    expect(mon.from?.toISOString().slice(0, 10)).toBe('2026-10-12')
+    expect(sun.from?.toISOString().slice(0, 10)).toBe('2026-10-11')
+    expect(sun.till?.toISOString().slice(0, 10)).toBe('2026-10-17')
+  })
+
   it('defaults to all time with open bounds', () => {
     const tf = resolveTimeframe({})
     expect(tf).toMatchObject({ period: 'all', from: null, till: null, label: 'All time' })

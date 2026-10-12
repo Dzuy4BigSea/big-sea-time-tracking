@@ -116,7 +116,7 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
       kind: partial ? 'partial' : 'open',
       tone: partial ? 'warning' : 'info',
       daysUntilDue: daysUntil,
-      headline: partial ? `Partially paid · ${when.toLowerCase()}` : `Sent · ${when.toLowerCase()}`,
+      headline: partial ? `Partially paid · ${when.toLowerCase()}` : v.sentAt ? `Sent · ${when.toLowerCase()}` : when,
       detail: `${dueText} on ${formatDate(v.dueDate)}${paidText}`,
     }
   }

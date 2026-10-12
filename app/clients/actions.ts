@@ -123,10 +123,13 @@ export async function saveContactAction(_prev: ContactFormState, formData: FormD
   const accountId = await clientAdmin(clientId)
   if (!accountId) return { error: 'You do not have permission to edit this client’s contacts.' }
 
-  const parsed = parseContactForm(formData)
+  const contactId = String(formData.get('contactId') ?? '')
+  const stored = contactId
+    ? await prisma.clientContact.findFirst({ where: { id: contactId, clientId, accountId }, select: { email: true } })
+    : null
+  const parsed = parseContactForm(formData, stored?.email)
   if (!parsed.ok) return { error: parsed.error }
 
-  const contactId = String(formData.get('contactId') ?? '')
   try {
     if (contactId) {
       const { count } = await prisma.clientContact.updateMany({

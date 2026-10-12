@@ -46,4 +46,9 @@ describe('parseContactForm', () => {
     const r = parseContactForm(form({ firstName: 'x'.repeat(500) }))
     expect(r.ok && r.data.firstName.length).toBe(200)
   })
+
+  it('keeps an unchanged stored email even if it would fail validation (migrated contacts)', () => {
+    expect(parseContactForm(form({ firstName: 'A', email: 'billing@acme' }), 'billing@acme').ok).toBe(true)
+    expect(parseContactForm(form({ firstName: 'A', email: 'new@acme' }), 'billing@acme').ok).toBe(false)
+  })
 })

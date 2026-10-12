@@ -1,3 +1,4 @@
+import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -44,7 +45,7 @@ export default async function ReportsPage({
     const latest = await prisma.timeEntry.aggregate({ where: { accountId }, _max: { spentDate: true } })
     fallbackAnchor = latest._max.spentDate ?? new Date()
   }
-  const tf = resolveTimeframe(searchParams, { fallbackAnchor })
+  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
   const { from, till } = tf
 
   // Aggregate in the DB (never load raw entries — 388k rows). Metric expressions are shared;
