@@ -41,10 +41,8 @@ INTEGRATION_ENC_KEY=... DATABASE_URL=... node scripts/backup-harvest-offline.mjs
 **Later delta backups:** use **Settings → Migrate → Incremental (delta since last)** in the app. Small,
 serverless-safe, pulls only records changed since the last clean pull.
 
-> ⚠️ As of 2026-09-30 the in-app button **can't be used for the first update sync**: the initial
-> backup never saved `lastPulledAt` on the Harvest connection, so it refuses ("run a full backup
-> first"). Use the offline incremental mode instead; it saves `lastPulledAt` when it finishes, so
-> later deltas can use the button.
+> The button works for the first update sync too (fixed 2026-09-30: it deltas from the last finished
+> full backup, and an estimates-only 403 counts as clean). The offline mode below is the fallback.
 
 **Offline incremental (update sync):**
 ```bash
@@ -53,10 +51,11 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
 ```
 - Writes a **new** `incremental` snapshot; the original full snapshot is never touched. Resumable.
 - Light resources: pulled whole. Expenses/invoices: `updated_since` delta (id-mapped → safe upserts).
-- **Time entries are special:** the bulk import (`migrate-timesheets.mjs`) has no per-row id-map, so a
-  delta upsert would duplicate. The sync pulls **whole years** (`--years`) so the bulk importer can
-  replace them by year (this also catches Harvest-side deletions), plus a `delta` chunk to spot
-  edits in older years. Only safe while Track2 has **no native time entries** in those years.
+- **Time entries:** since 2026-10-07 every Harvest-sourced entry is keyed by `TimeEntry.harvestId`.
+  The first time after the bulk import, run `node --env-file=.env scripts/rebuild-timesheets.mjs`
+  (dry run, then `--apply`) after importing the delta's other entities: it composes full snapshot +
+  deltas and replaces each year with keyed rows, then writes the `time_harvest_ids` marker. From then
+  on the importer upserts time by `harvestId`. Deletions in Harvest are not caught by deltas.
 
 ## Step 2 — Import into Track2 (`Settings → Migrate → 3`)
 1. **Preview import (dry run)** — writes nothing; reports created/updated/skipped/errors per entity.
