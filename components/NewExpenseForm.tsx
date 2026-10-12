@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from 'react-dom'
 import { createExpenseAction, type NewExpenseState } from '@/app/expenses/actions'
+import { Combobox } from '@/components/Combobox'
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -30,7 +31,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export interface ExpenseOption {
   id: string
   label: string
+  /** Section heading in the picker (projects are grouped under their client, like Harvest). */
+  group?: string
+  /** Extra hidden search text (e.g. project code). */
+  keywords?: string
 }
+
+/** Map expense options to type-to-filter combobox options. */
+export const toComboOptions = (opts: ExpenseOption[]) => opts.map((o) => ({ value: o.id, label: o.label, group: o.group, keywords: o.keywords }))
 
 export function NewExpenseForm({
   projects,
@@ -51,28 +59,17 @@ export function NewExpenseForm({
       <form action={formAction} className="space-y-3 border-t border-gray-100 p-4">
         <div className="flex flex-wrap gap-3">
           <Field label="Project">
-            <select name="projectId" required defaultValue="" className={`${input} w-64`}>
-              <option value="" disabled>
-                Select a project…
-              </option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            <Combobox name="projectId" required options={toComboOptions(projects)} placeholder="Select a project…" className="w-64" />
           </Field>
           <Field label="Category">
-            <select name="categoryId" required defaultValue="" className={`${input} w-56`} disabled={noCategories}>
-              <option value="" disabled>
-                {noCategories ? 'No categories yet' : 'Select a category…'}
-              </option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            <Combobox
+              name="categoryId"
+              required
+              disabled={noCategories}
+              options={toComboOptions(categories)}
+              placeholder={noCategories ? 'No categories yet' : 'Select a category…'}
+              className="w-56"
+            />
           </Field>
           <Field label="Date">
             <input name="spentDate" type="date" required defaultValue={today} className={input} />

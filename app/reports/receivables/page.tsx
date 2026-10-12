@@ -2,6 +2,9 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { requireUser } from '@/lib/session'
+import { SortableTh } from '@/components/SortableTh'
+import { buildHref } from '@/modules/reports/timeframe'
+import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,8 +13,13 @@ const dayMs = 24 * 60 * 60 * 1000
 type Buckets = { current: number; d1_30: number; d31_60: number; d60plus: number; total: number }
 const emptyBuckets = (): Buckets => ({ current: 0, d1_30: 0, d31_60: 0, d60plus: 0, total: 0 })
 
-export default async function ReceivablesPage() {
+const SORT_KEYS = ['client', 'current', 'd1_30', 'd31_60', 'd60plus', 'total'] as const
+type SortKey = (typeof SORT_KEYS)[number]
+
+export default async function ReceivablesPage({ searchParams }: { searchParams: { sort?: string; dir?: string } }) {
   const { accountId } = await requireUser()
+  const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'total', dir: 'desc' })
+  const sortHref = (s: SortState<SortKey>) => buildHref('/reports/receivables', { sort: s.key, dir: s.dir })
   const invoices = await prisma.invoice.findMany({
     where: { accountId, status: 'open' },
     select: { totalCents: true, paidCents: true, dueDate: true, client: { select: { name: true } } },
@@ -36,24 +44,31 @@ export default async function ReceivablesPage() {
     byClient.set(inv.client.name, b)
   }
 
-  const rows = [...byClient.entries()].sort((a, b) => b[1].total - a[1].total)
+  const rows = sortRows([...byClient.entries()], sort, {
+    client: ([c]) => c,
+    current: ([, b]) => b.current,
+    d1_30: ([, b]) => b.d1_30,
+    d31_60: ([, b]) => b.d31_60,
+    d60plus: ([, b]) => b.d60plus,
+    total: ([, b]) => b.total,
+  })
 
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Reports</h1>
-      <p className="mb-4 text-sm text-gray-500">Receivables (A/R aging) · open invoices · live from Supabase</p>
+      <p className="mb-4 text-sm text-gray-500">Receivables (A/R aging) · open invoices as of today · live from Supabase</p>
       <ReportsTabs active="Receivables" />
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3 font-medium">Client</th>
-              <th className="px-4 py-3 text-right font-medium">Current</th>
-              <th className="px-4 py-3 text-right font-medium">1–30</th>
-              <th className="px-4 py-3 text-right font-medium">31–60</th>
-              <th className="px-4 py-3 text-right font-medium">60+</th>
-              <th className="px-4 py-3 text-right font-medium">Outstanding</th>
+              <SortableTh label="Client" col="client" sort={sort} hrefFor={sortHref} />
+              <SortableTh label="Current" col="current" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="1–30" col="d1_30" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="31–60" col="d31_60" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="60+" col="d60plus" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
+              <SortableTh label="Outstanding" col="total" sort={sort} hrefFor={sortHref} firstDir="desc" align="right" />
             </tr>
           </thead>
           <tbody>
