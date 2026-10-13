@@ -53,7 +53,7 @@ describe('groupTimeEntriesIntoLineItems', () => {
     expect(items.map((i) => i.unitPriceCents).sort()).toEqual([12000, 15000])
   })
 
-  it('AC-INV-003: fixed-fee time is not billed from hours (no auto flat fee line)', () => {
+  it('AC-INV-003: fixed-fee time is not grouped or linked (the fee line comes from fixedFeeLine)', () => {
     const items = groupTimeEntriesIntoLineItems(
       [
         entry({ id: 'a', minutes: 600, projectId: 'prj_logo', projectName: 'Logo', projectType: 'fixed_fee', projectFeesCents: 500000, billableRateCents: 0 }),

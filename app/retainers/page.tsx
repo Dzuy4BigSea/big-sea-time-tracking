@@ -4,6 +4,7 @@ import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
+import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 import { NewRetainerForm } from '@/components/NewRetainerForm'
 import { addDepositAction, applyDrawdownAction, archiveRetainerAction } from '@/app/retainers/actions'
 
@@ -40,6 +41,7 @@ export default async function RetainersPage() {
       FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
       WHERE te."accountId" = ${accountId} AND te."isBillable" AND NOT te."isRunning"
         AND te."invoiceLineItemId" IS NULL AND te."lockState"::text <> 'invoiced'
+        AND p."projectType"::text <> 'fixed_fee' -- fixed fee: fee − invoiced (below), not hours × rate
       GROUP BY p."clientId", te."projectId"`,
     prisma.$queryRaw<{ clientId: string; projectId: string; cents: bigint }[]>`
       SELECT p."clientId", x."projectId",
@@ -53,7 +55,9 @@ export default async function RetainersPage() {
   // Uninvoiced billable amounts keyed by clientId and by clientId|projectId.
   const byClient = new Map<string, number>()
   const byProject = new Map<string, number>()
-  for (const r of [...timeRows, ...expenseRows]) {
+  // Fixed Fee projects (Harvest): uninvoiced amount = project fee − amount invoiced.
+  const feeRows = (await fixedFeeStatus(prisma, accountId, { activeOnly: true })).map((f) => ({ clientId: f.clientId, projectId: f.projectId, cents: f.remainingCents }))
+  for (const r of [...timeRows, ...expenseRows, ...feeRows]) {
     const cents = Number(r.cents)
     byClient.set(r.clientId, (byClient.get(r.clientId) ?? 0) + cents)
     const key = `${r.clientId}|${r.projectId}`

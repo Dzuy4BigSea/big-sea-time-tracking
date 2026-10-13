@@ -105,7 +105,13 @@ const NOT_PERMITTED = 'You do not have permission to manage invoices.'
 
 /** Redirect back to `path` with a user-visible error (?error=…). Throws NEXT_REDIRECT — call outside try/catch. */
 function failTo(path: string, message: string): never {
-  redirect(`${path}?error=${encodeURIComponent(message.slice(0, 300))}`)
+  redirect(`${path}${path.includes('?') ? '&' : '?'}error=${encodeURIComponent(message.slice(0, 300))}`)
+}
+
+/** "Generate" on the Invoices page → the project picker for that client (Harvest's create-from-time flow). */
+export async function openGeneratePickerAction(formData: FormData): Promise<void> {
+  const clientId = String(formData.get('clientId') ?? '')
+  redirect(clientId ? `/invoices/generate?clientId=${encodeURIComponent(clientId)}` : '/invoices')
 }
 
 const isUniqueViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002'
@@ -179,15 +185,20 @@ export async function generateInvoiceAction(formData: FormData): Promise<void> {
   // Guard: the client must belong to the actor's account.
   const client = await prisma.client.findUnique({ where: { id: clientId }, select: { accountId: true } })
   if (!client || client.accountId !== accountId) return
+  // The project picker (/invoices/generate) posts `pickProjects` + one `projectId` per checked project.
+  const picked = formData.has('pickProjects')
+  const projectIds = picked ? formData.getAll('projectId').map(String).filter(Boolean) : undefined
+  const back = picked ? `/invoices/generate?clientId=${encodeURIComponent(clientId)}` : '/invoices'
+  if (projectIds && projectIds.length === 0) failTo(back, 'Choose at least one project to invoice.')
   let invoice: Awaited<ReturnType<typeof generateInvoice>> = null
   let error: string | null = null
   try {
     // Stamps the client's business entity inside the same transaction (specs/16).
-    invoice = await generateInvoice(prisma, { accountId, clientId })
+    invoice = await generateInvoice(prisma, { accountId, clientId, projectIds })
   } catch (e) {
     error = e instanceof GenerateInvoiceError ? e.message : 'Could not generate the invoice. Please try again.'
   }
-  if (error) failTo('/invoices', error)
+  if (error) failTo(back, error)
   if (invoice) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoice.id, action: 'create', summary: 'Draft generated from tracked time' })
   revalidatePath('/invoices')
   // redirect() throws NEXT_REDIRECT — keep it outside any try/catch.
