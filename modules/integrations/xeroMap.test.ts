@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toXeroInvoice, toXeroPayment, centsToMajor } from './xeroMap'
+import { toXeroInvoice, toXeroPayment, centsToMajor, buildXeroLines, xeroLinesTotalCents } from './xeroMap'
 
 describe('xero invoice mapper', () => {
   const base = {
@@ -35,6 +35,50 @@ describe('xero invoice mapper', () => {
   it('omits tracking when not configured', () => {
     const x = toXeroInvoice(base) as any
     expect(x.LineItems[0].Tracking).toBeUndefined()
+  })
+})
+
+describe('xero lines carry discount + tax so totals match', () => {
+  it('sum of Xero lines equals subtotal − discount + tax', () => {
+    // 0.33h × $150 = $49.50, 10 × $160 = $1,600 → subtotal 164950; 10% discount 16495; tax 11876
+    const lines = buildXeroLines({
+      lines: [
+        { description: 'Design', quantity: 0.33, unitPriceCents: 15000, amountCents: 4950 },
+        { description: 'Dev', quantity: 10, unitPriceCents: 16000, amountCents: 160000 },
+      ],
+      discountCents: 16495,
+      discountLabel: 'Discount (10%)',
+      taxes: [{ name: 'Sales tax (8%)', cents: 11876 }],
+      taxAccountCode: '820',
+    })
+    expect(lines).toHaveLength(4)
+    expect(lines[2]).toMatchObject({ description: 'Discount (10%)', quantity: 1, unitAmount: -164.95 })
+    expect(lines[3]).toMatchObject({ unitAmount: 118.76, accountCode: '820' })
+    expect(xeroLinesTotalCents(lines)).toBe(164950 - 16495 + 11876)
+    const x = toXeroInvoice({
+      invoiceNumber: '1',
+      reference: null,
+      currency: 'USD',
+      issueDateYmd: null,
+      dueDateYmd: null,
+      contactId: 'c',
+      defaultRevenueAccountCode: '400',
+      lineItems: lines,
+      lineAmountTypes: 'NoTax',
+    }) as any
+    expect(x.LineAmountTypes).toBe('NoTax')
+    expect(x.LineItems[3].AccountCode).toBe('820')
+    expect(x.LineItems[0].AccountCode).toBe('400')
+  })
+
+  it('a legacy line whose qty × price ≠ amount is sent as 1 × amount', () => {
+    const lines = buildXeroLines({
+      lines: [{ description: 'Old', quantity: 0.33, unitPriceCents: 15000, amountCents: 5000 }],
+      discountCents: 0,
+      taxes: [],
+    })
+    expect(lines[0]).toMatchObject({ quantity: 1, unitAmount: 50 })
+    expect(xeroLinesTotalCents(lines)).toBe(5000)
   })
 })
 

@@ -29,7 +29,7 @@ import { listAudit } from '@/lib/audit'
 
 export const dynamic = 'force-dynamic'
 
-export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
+export default async function InvoiceDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { error?: string } }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'invoices')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')
@@ -106,6 +106,12 @@ export default async function InvoiceDetailPage({ params }: { params: { id: stri
         <div className="text-xl font-semibold">{banner.headline}</div>
         <div className="text-sm opacity-90">{banner.detail}</div>
       </div>
+
+      {searchParams?.error && (
+        <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {searchParams.error}
+        </div>
+      )}
 
       {latest && (
         <p className="mb-4 text-sm text-gray-500">

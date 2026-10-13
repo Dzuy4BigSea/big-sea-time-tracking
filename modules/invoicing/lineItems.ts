@@ -2,10 +2,17 @@
  * Group tracked time into invoice line items (specs/05-invoicing.md §Grouping tracked time).
  *
  * Pure function. Splits every grouping by distinct rate (a line item has ONE unit price).
- * Fixed-fee projects contribute a single flat line of the project fee regardless of hours
- * (their entries are still marked invoiced by the caller, but do not multiply out).
+ *
+ * Fixed-fee projects are NOT billed from tracked time. Harvest bills a fixed fee through a manual
+ * line / amount, so auto-adding the whole project fee on every generation that happened to include
+ * fixed-fee hours double-billed the fee (and a project with no fee produced a $0 line). The caller
+ * (generateInvoice) leaves fixed-fee time out of the pool; this function also ignores any such
+ * entry defensively.
+ *
+ * Line math: quantity is the hours rounded half-up to 2 decimals (what the invoice, the client and
+ * Xero see), and amount = rounded quantity × rate, so quantity × unit price always equals amount.
  */
-import { lineAmountCents } from '../shared/money'
+import { roundHalfUp } from '../shared/money'
 
 export type TimeGrouping = 'by_task' | 'by_project' | 'by_person' | 'detailed'
 
@@ -37,7 +44,22 @@ export interface GeneratedLineItem {
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
-const hours = (minutes: number) => minutes / 60
+
+/** Hours for `minutes`, in hundredths, rounded half-up (integer — e.g. 20 min → 33 = 0.33 h). */
+export function hoursHundredths(minutes: number): number {
+  return roundHalfUp((minutes * 100) / 60)
+}
+
+/** Line amount in cents for a quantity in hundredths of an hour × an hourly rate, half-up. */
+export function amountForHundredths(hundredths: number, rateCents: number): number {
+  return roundHalfUp((hundredths * rateCents) / 100)
+}
+
+/** The displayed quantity + amount for `minutes` of time at `rateCents`/hour. */
+export function timeLine(minutes: number, rateCents: number): { quantityHours: number; amountCents: number } {
+  const h = hoursHundredths(minutes)
+  return { quantityHours: h / 100, amountCents: amountForHundredths(h, rateCents) }
+}
 
 /**
  * @param entries billable time entries already pulled from the uninvoiced pool
@@ -49,43 +71,21 @@ export function groupTimeEntriesIntoLineItems(
 ): GeneratedLineItem[] {
   const items: GeneratedLineItem[] = []
 
-  // 1. Fixed-fee projects → one flat line per project (fee, not hours × rate).
-  const fixedByProject = new Map<string, TimeEntryForInvoice[]>()
-  const timeEntries: TimeEntryForInvoice[] = []
-  for (const e of entries) {
-    if (e.projectType === 'fixed_fee') {
-      const list = fixedByProject.get(e.projectId) ?? []
-      list.push(e)
-      fixedByProject.set(e.projectId, list)
-    } else {
-      timeEntries.push(e)
-    }
-  }
-  for (const [projectId, list] of fixedByProject) {
-    const fee = list[0].projectFeesCents ?? 0
-    items.push({
-      kind: 'flat',
-      description: list[0].projectName,
-      quantityHours: 1,
-      unitPriceCents: fee,
-      amountCents: fee,
-      linkedProjectId: projectId,
-      sourceEntryIds: list.map((e) => e.id),
-    })
-  }
+  // Fixed-fee time is never billed from hours (see header); only time & materials is grouped.
+  const timeEntries = entries.filter((e) => e.projectType === 'time_and_materials')
 
-  // 2. Time & materials → grouped, split by distinct rate.
+  // Time & materials → grouped, split by distinct rate.
   if (grouping === 'detailed') {
     for (const e of timeEntries) {
       const rate = e.billableRateCents ?? 0
-      const qty = hours(e.minutes)
+      const { quantityHours, amountCents } = timeLine(e.minutes, rate)
       const label = `[${e.projectCode ?? e.projectName}] ${isoDate(e.spentDate)} - ${e.taskName} / ${e.userName}${e.notes ? `: ${e.notes}` : ''}`
       items.push({
         kind: 'time',
         description: label,
-        quantityHours: qty,
+        quantityHours,
         unitPriceCents: rate,
-        amountCents: lineAmountCents(qty, rate),
+        amountCents,
         linkedProjectId: e.projectId,
         sourceEntryIds: [e.id],
       })
@@ -112,15 +112,15 @@ export function groupTimeEntriesIntoLineItems(
     const first = list[0]
     const rate = first.billableRateCents ?? 0
     const totalMinutes = list.reduce((s, e) => s + e.minutes, 0)
-    const qty = hours(totalMinutes)
+    const { quantityHours, amountCents } = timeLine(totalMinutes, rate)
     const description =
       grouping === 'by_task' ? first.taskName : grouping === 'by_person' ? first.userName : first.projectName
     items.push({
       kind: 'time',
       description,
-      quantityHours: qty,
+      quantityHours,
       unitPriceCents: rate,
-      amountCents: lineAmountCents(qty, rate),
+      amountCents,
       linkedProjectId: first.projectId,
       sourceEntryIds: list.map((e) => e.id),
     })

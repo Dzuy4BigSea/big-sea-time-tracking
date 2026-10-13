@@ -4,6 +4,9 @@ import {
   computeStripeSignature,
   verifyStripeWebhook,
   parseStripePaymentEvent,
+  stripeDuplicateKeys,
+  currencyMatches,
+  mapStripeMethodType,
 } from './stripeWebhook'
 
 const SECRET = 'whsec_test_secret'
@@ -56,7 +59,7 @@ describe('stripe event parsing', () => {
       type: 'checkout.session.completed',
       data: { object: { id: 'cs_1', payment_intent: 'pi_9', payment_status: 'paid', amount_total: 10000, currency: 'usd', metadata: { invoiceId: 'inv_9' } } },
     })
-    expect(ev).toMatchObject({ chargeId: 'pi_9', invoiceId: 'inv_9', amountReceivedCents: 10000 })
+    expect(ev).toMatchObject({ paymentIntentId: 'pi_9', idempotencyKey: 'pi_9', invoiceId: 'inv_9', amountReceivedCents: 10000 })
   })
 
   it('ignores unrelated event types', () => {
@@ -67,5 +70,46 @@ describe('stripe event parsing', () => {
     expect(
       parseStripePaymentEvent({ type: 'checkout.session.completed', data: { object: { payment_status: 'unpaid' } } }),
     ).toBeNull()
+  })
+
+  it('one payment has the same idempotency key (the PaymentIntent id) across all event types', () => {
+    const session = parseStripePaymentEvent({
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_1', payment_intent: 'pi_7', payment_status: 'paid', amount_total: 500, currency: 'usd', payment_method_types: ['card', 'us_bank_account'] } },
+    })!
+    const intent = parseStripePaymentEvent({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_7', latest_charge: 'ch_7', amount_received: 500, currency: 'usd' } },
+    })!
+    const charge = parseStripePaymentEvent({
+      type: 'charge.succeeded',
+      data: { object: { id: 'ch_7', payment_intent: 'pi_7', amount_captured: 500, currency: 'usd', payment_method_details: { type: 'card' } } },
+    })!
+    expect([session.idempotencyKey, intent.idempotencyKey, charge.idempotencyKey]).toEqual(['pi_7', 'pi_7', 'pi_7'])
+    // legacy rows were keyed by charge id — the duplicate check covers both
+    expect(stripeDuplicateKeys(intent)).toEqual(['pi_7', 'ch_7'])
+    expect(charge.method).toBe('card')
+    expect(session.method).toBe('other') // two methods offered → not derivable from the session
+  })
+
+  it('falls back to the charge / session id when there is no PaymentIntent', () => {
+    expect(parseStripePaymentEvent({ type: 'charge.succeeded', data: { object: { id: 'ch_9', amount: 100 } } })!.idempotencyKey).toBe('ch_9')
+  })
+
+  it('handles ACH: async_payment_succeeded and us_bank_account → bank_transfer', () => {
+    const ev = parseStripePaymentEvent({
+      type: 'checkout.session.async_payment_succeeded',
+      data: { object: { id: 'cs_2', payment_intent: 'pi_2', payment_status: 'paid', amount_total: 900, currency: 'usd', payment_method_types: ['us_bank_account'] } },
+    })!
+    expect(ev.idempotencyKey).toBe('pi_2')
+    expect(ev.method).toBe('bank_transfer')
+    expect(mapStripeMethodType('card')).toBe('card')
+    expect(mapStripeMethodType('us_bank_account')).toBe('bank_transfer')
+    expect(mapStripeMethodType('klarna')).toBe('other')
+  })
+
+  it('currencyMatches is case-insensitive', () => {
+    expect(currencyMatches('USD', 'usd')).toBe(true)
+    expect(currencyMatches('USD', 'CAD')).toBe(false)
   })
 })
