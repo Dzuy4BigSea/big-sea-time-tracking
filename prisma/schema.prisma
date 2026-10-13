@@ -390,6 +390,7 @@ model User {
   expenses           Expense[]
   auditLogs          AuditLog[]              @relation("AuditActor")
   savedReports       SavedReport[]
+  googleDriveGrant   GoogleDriveGrant?
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -1134,4 +1135,21 @@ model SavedReport {
 
   @@index([accountId])
   @@index([createdById])
+}
+
+// Per-user Google Drive grant for "Export → Google Drive" (OPS.md §8). Scope drive.file only (files the
+// app creates). The refresh token is AES-256-GCM encrypted with INTEGRATION_ENC_KEY (lib/crypto) and is
+// never returned to the client; a user can only ever use their own row.
+model GoogleDriveGrant {
+  id                    String   @id @default(cuid())
+  accountId             String
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  encryptedRefreshToken String
+  scope                 String
+  googleEmail           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([accountId])
 }

@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
+import { ExportMenu } from '@/components/ExportMenu'
 import { SaveReportControls } from '@/components/SaveReportControls'
 import { savedReportContext, currentParams } from '@/modules/reports/savedReportContext'
 import { ymd } from '@/lib/week'
@@ -165,9 +166,7 @@ export default async function ReportsPage({
         <div className="flex items-center gap-2">
         <SaveReportControls kind="time_summary" params={saveParams} saved={saved} />
         {canExport && (
-          <Link href={buildHref('/reports/export', tfq)} prefetch={false} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
-            Export CSV
-          </Link>
+          <ExportMenu csvHref={buildHref('/reports/export', { tab, ...tfq })} />
         )}
         </div>
       </div>

@@ -84,11 +84,14 @@ export function DetailedToolbar({
   f,
   href,
   exportHref,
+  exportMenu,
 }: {
   kind: DetailedKind
   f: DetailedFilters
   href: (q: Record<string, string | null>) => string
   exportHref: string
+  /** Replaces the plain "Export CSV" button (e.g. an Export ▾ menu with Google Drive). */
+  exportMenu?: React.ReactNode
 }) {
   const billableLabel = { all: 'Billable · Non-billable', billable: 'Billable', nonbillable: 'Non-billable' }[f.billable]
   const invoicedLabel = { all: 'Invoiced · Uninvoiced', invoiced: 'Invoiced', uninvoiced: 'Uninvoiced' }[f.invoiced]
@@ -133,9 +136,13 @@ export function DetailedToolbar({
         </span>
         Active projects only
       </Link>
-      <a href={exportHref} className="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 shadow-sm hover:bg-gray-50">
-        Export CSV
-      </a>
+      {exportMenu ? (
+        <div className="ml-auto">{exportMenu}</div>
+      ) : (
+        <a href={exportHref} className="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 shadow-sm hover:bg-gray-50">
+          Export CSV
+        </a>
+      )}
     </div>
   )
 }

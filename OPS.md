@@ -161,6 +161,8 @@ Fixes for what it may find:
 
 ## 7. Exports
 
+- Report screens (Time, Detailed time, Profitability, project Tasks) have an Export ▾ menu: CSV, and
+  Google Drive when configured (§8).
 - Reports → Export CSV (`/reports/export`) and the detailed time CSV (`/reports/detailed/export`) now
   stream in keyset-paginated batches of 2,000 rows; same columns and permission checks as before.
 - Settings → **Data export** (`/settings/export`, admins with `edit_account_settings`): one streamed CSV
@@ -215,10 +217,47 @@ set; without them the app works exactly as before (password only). Password logi
 To turn Google off again, remove `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` and redeploy. Disabling password
 login (Google-only) is a later change.
 
-**Next: Google Drive export** (BugHerd #4/#10, not built). Plan: keep sign-in scopes as they are and ask
-for `https://www.googleapis.com/auth/drive.file` only when someone first clicks "Export to Google Drive"
-(incremental consent: `include_granted_scopes=true`, `access_type=offline`, `prompt=consent` the first
-time). `drive.file` only reaches files the app creates. Store the refresh token per user, encrypted with
-`lib/crypto.ts` (`INTEGRATION_ENC_KEY`), in a small new table (e.g. `UserGoogleCredential`: userId,
-accountId, encrypted refresh token, granted scopes, timestamps), revocable by the user. Exports then mint
-short-lived access tokens server-side and upload the file.
+### Export to Google Drive (BugHerd #4/#10)
+
+Time report, Detailed time report, Profitability and a project's Tasks tab have an **Export ▾** menu:
+**CSV** (download, as before) and **Google Drive**. Google Drive creates a **new** native Google Sheet in
+the exporting user's own My Drive, named like `Track2 – Time report – Clients – 01 Oct–31 Oct 2026`, and
+the page comes back with "Saved to your Google Drive · Open spreadsheet". The Drive item only shows when
+`AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `INTEGRATION_ENC_KEY` are all set; otherwise the menu is CSV only.
+
+**How it works** (`modules/integrations/googleDrive.ts`, `lib/googleDrive.ts`, `app/api/google/drive/*`):
+- Sign-in scopes are unchanged (`openid email profile`). The first Drive export asks, via our own small
+  OAuth flow with incremental consent, for `https://www.googleapis.com/auth/drive.file` (only files the
+  app creates; it can't read anything else in Drive) plus `openid email` to confirm whose account it is.
+  Parameters: `access_type=offline`, `prompt=consent`, `include_granted_scopes=true`, `login_hint` = the
+  user's email, `hd` = the allowed domain.
+- The OAuth `state` is HMAC-SHA256-signed with `AUTH_SECRET`, holds userId/account, the return page and
+  the pending export, expires after 10 minutes, and is bound to the browser by an httpOnly nonce cookie.
+  The callback also requires a verified Google email equal to the signed-in Track2 user's email.
+- The refresh token is stored per user in `GoogleDriveGrant` (AES-256-GCM via `lib/crypto.ts`), never
+  sent to the browser or logged. Each export mints a short-lived access token from it. If Google answers
+  `invalid_grant` (revoked/expired), the grant is deleted and the user goes through consent again, then
+  the export runs. A user can only use their own grant.
+- The CSV is produced by the same generators as the download (`modules/reports/exports.ts`), with the same
+  permission checks and account scoping, then uploaded with the Drive v3 upload API (multipart up to 5 MB,
+  a single-request resumable upload above that) as `application/vnd.google-apps.spreadsheet`, so Drive
+  converts it. Exports over 9M cells or 80 MB are refused with "narrow the timeframe or export CSV".
+- The menu shows "Google Drive: connected · Disconnect" once connected; Disconnect deletes the grant and
+  revokes it at Google. Users can also remove Track2 at https://myaccount.google.com/permissions.
+
+**Setup (once, after the sign-in setup above):**
+1. Same Google Cloud project → APIs & Services → Library → enable **Google Drive API**.
+2. OAuth consent screen (Internal) → Data access / Scopes → add `https://www.googleapis.com/auth/drive.file`
+   (a non-sensitive scope; no verification needed for an Internal app).
+3. Credentials → the same OAuth client → Authorized redirect URIs → add
+   `https://track2.bigseabridge.com/api/google/drive/callback` (and `http://localhost:3000/api/google/drive/callback`
+   for local dev). The redirect URI is built from `APP_URL`/`AUTH_URL` (`lib/appUrl.ts`), so it is the
+   production host even on preview deploys; test Drive export on production or localhost.
+4. Vercel env: `INTEGRATION_ENC_KEY` (already set) and `AUTH_SECRET` must be present; no new variables.
+5. Apply migration `20261014090000_google_drive_grant` (one new table, idempotent; `prisma migrate deploy`
+   or paste it into the Supabase SQL editor) **before** deploying the code.
+6. Check: Reports → Export ▾ → Google Drive → consent screen (first time) → back on the report with
+   "Saved to your Google Drive · Open spreadsheet"; a second export goes straight through.
+
+Rotating `INTEGRATION_ENC_KEY` makes stored grants undecryptable; they are dropped on next use and users
+are simply asked to consent again.
