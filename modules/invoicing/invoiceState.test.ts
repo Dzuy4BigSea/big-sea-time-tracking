@@ -4,6 +4,9 @@ import {
   canTransition,
   deriveStatusAfterPayment,
   displayBadge,
+  deriveStatusAfterTotalChange,
+  firstFreeInvoiceSeq,
+  transitionErrorMessage,
   InvalidTransitionError,
   type InvoiceState,
 } from './invoiceState'
@@ -92,6 +95,45 @@ describe('invoice state machine', () => {
     expect(deriveStatusAfterPayment(1000, 1000)).toBe('paid')
     expect(deriveStatusAfterPayment(1000, 999)).toBe('open')
     expect(deriveStatusAfterPayment(0, 0)).toBe('open')
+  })
+})
+
+describe('go-live guards', () => {
+  it('AC-INV-013: re-sending a draft that already has a number keeps it (no new number / seq bump)', () => {
+    const r = applyInvoiceAction(draft({ number: '1007', sentAt: d('2026-07-10') }), 'send', { lastInvoiceNumberSeq: 1050 })
+    expect(r.status).toBe('open')
+    expect(r.effects.assignNumber).toBeUndefined()
+    expect(r.effects.nextInvoiceNumberSeq).toBeUndefined()
+    expect(r.effects.retainNumber).toBe(true)
+  })
+
+  it('mark as draft and delete are blocked once a payment is recorded', () => {
+    expect(() => applyInvoiceAction(open({ paidCents: 100 }), 'mark_as_draft')).toThrow(/payments have been recorded/)
+    expect(() => applyInvoiceAction(open({ paidCents: 100 }), 'delete')).toThrow(/payments have been recorded/)
+    try {
+      applyInvoiceAction(open({ paidCents: 100 }), 'delete')
+    } catch (e) {
+      expect(transitionErrorMessage(e, 'x')).toBe('Payments have been recorded — delete the payments first.')
+    }
+  })
+
+  it('delete_payment is refused on written-off / closed invoices', () => {
+    expect(() => applyInvoiceAction(open({ status: 'written_off', paidCents: 100 }), 'delete_payment', { amountCents: 100 })).toThrow(InvalidTransitionError)
+    expect(() => applyInvoiceAction(open({ status: 'closed', paidCents: 100 }), 'delete_payment', { amountCents: 100 })).toThrow(InvalidTransitionError)
+  })
+
+  it('deriveStatusAfterTotalChange: total may not drop below paid; status re-derived', () => {
+    expect(() => deriveStatusAfterTotalChange('open', 900, 1000)).toThrow(InvalidTransitionError)
+    expect(deriveStatusAfterTotalChange('open', 1000, 1000)).toBe('paid')
+    expect(deriveStatusAfterTotalChange('paid', 1200, 1000)).toBe('open')
+    expect(deriveStatusAfterTotalChange('open', 1200, 0)).toBe('open')
+    expect(deriveStatusAfterTotalChange('draft', 0, 0)).toBe('draft')
+  })
+
+  it('firstFreeInvoiceSeq skips numbers already used (imported collisions)', () => {
+    expect(firstFreeInvoiceSeq(1001, [])).toBe(1001)
+    expect(firstFreeInvoiceSeq(1001, ['1001', '1002', '1004'])).toBe(1003)
+    expect(firstFreeInvoiceSeq(5, ['A-5', '6'])).toBe(5)
   })
 })
 

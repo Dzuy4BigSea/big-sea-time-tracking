@@ -2,10 +2,38 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
 import { entityIdForInvoice } from '@/lib/entities'
-import { toXeroInvoice, toXeroPayment, centsToMajor } from '@/modules/integrations/xeroMap'
+import { toXeroInvoice, toXeroPayment, centsToMajor, buildXeroLines } from '@/modules/integrations/xeroMap'
+import { computeTotals } from '@/modules/invoicing/totals'
 
 const XERO_API = 'https://api.xero.com/api.xro/2.0'
 const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null)
+
+/** Split the stored tax into its named taxes when they reproduce it; else one combined tax line. */
+function taxLines(inv: {
+  taxCents: number
+  tax1Name: string | null
+  tax1Percent: unknown
+  tax2Name: string | null
+  tax2Percent: unknown
+  discountPercent: unknown
+  lineItems: { amountCents: number; taxable: boolean }[]
+}): { name: string; cents: number }[] {
+  if (!inv.taxCents) return []
+  const t = computeTotals({
+    lineItems: inv.lineItems,
+    discountPercent: inv.discountPercent ? Number(inv.discountPercent) : null,
+    tax1Percent: inv.tax1Percent ? Number(inv.tax1Percent) : null,
+    tax2Percent: inv.tax2Percent ? Number(inv.tax2Percent) : null,
+  })
+  const label = (name: string | null, pct: unknown) => `${name || 'Tax'}${pct ? ` (${Number(pct)}%)` : ''}`
+  if (t.taxCents === inv.taxCents) {
+    return [
+      { name: label(inv.tax1Name, inv.tax1Percent), cents: t.tax1Cents },
+      { name: label(inv.tax2Name, inv.tax2Percent), cents: t.tax2Cents },
+    ].filter((x) => x.cents)
+  }
+  return [{ name: inv.tax1Name || 'Tax', cents: inv.taxCents }]
+}
 
 async function xeroFetch(
   accessToken: string,
@@ -66,11 +94,20 @@ export async function copyInvoiceToXero(accountId: string, invoiceId: string): P
       defaultRevenueAccountCode: String(conn.config.defaultRevenueAccountCode ?? ''),
       trackingName: conn.config.populateTrackingByClient ? 'Client' : null,
       trackingOption: conn.config.populateTrackingByClient ? invoice.client.name : null,
-      lineItems: invoice.lineItems.map((li) => ({
-        description: li.description,
-        quantity: Number(li.quantity),
-        unitAmount: centsToMajor(li.unitPriceCents),
-      })),
+      // Discount + tax go as explicit lines (NoTax) so the Xero total equals the Track2 total.
+      lineAmountTypes: 'NoTax',
+      lineItems: buildXeroLines({
+        lines: invoice.lineItems.map((li) => ({
+          description: li.description,
+          quantity: Number(li.quantity),
+          unitPriceCents: li.unitPriceCents,
+          amountCents: li.amountCents,
+        })),
+        discountCents: invoice.discountCents,
+        discountLabel: invoice.discountPercent ? `Discount (${Number(invoice.discountPercent)}%)` : 'Discount',
+        taxes: taxLines(invoice),
+        taxAccountCode: conn.config.salesTaxAccountCode ? String(conn.config.salesTaxAccountCode) : null,
+      }),
     })
     // Preserve the Xero id on update (idempotent).
     if (invoice.xeroInvoiceId) (payload as Record<string, unknown>).InvoiceID = invoice.xeroInvoiceId

@@ -39,6 +39,9 @@ const LEGAL: Record<StoredStatus, ReadonlySet<InvoiceAction>> = {
   closed: new Set(),
 }
 
+/** Why delete / mark-as-draft is refused once money has been received. */
+export const PAID_BLOCK_REASON = 'payments have been recorded — delete the payments first'
+
 export function canTransition(from: StoredStatus, action: InvoiceAction): boolean {
   return LEGAL[from].has(action)
 }
@@ -88,6 +91,14 @@ export function applyInvoiceAction(state: InvoiceState, action: InvoiceAction, c
   switch (action) {
     case 'send': {
       if (state.lineItemCount < 1) throw new InvalidTransitionError(state.status, action, 'requires ≥1 line item')
+      // Re-send after mark-as-draft keeps the number it was first given (AC-INV-013, INV-6).
+      if (state.number) {
+        return {
+          status: deriveStatusAfterPayment(state.totalCents, state.paidCents) === 'paid' ? 'paid' : 'open',
+          paidCents: state.paidCents,
+          effects: { retainNumber: true, setSentAt: true, lockEntries: true, issuePublicToken: true },
+        }
+      }
       const seq = (ctx.lastInvoiceNumberSeq ?? 0) + 1
       return {
         status: 'open',
@@ -120,6 +131,7 @@ export function applyInvoiceAction(state: InvoiceState, action: InvoiceAction, c
     }
 
     case 'mark_as_draft':
+      if (state.paidCents > 0) throw new InvalidTransitionError(state.status, action, PAID_BLOCK_REASON)
       // Reverts to draft, releases reserved entries, but keeps the already-assigned number.
       return { status: 'draft', paidCents: state.paidCents, effects: { releaseEntries: true, retainNumber: true } }
 
@@ -130,9 +142,43 @@ export function applyInvoiceAction(state: InvoiceState, action: InvoiceAction, c
       return { status: 'closed', paidCents: state.paidCents, effects: {} }
 
     case 'delete':
+      if (state.paidCents > 0) throw new InvalidTransitionError(state.status, action, PAID_BLOCK_REASON)
       // Allowed from draft AND sent (observed). Releases entries back to the pool.
       return { status: state.status, paidCents: state.paidCents, effects: { deleteInvoice: true, releaseEntries: true } }
   }
+}
+
+/**
+ * Status after the invoice total changes (tax/discount/line edits) on a sent invoice. The total may
+ * never drop below what has already been paid; returns the re-derived status or throws.
+ */
+export function deriveStatusAfterTotalChange(status: StoredStatus, newTotalCents: number, paidCents: number): StoredStatus {
+  if (status !== 'open' && status !== 'paid') return status
+  if (newTotalCents < paidCents) {
+    throw new InvalidTransitionError(status, 'record_payment', 'the new total would be less than the amount already paid')
+  }
+  return paidCents > 0 ? deriveStatusAfterPayment(newTotalCents, paidCents) : 'open'
+}
+
+/**
+ * First invoice number at or after `seq` that is not already used. Imported (Harvest) numbers can
+ * sit above the account sequence, so the allocator skips forward instead of colliding (INV-6).
+ */
+export function firstFreeInvoiceSeq(seq: number, takenNumbers: Iterable<string>): number {
+  const taken = new Set(takenNumbers)
+  let n = seq
+  while (taken.has(String(n))) n++
+  return n
+}
+
+/** A user-facing message for an InvalidTransitionError (strips the internal prefix). */
+export function transitionErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof InvalidTransitionError) {
+    const m = /— (.+)$/.exec(e.message)
+    if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1) + '.'
+    return 'That action is not allowed for this invoice in its current state.'
+  }
+  return fallback
 }
 
 export interface BadgeView {

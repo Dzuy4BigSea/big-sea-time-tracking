@@ -7,6 +7,8 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { recomputeInvoiceTotals } from '@/modules/invoicing/recomputeTotals'
+import { transitionErrorMessage } from '@/modules/invoicing/invoiceState'
+import { lineAmountCents } from '@/modules/shared/money'
 import { writeAudit } from '@/lib/audit'
 import { parseYmd } from '@/lib/week'
 
@@ -16,6 +18,11 @@ const TERMS: PaymentTerm[] = ['due_on_receipt', 'net_15', 'net_30', 'net_45', 'n
 const centsFrom = (raw: FormDataEntryValue | null): number => {
   const n = Number(String(raw ?? '').replace(/[$,\s]/g, ''))
   return Number.isFinite(n) ? Math.round(n * 100) : 0
+}
+/** Quantity as stored (Decimal(12,2)): rounded half-up to 2 decimals so quantity × price == amount. */
+const qty2 = (raw: FormDataEntryValue | null): number => {
+  const n = Number(String(raw ?? '1').replace(/[,\s]/g, ''))
+  return Number.isFinite(n) && n !== 0 ? Math.round(Number((n * 100).toPrecision(12))) / 100 : 1
 }
 const pctOrNull = (raw: FormDataEntryValue | null): number | null => {
   const s = String(raw ?? '').trim()
@@ -44,24 +51,31 @@ export async function updateInvoiceMetaAction(_prev: EditInvoiceState, formData:
   const t1 = pctOrNull(formData.get('tax1Percent'))
   const t2 = pctOrNull(formData.get('tax2Percent'))
   const disc = pctOrNull(formData.get('discountPercent'))
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      subject: String(formData.get('subject') ?? '').trim() || null,
-      poNumber: String(formData.get('poNumber') ?? '').trim() || null,
-      notes: String(formData.get('notes') ?? '').trim() || null,
-      terms: String(formData.get('terms') ?? '').trim() || null,
-      issueDate: parseYmd(String(formData.get('issueDate') ?? '')) ?? null,
-      dueDate: parseYmd(String(formData.get('dueDate') ?? '')) ?? null,
-      paymentTerm: TERMS.includes(termRaw) ? termRaw : 'net_30',
-      discountPercent: disc != null ? new Prisma.Decimal(disc) : null,
-      tax1Name: String(formData.get('tax1Name') ?? '').trim() || null,
-      tax1Percent: t1 != null ? new Prisma.Decimal(t1) : null,
-      tax2Name: String(formData.get('tax2Name') ?? '').trim() || null,
-      tax2Percent: t2 != null ? new Prisma.Decimal(t2) : null,
-    },
-  })
-  await recomputeInvoiceTotals(prisma, invoiceId)
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          subject: String(formData.get('subject') ?? '').trim() || null,
+          poNumber: String(formData.get('poNumber') ?? '').trim() || null,
+          notes: String(formData.get('notes') ?? '').trim() || null,
+          terms: String(formData.get('terms') ?? '').trim() || null,
+          issueDate: parseYmd(String(formData.get('issueDate') ?? '')) ?? null,
+          dueDate: parseYmd(String(formData.get('dueDate') ?? '')) ?? null,
+          paymentTerm: TERMS.includes(termRaw) ? termRaw : 'net_30',
+          discountPercent: disc != null ? new Prisma.Decimal(disc) : null,
+          tax1Name: String(formData.get('tax1Name') ?? '').trim() || null,
+          tax1Percent: t1 != null ? new Prisma.Decimal(t1) : null,
+          tax2Name: String(formData.get('tax2Name') ?? '').trim() || null,
+          tax2Percent: t2 != null ? new Prisma.Decimal(t2) : null,
+        },
+      })
+      // Throws (rolling the edit back) if the new total would drop below what has been paid.
+      await recomputeInvoiceTotals(tx, invoiceId)
+    })
+  } catch (e) {
+    return { error: transitionErrorMessage(e, 'Could not save the invoice.') }
+  }
   await writeAudit({ accountId: g.accountId, actorUserId: g.userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Invoice details edited' })
   revalidatePath(`/invoices/${invoiceId}/edit`)
   revalidatePath(`/invoices/${invoiceId}`)
@@ -75,9 +89,9 @@ export async function addLineItemAction(formData: FormData): Promise<void> {
   if (!g || g.status !== 'draft') return
   const description = String(formData.get('description') ?? '').trim()
   if (!description) return
-  const quantity = Number(String(formData.get('quantity') ?? '1').replace(/[,\s]/g, '')) || 1
+  const quantity = qty2(formData.get('quantity'))
   const unitPriceCents = centsFrom(formData.get('unitPrice'))
-  const amountCents = Math.round(quantity * unitPriceCents)
+  const amountCents = lineAmountCents(quantity, unitPriceCents)
   const taxable = formData.get('taxable') === 'on'
   const max = await prisma.invoiceLineItem.aggregate({ where: { invoiceId }, _max: { sortOrder: true } })
   await prisma.invoiceLineItem.create({
@@ -107,7 +121,7 @@ export async function updateLineItemAction(formData: FormData): Promise<void> {
   if (!li) return
   const description = String(formData.get('description') ?? '').trim()
   if (!description) return
-  const quantity = Number(String(formData.get('quantity') ?? '1').replace(/[,\s]/g, '')) || 1
+  const quantity = qty2(formData.get('quantity'))
   const unitPriceCents = centsFrom(formData.get('unitPrice'))
   await prisma.invoiceLineItem.update({
     where: { id: lineItemId },
@@ -115,7 +129,7 @@ export async function updateLineItemAction(formData: FormData): Promise<void> {
       description,
       quantity: new Prisma.Decimal(quantity),
       unitPriceCents,
-      amountCents: Math.round(quantity * unitPriceCents),
+      amountCents: lineAmountCents(quantity, unitPriceCents),
       taxable: formData.get('taxable') === 'on',
     },
   })

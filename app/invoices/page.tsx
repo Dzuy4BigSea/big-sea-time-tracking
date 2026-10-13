@@ -45,7 +45,7 @@ const SORTS: Record<string, string> = { issueDate: 'Issue date', number: 'Number
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: { nothing?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
+  searchParams: { nothing?: string; error?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
 }) {
   // Invoices are visible only with manage_invoices (Harvest: PMs/members don't see invoices).
   const { accountId } = await requireCapability('manage_invoices')
@@ -140,6 +140,9 @@ export default async function InvoicesPage({
         ))}
       </div>
 
+      {searchParams.error && (
+        <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{searchParams.error}</div>
+      )}
       {searchParams.nothing && <p className="mb-4 text-sm text-gray-500">No uninvoiced time or expenses for that client.</p>}
 
       {/* Reporting header */}

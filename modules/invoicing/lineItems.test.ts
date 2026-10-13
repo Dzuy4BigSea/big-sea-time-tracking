@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupTimeEntriesIntoLineItems, type TimeEntryForInvoice } from './lineItems'
+import { groupTimeEntriesIntoLineItems, hoursHundredths, timeLine, type TimeEntryForInvoice } from './lineItems'
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
 
@@ -53,18 +53,36 @@ describe('groupTimeEntriesIntoLineItems', () => {
     expect(items.map((i) => i.unitPriceCents).sort()).toEqual([12000, 15000])
   })
 
-  it('AC-INV-003: fixed-fee project yields one flat line of the fee, not hours × rate', () => {
+  it('AC-INV-003: fixed-fee time is not billed from hours (no auto flat fee line)', () => {
     const items = groupTimeEntriesIntoLineItems(
       [
         entry({ id: 'a', minutes: 600, projectId: 'prj_logo', projectName: 'Logo', projectType: 'fixed_fee', projectFeesCents: 500000, billableRateCents: 0 }),
-        entry({ id: 'b', minutes: 600, projectId: 'prj_logo', projectName: 'Logo', projectType: 'fixed_fee', projectFeesCents: 500000, billableRateCents: 0 }),
+        entry({ id: 'b', minutes: 600, projectId: 'prj_logo', projectName: 'Logo', projectType: 'fixed_fee', projectFeesCents: null, billableRateCents: 0 }),
+        entry({ id: 'c', minutes: 60 }),
       ],
       'by_task',
     )
     expect(items).toHaveLength(1)
-    expect(items[0].kind).toBe('flat')
-    expect(items[0].amountCents).toBe(500000)
-    expect(items[0].sourceEntryIds).toEqual(['a', 'b']) // entries still captured (caller marks invoiced)
+    expect(items[0].sourceEntryIds).toEqual(['c'])
+    expect(items.some((i) => i.kind === 'flat')).toBe(false)
+  })
+
+  it('quantity is hours rounded half-up to 2dp and amount = rounded qty × rate', () => {
+    // 20 min = 0.333… h → 0.33 h; 0.33 × $150 = $49.50 (not $50.00 from unrounded hours)
+    const [li] = groupTimeEntriesIntoLineItems([entry({ id: 'a', minutes: 20, billableRateCents: 15000 })], 'by_task')
+    expect(li.quantityHours).toBe(0.33)
+    expect(li.amountCents).toBe(4950)
+    expect(Math.round(li.quantityHours * li.unitPriceCents)).toBe(li.amountCents)
+    // 40 min = 0.666… h → 0.67 h; 0.67 × $125.55 = $84.1185 → $84.12
+    const [li2] = groupTimeEntriesIntoLineItems([entry({ id: 'b', minutes: 40, billableRateCents: 12555 })], 'detailed')
+    expect(li2.quantityHours).toBe(0.67)
+    expect(li2.amountCents).toBe(8412)
+  })
+
+  it('timeLine / hoursHundredths helpers', () => {
+    expect(hoursHundredths(1)).toBe(2) // 0.0166… → 0.02
+    expect(hoursHundredths(90)).toBe(150)
+    expect(timeLine(7, 10000)).toEqual({ quantityHours: 0.12, amountCents: 1200 })
   })
 
   it('detailed grouping emits one line per entry with a descriptive label', () => {

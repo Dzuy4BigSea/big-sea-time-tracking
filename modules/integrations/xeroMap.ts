@@ -14,6 +14,11 @@ export interface XeroInvoiceInput {
   trackingName?: string | null // e.g. "Client"
   trackingOption?: string | null // e.g. the client name
   lineItems: { description: string; quantity: number; unitAmount: number; accountCode?: string | null }[]
+  /**
+   * 'NoTax' when tax is carried as explicit lines (buildXeroLines) so Xero adds none of its own and
+   * the Xero total equals the Track2 total. Defaults to 'Exclusive' for backward compatibility.
+   */
+  lineAmountTypes?: 'Exclusive' | 'NoTax'
 }
 
 /** Build a Xero ACCREC invoice body. Amounts are in major units (dollars), as Xero expects. */
@@ -34,7 +39,7 @@ export function toXeroInvoice(input: XeroInvoiceInput): Record<string, unknown> 
     Type: 'ACCREC',
     Contact: { ContactID: input.contactId },
     CurrencyCode: input.currency,
-    LineAmountTypes: 'Exclusive',
+    LineAmountTypes: input.lineAmountTypes ?? 'Exclusive',
     LineItems: input.lineItems.map(line),
     Status: 'AUTHORISED',
   }
@@ -65,3 +70,45 @@ export function toXeroPayment(input: XeroPaymentInput): Record<string, unknown> 
 }
 
 export const centsToMajor = (cents: number) => cents / 100
+
+export interface Track2LineForXero {
+  description: string
+  quantity: number
+  unitPriceCents: number
+  amountCents: number
+}
+
+/**
+ * Xero line items whose sum equals the Track2 invoice total (subtotal − discount + tax).
+ *  - A line whose quantity × unit price (half-up) equals its stored amount is sent as-is; otherwise
+ *    (legacy / imported rounding) it is sent as 1 × amount so Xero's line total matches ours.
+ *  - The discount is a negative line; each tax is a positive line on `taxAccountCode` (falls back to
+ *    the revenue account). Mapping tax rates to Xero TaxTypes is org-specific, so the invoice is
+ *    sent with LineAmountTypes 'NoTax' and the tax as explicit lines.
+ */
+export function buildXeroLines(input: {
+  lines: Track2LineForXero[]
+  discountCents: number
+  discountLabel?: string | null
+  taxes: { name: string; cents: number }[]
+  taxAccountCode?: string | null
+}): XeroInvoiceInput['lineItems'] {
+  const out: XeroInvoiceInput['lineItems'] = input.lines.map((li) => {
+    const derived = Math.round(li.quantity * li.unitPriceCents)
+    return derived === li.amountCents
+      ? { description: li.description, quantity: li.quantity, unitAmount: centsToMajor(li.unitPriceCents) }
+      : { description: li.description, quantity: 1, unitAmount: centsToMajor(li.amountCents) }
+  })
+  if (input.discountCents) {
+    out.push({ description: input.discountLabel || 'Discount', quantity: 1, unitAmount: -centsToMajor(input.discountCents) })
+  }
+  for (const t of input.taxes) {
+    if (t.cents) out.push({ description: t.name || 'Tax', quantity: 1, unitAmount: centsToMajor(t.cents), accountCode: input.taxAccountCode || null })
+  }
+  return out
+}
+
+/** Sum of Xero lines in cents, as Xero computes it (each line rounded to the cent). */
+export function xeroLinesTotalCents(lines: XeroInvoiceInput['lineItems']): number {
+  return lines.reduce((s, l) => s + Math.round(l.quantity * Math.round(l.unitAmount * 100)), 0)
+}

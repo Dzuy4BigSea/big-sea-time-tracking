@@ -1,7 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { advanceIssueDate, addMonthsUtc, isDue, cadenceLabel, afterIssue, isCompleted, parseOccurrenceLimit } from './recurring'
+import { advanceIssueDate, addMonthsUtc, isDue, cadenceLabel, afterIssue, isCompleted, parseOccurrenceLimit, nextFutureIssueDate } from './recurring'
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
+
+describe('catch-up (nextFutureIssueDate)', () => {
+  it('on schedule: advances exactly one interval', () => {
+    expect(nextFutureIssueDate(d('2026-08-01'), 'monthly', 1, d('2026-08-01'))).toEqual(d('2026-09-01'))
+  })
+  it('behind schedule: jumps past today instead of leaving a backlog', () => {
+    // daily ("custom" 1 day) profile 10 days behind → next is tomorrow, not the day after the old date
+    expect(nextFutureIssueDate(d('2026-08-01'), 'custom', 1, d('2026-08-11'))).toEqual(d('2026-08-12'))
+    expect(nextFutureIssueDate(d('2026-01-15'), 'monthly', 1, d('2026-05-20'))).toEqual(d('2026-06-15'))
+    expect(nextFutureIssueDate(d('2026-01-05'), 'weekly', 2, d('2026-01-19'))).toEqual(d('2026-02-02'))
+  })
+})
 
 describe('recurring schedule', () => {
   it('AC-REC-001: monthly advances one month', () => {
