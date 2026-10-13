@@ -33,6 +33,8 @@ A CTO-level audit (data safety, security, performance, invoicing) found go-live 
 - Fixed fee works like Harvest (done, [spec 05](specs/05-invoicing.md) AC-INV-003a–e): "New invoice" (`/invoices/generate`) lets you pick projects; a Fixed Fee project adds one editable line for the remaining fee (fee − amount on existing invoices, drafts included); its hours stay uninvoiced; drafts show "Show project context" (notes, fee, invoiced, remaining, related invoices); project/client/retainers/dashboard uninvoiced amounts use fee − invoiced. Integration-tested on a local Postgres.
 - Google sign-in (done, off until configured; OPS.md §8): bigsea.co Workspace accounts only, matched to existing active users, password login kept as a fallback. Needs `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` from an Internal OAuth client.
 
+**GitHub Actions parked (2026-10-13):** CI, nightly backup and keep-warm workflows are in `ops/workflows/` and don't run (see OPS.md §2). The timer auto-stop runs daily from the Vercel cron only.
+
 **Waiting on Dzuy** (emailed 2026-10-13): Vercel plan (Hobby is non-commercial), keep-warm cadence vs UptimeRobot, Sentry, go-live date + cutover order, keep or drop password login after Google works, Drive export format (CSV to a folder vs Google Sheet; whose Drive), merge of the go-live PR.
 
 **Not done:** Google Drive export (next, on top of Google sign-in), `onDelete: Restrict` on cascades, DB trigger for INV-3, `/reports` hours visible to all members, project-level rates/fees without `set_rates`, Xero TaxType mapping, the project page "Invoiced amount" card excludes drafts while fee − invoiced counts them.

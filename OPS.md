@@ -26,9 +26,14 @@ With the pooler the user name is `track2_backup.<project-ref>`.
 
 ## 2. CI and nightly backup (GitHub Actions)
 
-- `.github/workflows/ci.yml`: on every PR and push to `main`: `npm ci`, `prisma generate`, `tsc --noEmit`,
+**Parked (2026-10-13):** the three workflows live in `ops/workflows/` (`ci.yml`, `db-backup.yml`,
+`keep-warm.yml`) and do not run. To turn them on, move them back:
+`git mv ops/workflows/*.yml .github/workflows/` (add the secrets below first, or the backup job fails nightly).
+Until then there is no off-site nightly backup, so Supabase Pro + PITR is the only backup.
+
+- `ci.yml`: on every PR and push to `main`: `npm ci`, `prisma generate`, `tsc --noEmit`,
   `npm test` with `TZ=America/New_York` (catches UTC-midnight date bugs), `npm run build` with dummy env.
-- `.github/workflows/db-backup.yml`: nightly at 07:17 UTC and on demand (Actions → DB backup → Run
+- `db-backup.yml`: nightly at 07:17 UTC and on demand (Actions → DB backup → Run
   workflow). `pg_dump` 16, custom format, `--schema=public --no-owner --no-privileges`; checks that the
   core tables are in the archive; writes a `.sha256`; encrypts with gpg if `BACKUP_PASSPHRASE` is set;
   uploads artifact `track2-db-<UTC stamp>` kept for **30 days**.

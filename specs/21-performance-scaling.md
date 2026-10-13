@@ -55,7 +55,7 @@ below). Median of 5 warm requests:
 - **Cold start:** `lib/prisma.ts` keeps one client on `globalThis` in every environment (reused across
   invocations under Fluid Compute). `/api/health` runs on Node, reports `dbMs`, `cold` (first request
   on this instance) and `region`, and `?deep=1` also does an index-only read of the busiest TimeEntry index
-  with a 5s timeout. `.github/workflows/keep-warm.yml` pings `/api/health?deep=1` and `/login` every 5
+  with a 5s timeout. `ops/workflows/keep-warm.yml` (parked; move it to `.github/workflows/` to enable) pings `/api/health?deep=1` and `/login` every 5
   minutes in working hours (weekdays 11:00–02:00 UTC) and hourly otherwise. In a private repo that is
   ~4k Actions minutes/month (each run bills as 1 minute): drop to every 10 minutes, or use a free
   external monitor (UptimeRobot, 5-minute checks) on the same URL if minutes matter.
