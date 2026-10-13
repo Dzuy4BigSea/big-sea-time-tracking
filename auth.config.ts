@@ -7,10 +7,11 @@ import type { NextAuthConfig } from 'next-auth'
 export const authConfig = {
   pages: { signIn: '/login' },
   providers: [], // real provider added in auth.ts (Node runtime)
-  // 12h sessions (a working day), sliding: the JWT is re-issued at most every hour while in use.
-  // Access itself (active flag, profile, overrides) is re-checked from the DB per request in
-  // lib/session.ts, so this only bounds how long a stolen/forgotten cookie stays valid.
-  session: { strategy: 'jwt', maxAge: 12 * 60 * 60, updateAge: 60 * 60 },
+  // 14-day sliding sessions (re-issued at most daily while in use), so people who track time every
+  // day aren't asked to sign in each morning (Dzuy, 2026-10-13). Access itself (active flag,
+  // profile, overrides) is re-checked from the DB per request in lib/session.ts, so deactivation
+  // still takes effect at once; this only bounds how long a forgotten cookie stays valid.
+  session: { strategy: 'jwt', maxAge: 14 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   callbacks: {
     // Route protection: allow the login page; require a session everywhere else.
     authorized({ auth, request: { nextUrl } }) {
