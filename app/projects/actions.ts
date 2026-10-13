@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import type { ProjectType, BillableRateMethod, BudgetMethod } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
-import { can, type PermissionProfile } from '@/modules/shared/permissions'
+import { can, projectManagementScoped, type Capability, type PermissionProfile } from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
 
 export type NewProjectState = { error?: string }
@@ -110,7 +110,7 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
 }
 
 export async function updateProjectAction(_prev: EditProjectState, formData: FormData): Promise<EditProjectState> {
-  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const { userId, accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')) {
     return { error: 'You do not have permission to edit projects.' }
   }
@@ -118,6 +118,12 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
   const id = String(formData.get('id') ?? '')
   const project = await prisma.project.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!project) return { error: 'Project not found.' }
+  if (
+    projectManagementScoped({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }) &&
+    !(await managesProject(accountId, userId, id))
+  ) {
+    return { error: 'You can only edit projects you manage.' }
+  }
   const entityId = await validEntityId(accountId, String(formData.get('entityId') ?? ''))
 
   const name = String(formData.get('name') ?? '').trim()
@@ -182,11 +188,27 @@ function revalidateProjectTeam(projectId: string) {
   revalidatePath(`/projects/${projectId}/edit`)
 }
 
-async function requireProjectManager(projectId: string) {
+/**
+ * The actor, if they may manage this project's setup: they need manage_projects (plus `extra`, e.g.
+ * set_rates) and, for Project Managers, an active PM assignment on this very project — a PM can't
+ * reach (or make themselves PM on) projects they don't manage.
+ */
+async function requireProjectManager(projectId: string, extra?: Capability) {
   const actor = await requireUser()
-  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'manage_projects')) return null
+  const a = { permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }
+  if (!can(a, 'manage_projects')) return null
+  if (extra && !can(a, extra)) return null
   const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
-  return project ? actor : null
+  if (!project) return null
+  if (projectManagementScoped(a) && !(await managesProject(actor.accountId, actor.userId, projectId))) return null
+  return actor
+}
+
+async function managesProject(accountId: string, userId: string, projectId: string): Promise<boolean> {
+  const n = await prisma.projectUserAssignment.count({
+    where: { accountId, projectId, userId, isProjectManager: true, isActive: true },
+  })
+  return n > 0
 }
 
 export async function assignUserToProjectAction(formData: FormData): Promise<void> {
@@ -211,9 +233,12 @@ export async function toggleProjectManagerAction(formData: FormData): Promise<vo
   const userId = String(formData.get('userId') ?? '')
   const actor = await requireProjectManager(projectId)
   if (!actor) return
-  const a = await prisma.projectUserAssignment.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { isProjectManager: true } })
+  const a = await prisma.projectUserAssignment.findFirst({
+    where: { projectId, userId, accountId: actor.accountId },
+    select: { id: true, isProjectManager: true },
+  })
   if (!a) return
-  await prisma.projectUserAssignment.update({ where: { projectId_userId: { projectId, userId } }, data: { isProjectManager: !a.isProjectManager } })
+  await prisma.projectUserAssignment.update({ where: { id: a.id }, data: { isProjectManager: !a.isProjectManager } })
   revalidateProjectTeam(projectId)
 }
 
@@ -223,11 +248,12 @@ export async function unassignUserFromProjectAction(formData: FormData): Promise
   const actor = await requireProjectManager(projectId)
   if (!actor) return
   // Remove the assignment; if the person has tracked time, deactivate instead of hard-delete.
-  const hasTime = await prisma.timeEntry.findFirst({ where: { projectId, userId }, select: { id: true } })
+  const scope = { projectId, userId, accountId: actor.accountId }
+  const hasTime = await prisma.timeEntry.findFirst({ where: scope, select: { id: true } })
   if (hasTime) {
-    await prisma.projectUserAssignment.updateMany({ where: { projectId, userId }, data: { isActive: false } })
+    await prisma.projectUserAssignment.updateMany({ where: scope, data: { isActive: false } })
   } else {
-    await prisma.projectUserAssignment.deleteMany({ where: { projectId, userId } })
+    await prisma.projectUserAssignment.deleteMany({ where: scope })
   }
   revalidateProjectTeam(projectId)
 }
@@ -249,10 +275,11 @@ export async function setProjectArchivedAction(formData: FormData): Promise<void
 export async function setProjectUserRateAction(formData: FormData): Promise<void> {
   const projectId = String(formData.get('projectId') ?? '')
   const userId = String(formData.get('userId') ?? '')
-  const actor = await requireProjectManager(projectId)
+  // Rates are a money decision (specs/03): need set_rates on top of managing the project.
+  const actor = await requireProjectManager(projectId, 'set_rates')
   if (!actor) return
   await prisma.projectUserAssignment.updateMany({
-    where: { projectId, userId },
+    where: { projectId, userId, accountId: actor.accountId },
     data: { hourlyRateCents: centsFrom(formData.get('rate')) },
   })
   revalidateProjectTeam(projectId)
@@ -278,7 +305,7 @@ export async function removeTaskFromProjectAction(formData: FormData): Promise<v
   const taskId = String(formData.get('taskId') ?? '')
   const actor = await requireProjectManager(projectId)
   if (!actor) return
-  await prisma.projectTaskAssignment.deleteMany({ where: { projectId, taskId } })
+  await prisma.projectTaskAssignment.deleteMany({ where: { projectId, taskId, accountId: actor.accountId } })
   revalidatePath(`/projects/${projectId}`)
 }
 
@@ -296,10 +323,10 @@ export async function toggleProjectTaskBillableAction(formData: FormData): Promi
 export async function setProjectTaskRateAction(formData: FormData): Promise<void> {
   const projectId = String(formData.get('projectId') ?? '')
   const taskId = String(formData.get('taskId') ?? '')
-  const actor = await requireProjectManager(projectId)
+  const actor = await requireProjectManager(projectId, 'set_rates')
   if (!actor) return
   await prisma.projectTaskAssignment.updateMany({
-    where: { projectId, taskId },
+    where: { projectId, taskId, accountId: actor.accountId },
     data: { hourlyRateCents: centsFrom(formData.get('rate')) },
   })
   revalidatePath(`/projects/${projectId}`)

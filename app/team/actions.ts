@@ -6,7 +6,17 @@ import type { PermissionProfile as DbProfile, UserType as DbUserType } from '@pr
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
-import { can, computeOverrides, ALL_CAPABILITIES, PROFILE_LABELS, type Capability, type PermissionProfile } from '@/modules/shared/permissions'
+import {
+  can,
+  checkAccessChange,
+  checkSecurityChange,
+  computeOverrides,
+  ALL_CAPABILITIES,
+  PROFILE_LABELS,
+  type Capability,
+  type PermissionOverrides,
+  type PermissionProfile,
+} from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
 import { writeAudit } from '@/lib/audit'
 
@@ -43,6 +53,13 @@ export async function createPersonAction(_prev: NewPersonState, formData: FormDa
   if (!firstName) return { error: 'First name is required.' }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Enter a valid email.' }
   if (password.length < 8) return { error: 'Initial password must be at least 8 characters.' }
+
+  const accessError = checkAccessChange(
+    { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides },
+    null,
+    { permissionProfile: profile },
+  )
+  if (accessError) return { error: accessError }
 
   const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
   try {
@@ -87,7 +104,7 @@ export async function updatePersonBasicAction(_prev: EditPersonState, formData: 
   const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!user) return { error: 'Person not found.' }
   const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
-  await prisma.user.update({ where: { id }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId } })
+  await prisma.user.updateMany({ where: { id, accountId }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId } })
   revalidatePath(`/team/${id}`)
   revalidatePath('/team')
   return { ok: true }
@@ -102,7 +119,10 @@ export async function updatePersonPermissionsAction(_prev: EditPersonState, form
   const id = String(formData.get('id') ?? '')
   const profileRaw = String(formData.get('profile') ?? 'member') as DbProfile
   const profile = PROFILES.includes(profileRaw) ? profileRaw : 'member'
-  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
+  const user = await prisma.user.findFirst({
+    where: { id, accountId },
+    select: { id: true, permissionProfile: true, permissionOverrides: true },
+  })
   if (!user) return { error: 'Person not found.' }
   // Guard against self-lockout: you can't drop your own access below Administrator.
   if (id === selfId && profile !== 'administrator') {
@@ -111,8 +131,16 @@ export async function updatePersonPermissionsAction(_prev: EditPersonState, form
   const checked = formData.getAll('cap').map(String).filter((c): c is Capability => (ALL_CAPABILITIES as string[]).includes(c))
   const overrides = computeOverrides(profile, checked)
   const hasOverrides = (overrides.grant?.length ?? 0) + (overrides.revoke?.length ?? 0) > 0
-  await prisma.user.update({
-    where: { id },
+  // No escalation: only administrators assign Administrator or edit people who hold more than they
+  // do, and nobody can grant a capability they don't hold themselves.
+  const accessError = checkAccessChange(
+    { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides },
+    { permissionProfile: user.permissionProfile, permissionOverrides: user.permissionOverrides as PermissionOverrides | null },
+    { permissionProfile: profile, permissionOverrides: overrides },
+  )
+  if (accessError) return { error: accessError }
+  await prisma.user.updateMany({
+    where: { id, accountId },
     data: {
       permissionProfile: profile,
       permissionOverrides: hasOverrides ? (overrides as Prisma.InputJsonValue) : Prisma.JsonNull,
@@ -140,7 +168,7 @@ export async function setAssignedToAllAction(formData: FormData): Promise<void> 
   const enable = String(formData.get('value') ?? '') === 'on'
   const user = await prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } })
   if (!user) return
-  await prisma.user.update({ where: { id }, data: { assignedToAllProjects: enable } })
+  await prisma.user.updateMany({ where: { id, accountId: actor.accountId }, data: { assignedToAllProjects: enable } })
   if (enable) {
     const projects = await prisma.project.findMany({ where: { accountId: actor.accountId }, select: { id: true } })
     for (const p of projects) {
@@ -176,14 +204,15 @@ export async function unassignProjectFromPersonAction(formData: FormData): Promi
   if (!actor) return
   const id = String(formData.get('id') ?? '')
   const projectId = String(formData.get('projectId') ?? '')
-  const hasTime = await prisma.timeEntry.count({ where: { userId: id, projectId, accountId: actor.accountId } })
+  const scope = { projectId, userId: id, accountId: actor.accountId }
+  const hasTime = await prisma.timeEntry.count({ where: scope })
   if (hasTime > 0) {
-    await prisma.projectUserAssignment.updateMany({ where: { projectId, userId: id }, data: { isActive: false } })
+    await prisma.projectUserAssignment.updateMany({ where: scope, data: { isActive: false } })
   } else {
-    await prisma.projectUserAssignment.deleteMany({ where: { projectId, userId: id } })
+    await prisma.projectUserAssignment.deleteMany({ where: scope })
   }
   // Removing from any single project also turns off the "all projects" flag.
-  await prisma.user.update({ where: { id }, data: { assignedToAllProjects: false } }).catch(() => {})
+  await prisma.user.updateMany({ where: { id, accountId: actor.accountId }, data: { assignedToAllProjects: false } })
   revalidatePath(`/team/${id}`)
 }
 
@@ -192,9 +221,12 @@ export async function toggleManagesProjectAction(formData: FormData): Promise<vo
   if (!actor) return
   const id = String(formData.get('id') ?? '')
   const projectId = String(formData.get('projectId') ?? '')
-  const asg = await prisma.projectUserAssignment.findUnique({ where: { projectId_userId: { projectId, userId: id } }, select: { isProjectManager: true } })
+  const asg = await prisma.projectUserAssignment.findFirst({
+    where: { projectId, userId: id, accountId: actor.accountId },
+    select: { id: true, isProjectManager: true },
+  })
   if (!asg) return
-  await prisma.projectUserAssignment.update({ where: { projectId_userId: { projectId, userId: id } }, data: { isProjectManager: !asg.isProjectManager } })
+  await prisma.projectUserAssignment.update({ where: { id: asg.id }, data: { isProjectManager: !asg.isProjectManager } })
   revalidatePath(`/team/${id}`)
 }
 
@@ -240,9 +272,18 @@ export async function updatePersonSecurityAction(_prev: EditPersonState, formDat
   const email = String(formData.get('email') ?? '').toLowerCase().trim()
   if (newPassword && newPassword.length < 8) return { error: 'New password must be at least 8 characters.' }
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Enter a valid email.' }
-  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true, email: true } })
+  const user = await prisma.user.findFirst({
+    where: { id, accountId },
+    select: { id: true, email: true, permissionProfile: true, permissionOverrides: true },
+  })
   if (!user) return { error: 'Person not found.' }
   if (id === selfId && !isActive) return { error: 'You can’t deactivate your own account.' }
+  const securityError = checkSecurityChange(
+    { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides },
+    { permissionProfile: user.permissionProfile, permissionOverrides: user.permissionOverrides as PermissionOverrides | null },
+    id === selfId,
+  )
+  if (securityError) return { error: securityError }
   try {
     await prisma.user.update({
       where: { id },
@@ -281,11 +322,21 @@ export async function updatePersonAction(_prev: EditPersonState, formData: FormD
   if (!firstName) return { error: 'First name is required.' }
   if (newPassword && newPassword.length < 8) return { error: 'New password must be at least 8 characters.' }
 
-  const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
+  const user = await prisma.user.findFirst({
+    where: { id, accountId },
+    select: { id: true, permissionProfile: true, permissionOverrides: true },
+  })
   if (!user) return { error: 'Person not found.' }
 
   // Prevent locking yourself out.
   if (id === selfId && !isActive) return { error: 'You can’t deactivate your own account.' }
+  if (id === selfId && profile !== user.permissionProfile) return { error: 'You can’t change your own access level.' }
+  const actorP = { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }
+  const targetP = { permissionProfile: user.permissionProfile, permissionOverrides: user.permissionOverrides as PermissionOverrides | null }
+  const guardError =
+    checkAccessChange(actorP, targetP, { permissionProfile: profile, permissionOverrides: targetP.permissionOverrides }) ??
+    checkSecurityChange(actorP, targetP, id === selfId)
+  if (guardError) return { error: guardError }
 
   const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
   try {

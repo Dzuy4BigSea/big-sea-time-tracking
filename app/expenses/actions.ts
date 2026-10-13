@@ -5,6 +5,16 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { parseYmd } from '@/lib/week'
+import { safeHttpUrl } from '@/modules/shared/safeUrl'
+import { mayActForOnProject } from '@/lib/timesheetSubject'
+
+/** Empty → null; otherwise must be an absolute http(s) URL (never javascript:/data:). */
+function receiptUrlFrom(formData: FormData): { url: string | null; error?: string } {
+  const raw = String(formData.get('receiptFileUrl') ?? '').trim()
+  if (!raw) return { url: null }
+  const url = safeHttpUrl(raw)
+  return url ? { url } : { url: null, error: 'Receipt link must be a full http(s):// URL.' }
+}
 
 export type NewExpenseState = { error?: string; ok?: boolean }
 export type NewCategoryState = { error?: string; ok?: boolean }
@@ -26,7 +36,9 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
   const markupPercent = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : null
   const isBillable = formData.get('isBillable') === 'on'
   const notes = String(formData.get('notes') ?? '').trim() || null
-  const receiptFileUrl = String(formData.get('receiptFileUrl') ?? '').trim() || null
+  const receipt = receiptUrlFrom(formData)
+  if (receipt.error) return { error: receipt.error }
+  const receiptFileUrl = receipt.url
 
   if (!projectId) return { error: 'Pick a project.' }
   if (!categoryId) return { error: 'Pick a category.' }
@@ -66,22 +78,28 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
 
 export type EditExpenseState = { error?: string; ok?: boolean }
 
-/** Editable by the owner, or anyone who can edit others' time. Blocked once invoiced (AC-EXP-003). */
+/**
+ * Editable by the owner, or by someone who can edit others' time — account-wide for admins/people
+ * admins, but a Project Manager only on projects they manage (same scope as the timesheet).
+ * Blocked once invoiced (AC-EXP-003).
+ */
 async function expenseGuard(expenseId: string) {
   const actor = await requireUser()
-  const exp = await prisma.expense.findFirst({ where: { id: expenseId, accountId: actor.accountId }, select: { userId: true, lockState: true } })
+  const exp = await prisma.expense.findFirst({
+    where: { id: expenseId, accountId: actor.accountId },
+    select: { userId: true, projectId: true, lockState: true },
+  })
   if (!exp) return null
-  const isOwner = exp.userId === actor.userId
-  const canOthers = can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'view_edit_others_time')
-  if (!isOwner && !canOthers) return null
+  if (exp.userId !== actor.userId && !(await mayActForOnProject(actor, exp.userId, exp.projectId))) return null
   if (exp.lockState === 'invoiced') return null // locked once billed
-  return actor
+  return { actor, ownerId: exp.userId }
 }
 
 export async function updateExpenseAction(_prev: EditExpenseState, formData: FormData): Promise<EditExpenseState> {
   const id = String(formData.get('id') ?? '')
-  const actor = await expenseGuard(id)
-  if (!actor) return { error: 'Not found, locked (invoiced), or not permitted.' }
+  const guard = await expenseGuard(id)
+  if (!guard) return { error: 'Not found, locked (invoiced), or not permitted.' }
+  const { actor } = guard
   const projectId = String(formData.get('projectId') ?? '')
   const categoryId = String(formData.get('categoryId') ?? '')
   const spentDate = parseYmd(String(formData.get('spentDate') ?? ''))
@@ -95,6 +113,12 @@ export async function updateExpenseAction(_prev: EditExpenseState, formData: For
     prisma.expenseCategory.findFirst({ where: { id: categoryId, accountId: actor.accountId }, select: { id: true } }),
   ])
   if (!project || !category) return { error: 'Project or category not found.' }
+  // Moving someone else's expense: the actor must also be allowed on the destination project.
+  if (guard.ownerId !== actor.userId && !(await mayActForOnProject(actor, guard.ownerId, projectId))) {
+    return { error: 'You can only edit expenses on projects you manage.' }
+  }
+  const receipt = receiptUrlFrom(formData)
+  if (receipt.error) return { error: receipt.error }
   await prisma.expense.update({
     where: { id },
     data: {
@@ -105,7 +129,7 @@ export async function updateExpenseAction(_prev: EditExpenseState, formData: For
       markupPercent,
       isBillable: formData.get('isBillable') === 'on',
       notes: String(formData.get('notes') ?? '').trim() || null,
-      receiptFileUrl: String(formData.get('receiptFileUrl') ?? '').trim() || null,
+      receiptFileUrl: receipt.url,
     },
   })
   revalidatePath('/expenses')
@@ -114,9 +138,9 @@ export async function updateExpenseAction(_prev: EditExpenseState, formData: For
 
 export async function deleteExpenseAction(formData: FormData): Promise<void> {
   const id = String(formData.get('id') ?? '')
-  const actor = await expenseGuard(id)
-  if (!actor) return
-  await prisma.expense.deleteMany({ where: { id, accountId: actor.accountId } })
+  const guard = await expenseGuard(id)
+  if (!guard) return
+  await prisma.expense.deleteMany({ where: { id, accountId: guard.actor.accountId } })
   revalidatePath('/expenses')
 }
 

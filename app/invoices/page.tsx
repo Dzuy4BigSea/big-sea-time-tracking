@@ -8,7 +8,7 @@ import { generateInvoiceAction } from '@/app/invoices/actions'
 import { createBlankInvoiceAction } from '@/app/invoices/[id]/edit/actions'
 import { ClickableRow } from '@/components/ClickableRow'
 import { ColumnChart } from '@/components/ColumnChart'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
@@ -47,7 +47,8 @@ export default async function InvoicesPage({
 }: {
   searchParams: { nothing?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
 }) {
-  const { accountId } = await requireUser()
+  // Invoices are visible only with manage_invoices (Harvest: PMs/members don't see invoices).
+  const { accountId } = await requireCapability('manage_invoices')
   await requireModule(accountId, 'invoices')
 
   const today = new Date()

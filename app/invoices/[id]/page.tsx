@@ -20,7 +20,7 @@ import {
 } from '@/app/invoices/actions'
 import { deletePaymentAction } from '@/app/invoices/actions'
 import { createRecurringFromInvoiceAction } from '@/app/recurring/actions'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ConfirmSubmit } from '@/components/ConfirmSubmit'
@@ -30,7 +30,7 @@ import { listAudit } from '@/lib/audit'
 export const dynamic = 'force-dynamic'
 
 export default async function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = await requireCapability('manage_invoices')
   await requireModule(accountId, 'invoices')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_invoices')
   const invoice = await prisma.invoice.findFirst({
