@@ -1,4 +1,4 @@
-# Track2 operations: backups, restore, health check, data-safety guards
+# Track2 operations: backups, restore, health check, data-safety guards, Google sign-in
 
 Production data lives in the Supabase Postgres behind https://track2.bigseabridge.com, in Account
 `acc_demo` (the migrated Harvest history: ~388k time entries, ~7.8k invoices). The id is a leftover
@@ -161,3 +161,59 @@ Fixes for what it may find:
 - Settings → **Data export** (`/settings/export`, admins with `edit_account_settings`): one streamed CSV
   per table (time entries, invoices, invoice line items, payments, clients, contacts, projects, people,
   expenses), every column except password hashes and tokens, scoped to the signed-in account.
+
+## 8. Google sign-in
+
+"Sign in with Google" appears on `/login` only when `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` are both
+set; without them the app works exactly as before (password only). Password login stays as a fallback.
+
+**How it decides** (`auth.ts` + `modules/shared/googleSignIn.ts`):
+- Scopes are sign-in only: `openid email profile`. No Drive access is requested.
+- The Google ID token must have `email_verified: true` and an `hd` (Workspace) claim, and both `hd`
+  and the email's domain must be in `AUTH_GOOGLE_ALLOWED_DOMAINS`. Personal Gmail accounts have no
+  `hd` and are refused. The `hd` authorization parameter is only a hint for Google's account chooser;
+  the claim check is what enforces it.
+- The email (case-insensitive) must match exactly one **existing, active** Track2 user. Unknown emails
+  are refused (`/login?error=GoogleNoUser`), never auto-created; inactive users are refused
+  (`GoogleInactive`); an email present in more than one account is refused (`GoogleAmbiguous`).
+- The session JWT carries the same claims as a password login, and `lib/session.ts` still re-checks
+  `isActive`, account and profile on every request, so deactivating someone cuts off Google sessions too.
+- No Auth.js database adapter is used, so there is no OAuth-account linking table. That is why
+  `allowDangerousEmailAccountLinking` doesn't apply: there is nothing to link. The mapping is
+  "verified Workspace email → active User row", re-decided on every Google sign-in.
+- Successful logins aren't written to the audit log (same as password logins; only password failures
+  are, for the lockout).
+- `/api/auth/*` (including `/api/auth/callback/google`) is outside the middleware matcher, so the
+  callback is never redirected to `/login`.
+
+**Setup (once):**
+1. Google Cloud console, signed in as a bigsea.co Workspace admin, in a project **under the bigsea.co
+   organization**: APIs & Services → OAuth consent screen → User type **Internal** (only accounts in
+   the org can use it; no Google verification review needed). App name "Track2", support email,
+   scopes `openid`, `email`, `profile` only.
+2. APIs & Services → Credentials → Create credentials → OAuth client ID → **Web application**.
+   Authorized redirect URIs:
+   - `https://track2.bigseabridge.com/api/auth/callback/google`
+   - optional: `http://localhost:3000/api/auth/callback/google` for local dev. Vercel preview URLs
+     change per deploy and Google doesn't take wildcards, so add a specific preview URL only if needed.
+3. Vercel → Project → Environment Variables (Production; Preview/Development if wanted):
+
+| Name | Value |
+|---|---|
+| `AUTH_GOOGLE_ID` | OAuth client ID (`…apps.googleusercontent.com`) |
+| `AUTH_GOOGLE_SECRET` | OAuth client secret |
+| `AUTH_GOOGLE_ALLOWED_DOMAINS` | Optional comma list; default `bigsea.co`. With an Internal consent screen only domains in the same Google org can sign in at all. |
+
+4. Redeploy. Check: a bigsea.co account with a Track2 user gets in; a personal Gmail and a bigsea.co
+   address with no Track2 user are refused with a message on `/login`.
+
+To turn Google off again, remove `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` and redeploy. Disabling password
+login (Google-only) is a later change.
+
+**Next: Google Drive export** (BugHerd #4/#10, not built). Plan: keep sign-in scopes as they are and ask
+for `https://www.googleapis.com/auth/drive.file` only when someone first clicks "Export to Google Drive"
+(incremental consent: `include_granted_scopes=true`, `access_type=offline`, `prompt=consent` the first
+time). `drive.file` only reaches files the app creates. Store the refresh token per user, encrypted with
+`lib/crypto.ts` (`INTEGRATION_ENC_KEY`), in a small new table (e.g. `UserGoogleCredential`: userId,
+accountId, encrypted refresh token, granted scopes, timestamps), revocable by the user. Exports then mint
+short-lived access tokens server-side and upload the file.
