@@ -10,6 +10,9 @@
 //   1. TimeEntry: partial unique index "at most one isRunning=true per user"
 //      -> CREATE UNIQUE INDEX one_running_timer ON "TimeEntry"("userId") WHERE "isRunning";
 //   2. Person rate tables: non-overlapping [startDate,endDate] ranges per user (exclusion constraint).
+//   3. TimeEntry: partial index over the uninvoiced billable pool (dashboard, retainers, invoice
+//      creation, uninvoiced report). Lives only in migration 20261013200000_hotpath_indexes (Prisma 5
+//      can't declare partial indexes; `migrate:new` ignores it).
 
 generator client {
   provider      = "prisma-client-js"
@@ -565,6 +568,8 @@ model ProjectUserAssignment {
 
   @@unique([projectId, userId])
   @@index([accountId])
+  // "My active assignments": loggableProjectsFor (timesheet + top bar on every page), PM scope checks.
+  @@index([userId, isActive])
 }
 
 // ---------------------------------------------------------------------------
