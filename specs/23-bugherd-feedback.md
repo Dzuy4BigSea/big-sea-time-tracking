@@ -137,3 +137,23 @@ FIXED cards went to **DONE**. Nothing was closed or deleted.
 
 Comments post as the API key's owner. Two newer cards, **#22** (invoice message/reminder templates) and **#23**
 (recurring project hours), are both marked "NICE TO HAVE" and aren't in this round. They were left untouched in BACKLOG.
+
+## Round 2 review (2026-10-13)
+The board now has extra columns: RE'VD BY CHAS W/COMMENT and RE'VD BY CHAS & DONE. Chasity added #24–#26.
+Screenshots on files.bugherd.com are blocked by the cloud environment's network policy, so this round
+worked from the card text and pinned elements.
+
+| # | Status | Decision |
+|---|---|---|
+| 4, 10 | DOING | Build Export → Google Drive the Harvest way: a new Google Sheet in the user's own My Drive, on the Time, Detailed time and Profitability reports plus the project Tasks export. Uses the `drive.file` scope, asked for the first time someone exports. Live once Google sign-in is configured. |
+| 15 | DOING | "What's over here?" was the expenses table cutting off after the Billable column. Fix: all columns fit at laptop width. |
+| 20 | RE'VD W/COMMENT | Harvest's Assigned people (admin assigns people to managers, who then approve, report on and see them) → **phase 2**, per Chasity. Replied that the current list only displays and grants no access. |
+| 21 | RE'VD & DONE | Confirmed by Chasity. |
+| 24 | BACKLOG | Rich-text project notes → **phase 2** (nice to have). |
+| 25 | BACKLOG | Budget line on the project chart with a spent/remaining hover (Harvest's Project progress view). Build now. |
+| 26 | BACKLOG | Team list split into Employees and Contractors, as Harvest does. Build now. |
+
+**Phase 2 list:** #20 Assigned people, #24 rich-text notes, #22 invoice message templates, #23 recurring project hours.
+Still waiting on Chasity: #5, #7, #12.
+
+Replies posted 2026-10-13: #20 (comment 18372332), #15 (18372333), #4 (18372334), #10 (18372336).
