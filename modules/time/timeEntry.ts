@@ -9,11 +9,58 @@
 
 export type LockState = 'open' | 'approved' | 'invoiced'
 
-/** Minutes elapsed between timer start and stop, rounded to the nearest minute. */
-export function computeTimerMinutes(startedAt: Date, stoppedAt: Date): number {
+/**
+ * Longest a single timer run may count (12h). A timer left running overnight is capped here when
+ * stopped, and the /api/cron/timers job stops any run that has gone past it.
+ */
+export const MAX_TIMER_MINUTES = 12 * 60
+
+/** Note appended to an entry whose timer the cron job stopped. */
+export const AUTO_STOP_NOTE = '(auto-stopped after 12h)'
+
+/**
+ * Minutes elapsed between timer start and stop, rounded to the nearest minute and capped at
+ * MAX_TIMER_MINUTES so a forgotten timer can't book days of time.
+ */
+export function computeTimerMinutes(startedAt: Date, stoppedAt: Date, cap: number = MAX_TIMER_MINUTES): number {
   const ms = stoppedAt.getTime() - startedAt.getTime()
   if (ms <= 0) return 0
-  return Math.round(ms / 60_000)
+  return Math.min(Math.round(ms / 60_000), cap)
+}
+
+/** True when a timer started at `startedAt` has run past the cap at `now` (cron auto-stop). */
+export function isRunawayTimer(startedAt: Date, now: Date, cap: number = MAX_TIMER_MINUTES): boolean {
+  return now.getTime() - startedAt.getTime() > cap * 60_000
+}
+
+/** Notes after an auto-stop: the existing notes plus AUTO_STOP_NOTE (never appended twice). */
+export function appendAutoStopNote(notes: string | null | undefined): string {
+  const base = (notes ?? '').trim()
+  if (base.endsWith(AUTO_STOP_NOTE)) return base
+  return base ? `${base} ${AUTO_STOP_NOTE}` : AUTO_STOP_NOTE
+}
+
+/** Prisma's unique-constraint violation (here: the one_running_timer_per_user partial index). */
+export function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002'
+}
+
+/** A repeat Start within this window on the same project/task is treated as a double-submit. */
+export const DUPLICATE_START_WINDOW_MS = 10_000
+
+/**
+ * True when the user's running timer is the one this Start would create (same project and task,
+ * started moments ago): a double-click or retried request, so the start is a no-op success
+ * instead of stopping the fresh timer and opening a second, empty entry.
+ */
+export function isDuplicateStart(
+  running: { projectId: string; taskId: string; timerStartedAt: Date | null } | null,
+  input: { projectId: string; taskId: string; now: Date },
+): boolean {
+  if (!running?.timerStartedAt) return false
+  if (running.projectId !== input.projectId || running.taskId !== input.taskId) return false
+  const age = input.now.getTime() - running.timerStartedAt.getTime()
+  return age >= -DUPLICATE_START_WINDOW_MS && age <= DUPLICATE_START_WINDOW_MS
 }
 
 /** Only `open` entries are editable/deletable; approved & invoiced are immutable (INV-3). */

@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayIn } from '@/lib/tz'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { NewPersonForm } from '@/components/NewPersonForm'
@@ -49,12 +51,12 @@ export default async function TeamPage({
   const roleFilter =
     role.startsWith('type:') ? { type: role.slice(5) as 'employee' | 'contractor' } : role ? { permissionProfile: role as PermissionProfile } : {}
 
-  const account = await prisma.account.findUnique({ where: { id: accountId }, select: { weekStartsOn: true } })
-  const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
-  const weekStart = startOfWeek(parseYmd(searchParams.week) ?? new Date(), weekStartsOn)
+  const { weekStartsOn, timezone } = await getAccountClock(accountId)
+  const today = todayIn(timezone) // the account's calendar day, not the server's UTC day
+  const weekStart = startOfWeek(parseYmd(searchParams.week) ?? today, weekStartsOn)
   const weekEnd = addDays(weekStart, 7) // exclusive
   const weekEndDisplay = addDays(weekStart, 6)
-  const isThisWeek = ymd(weekStart) === ymd(startOfWeek(new Date(), weekStartsOn))
+  const isThisWeek = ymd(weekStart) === ymd(startOfWeek(today, weekStartsOn))
 
   const [users, activeCount, archivedCount, entities, weekAgg] = await Promise.all([
     prisma.user.findMany({

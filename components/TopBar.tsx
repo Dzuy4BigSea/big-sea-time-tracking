@@ -3,7 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { startTimerAction, stopTimerAction } from '@/app/timesheet/actions'
+import { useFormState, useFormStatus } from 'react-dom'
+import { startTimerAction, stopTimerAction, type TimerState } from '@/app/timesheet/actions'
+import { todayYmdIn } from '@/lib/tz'
 import type { TopBarProject, TopBarRunning } from '@/lib/topbar'
 import { ProjectTaskPicker, TimeEntryModal } from '@/components/TimeEntryModal'
 import { GlobalSearch } from '@/components/GlobalSearch'
@@ -61,7 +63,17 @@ function IconMore() {
 }
 
 /* ---------- running-timer pill (live elapsed + stop) ---------- */
-function RunningPill({ running }: { running: TopBarRunning }) {
+function RunningPill({
+  running,
+  timezone,
+  stopAction,
+  onStop,
+}: {
+  running: TopBarRunning
+  timezone: string
+  stopAction: (formData: FormData) => void
+  onStop: () => void
+}) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
@@ -73,22 +85,45 @@ function RunningPill({ running }: { running: TopBarRunning }) {
   const m = Math.floor((totalSec % 3600) / 60)
   const s = totalSec % 60
   const clock = `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  // Left running since a previous day (in the account timezone)? Warn: it's probably forgotten.
+  const fromPreviousDay = todayYmdIn(timezone, new Date(startedAt)) < todayYmdIn(timezone, new Date(now))
 
   return (
-    <div className="flex items-center gap-2 rounded-full bg-brand-teal-50 py-1 pl-3 pr-1 text-sm">
+    <div
+      className={`flex items-center gap-2 rounded-full py-1 pl-3 pr-1 text-sm ${fromPreviousDay ? 'bg-amber-50 ring-1 ring-amber-400' : 'bg-brand-teal-50'}`}
+    >
+      {fromPreviousDay && (
+        <span className="text-xs font-medium text-amber-800" title="This timer was started on a previous day. Stop it and check the time.">
+          ⚠ Started {todayYmdIn(timezone, new Date(startedAt))}
+        </span>
+      )}
       <span className="hidden max-w-[220px] truncate text-gray-600 sm:inline" title={`${running.projectLabel} · ${running.taskName}`}>
         {running.projectLabel} · {running.taskName}
       </span>
       <span className="font-mono font-semibold tabular-nums text-brand-teal">{clock}</span>
-      <form action={stopTimerAction}>
+      {/* Optimistic: the pill hides on submit; the server result restores it on error. */}
+      <form action={stopAction} onSubmit={onStop}>
         <button
           title="Stop timer"
+          aria-label="Stop timer"
           className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-teal text-white hover:opacity-90"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5" /></svg>
         </button>
       </form>
     </div>
+  )
+}
+
+function StartTimerSubmit() {
+  const { pending } = useFormStatus()
+  return (
+    <button
+      disabled={pending}
+      className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+    >
+      {pending ? 'Starting…' : 'Start timer'}
+    </button>
   )
 }
 
@@ -99,16 +134,29 @@ export function TopBar({
   projects,
   running,
   canManageInvoices,
-  today,
+  timezone,
 }: {
   projects: TopBarProject[]
   running: TopBarRunning | null
   canManageInvoices: boolean
-  today: string
+  /** Account timezone: default dates and the "started on a previous day" warning use it. */
+  timezone: string
 }) {
   const pathname = usePathname()
   const [panel, setPanel] = useState<Panel>(null)
   const ref = useRef<HTMLDivElement>(null)
+
+  const [startState, startAction] = useFormState<TimerState, FormData>(startTimerAction, {})
+  const [stopState, stopAction] = useFormState<TimerState, FormData>(stopTimerAction, {})
+  // Optimistic stop: hide the pill for this entry as soon as Stop is clicked.
+  const [stoppedId, setStoppedId] = useState<string | null>(null)
+  useEffect(() => {
+    if (stopState.error) setStoppedId(null)
+  }, [stopState])
+  useEffect(() => {
+    if (startState.ok) setPanel(null)
+  }, [startState])
+  const shownRunning = running && running.id !== stoppedId ? running : null
 
   // Close panels on route change.
   useEffect(() => setPanel(null), [pathname])
@@ -134,8 +182,11 @@ export function TopBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2" ref={ref}>
-        {running ? (
-          <RunningPill running={running} />
+        {stopState.error && shownRunning && (
+          <span role="alert" className="text-xs text-red-600">{stopState.error}</span>
+        )}
+        {shownRunning ? (
+          <RunningPill running={shownRunning} timezone={timezone} stopAction={stopAction} onStop={() => setStoppedId(shownRunning.id)} />
         ) : (
           <div className="relative">
             <button
@@ -152,20 +203,19 @@ export function TopBar({
                 {noProjects ? (
                   <p className="text-sm text-gray-400">No projects assigned to you yet.</p>
                 ) : (
-                  <form action={startTimerAction} className="space-y-2">
+                  <form action={startAction} className="space-y-2">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs uppercase tracking-wide text-gray-400">Project / Task</span>
                       <ProjectTaskPicker projects={projects} />
                     </div>
                     <input name="notes" placeholder="Notes (optional)" className={`${inputCls} w-full`} />
                     <div className="flex items-center gap-2 pt-1">
-                      <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">
-                        Start timer
-                      </button>
+                      <StartTimerSubmit />
                       <button type="button" onClick={() => setPanel(null)} className="text-sm text-gray-500 hover:text-gray-700">
                         Cancel
                       </button>
                     </div>
+                    {startState.error && <p role="alert" className="text-xs text-red-600">{startState.error}</p>}
                   </form>
                 )}
               </div>
@@ -215,7 +265,7 @@ export function TopBar({
       </div>
 
       {/* Shared "New time entry" dialog (the clock button) — distinct from the Timer popover above */}
-      <TimeEntryModal open={panel === 'track'} onClose={() => setPanel(null)} projects={projects} defaultDate={today} />
+      <TimeEntryModal open={panel === 'track'} onClose={() => setPanel(null)} projects={projects} defaultDate={panel === 'track' ? todayYmdIn(timezone) : ''} />
     </div>
   )
 }

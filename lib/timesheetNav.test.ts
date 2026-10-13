@@ -41,6 +41,26 @@ describe('resolveTimesheetNav', () => {
   })
 })
 
+describe('resolveTimesheetNav in the account timezone', () => {
+  // 23:30 Eastern on Sun 18 Oct 2026 = 03:30 UTC Mon 19 Oct: the server's UTC day is already Monday.
+  const LATE_ET = new Date('2026-10-19T03:30:00Z')
+  it('today is the account’s calendar day, not the UTC day', () => {
+    const n = resolveTimesheetNav({}, LATE_ET, 'monday', 'America/New_York')
+    expect(ymd(n.today)).toBe('2026-10-18')
+    expect(ymd(n.weekStart)).toBe('2026-10-12') // still the week of Mon 12 Oct
+    expect(ymd(n.date)).toBe('2026-10-18')
+    expect(n.isCurrentWeek).toBe(true)
+  })
+  it('day view defaults to the account’s today', () => {
+    const n = resolveTimesheetNav({ view: 'day' }, LATE_ET, 'monday', 'America/New_York')
+    expect(ymd(n.date)).toBe('2026-10-18')
+    expect(n.isToday).toBe(true)
+  })
+  it('a UTC account already sees Monday', () => {
+    expect(ymd(resolveTimesheetNav({}, LATE_ET, 'monday', 'UTC').today)).toBe('2026-10-19')
+  })
+})
+
 describe('timesheetUrl / navQuery', () => {
   it('builds day, week and return URLs', () => {
     expect(timesheetUrl({ day: d('2026-10-07') })).toBe('/timesheet?view=day&date=2026-10-07')
