@@ -281,6 +281,7 @@ model Account {
   migrationSnapshots       MigrationSnapshot[]
   migrationIdMaps          MigrationIdMap[]
   businessEntities         BusinessEntity[]
+  savedReports             SavedReport[]
 }
 
 // A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
@@ -316,7 +317,7 @@ model BusinessEntity {
 
   clients                Client[]
   projects               Project[]
-  homedUsers             User[]                  @relation("UserHomeEntity")
+  homedUsers             User[]                   @relation("UserHomeEntity")
   invoices               Invoice[]
   integrationConnections IntegrationConnection[]
   invoiceLabels          InvoiceLabels[]
@@ -358,20 +359,20 @@ model User {
   firstName    String
   lastName     String
 
-  employeeId           String?
-  asanaUserGid         String? // integration mapping (specs/14)
-  homeEntityId         String? // home business entity (specs/16); null = account default (Big Sea)
-  homeEntity           BusinessEntity?   @relation("UserHomeEntity", fields: [homeEntityId], references: [id], onDelete: SetNull)
-  type                 UserType          @default(employee)
-  permissionProfile    PermissionProfile @default(member)
-  permissionOverrides  Json?
-  roleTags             String[]          @default([])
-  departments          String[]          @default([])
-  capacityHoursPerWeek Decimal?          @db.Decimal(5, 2)
-  timezone             String?
-  isActive             Boolean           @default(true)
-  archivedAt           DateTime?
-  assignedToAllProjects Boolean          @default(false) // Harvest-style: on all current + future projects (specs/17)
+  employeeId            String?
+  asanaUserGid          String? // integration mapping (specs/14)
+  homeEntityId          String? // home business entity (specs/16); null = account default (Big Sea)
+  homeEntity            BusinessEntity?   @relation("UserHomeEntity", fields: [homeEntityId], references: [id], onDelete: SetNull)
+  type                  UserType          @default(employee)
+  permissionProfile     PermissionProfile @default(member)
+  permissionOverrides   Json?
+  roleTags              String[]          @default([])
+  departments           String[]          @default([])
+  capacityHoursPerWeek  Decimal?          @db.Decimal(5, 2)
+  timezone              String?
+  isActive              Boolean           @default(true)
+  archivedAt            DateTime?
+  assignedToAllProjects Boolean           @default(false) // Harvest-style: on all current + future projects (specs/17)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -385,6 +386,7 @@ model User {
   projectAssignments ProjectUserAssignment[]
   expenses           Expense[]
   auditLogs          AuditLog[]              @relation("AuditActor")
+  savedReports       SavedReport[]
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -429,19 +431,19 @@ model PersonCostRate {
 // ---------------------------------------------------------------------------
 
 model Client {
-  id         String    @id @default(cuid())
-  accountId  String
-  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  name       String
-  currency   String    @default("USD")
-  address    String?
-  isActive   Boolean   @default(true)
-  archivedAt DateTime?
+  id            String          @id @default(cuid())
+  accountId     String
+  account       Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name          String
+  currency      String          @default("USD")
+  address       String?
+  isActive      Boolean         @default(true)
+  archivedAt    DateTime?
   xeroContactId String? // integration mapping (specs/14)
-  entityId   String? // business entity (specs/16); null = account default (Big Sea)
-  entity     BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  entityId      String? // business entity (specs/16); null = account default (Big Sea)
+  entity        BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   contacts                 ClientContact[]
   projects                 Project[]
@@ -489,16 +491,16 @@ model Task {
 }
 
 model Project {
-  id        String  @id @default(cuid())
-  accountId String
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  clientId  String
-  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name      String
-  code      String?
+  id              String          @id @default(cuid())
+  accountId       String
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  code            String?
   asanaProjectGid String? // integration mapping (specs/14)
-  entityId  String? // business entity (specs/16); null = account default (Big Sea)
-  entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  entityId        String? // business entity (specs/16); null = account default (Big Sea)
+  entity          BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   // Two-level billing model (specs/03)
   projectType            ProjectType         @default(time_and_materials)
@@ -651,11 +653,11 @@ model ItemType {
 }
 
 model Invoice {
-  id        String  @id @default(cuid())
+  id        String          @id @default(cuid())
   accountId String
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   clientId  String
-  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client    Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
   entityId  String? // business entity (specs/16); stamped from client at creation, null = account default
   entity    BusinessEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
@@ -863,25 +865,25 @@ model Expense {
 // ---------------------------------------------------------------------------
 
 model RecurringInvoiceProfile {
-  id                String             @id @default(cuid())
-  accountId         String
-  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  clientId          String
-  client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subject           String
-  frequency         RecurringFrequency @default(monthly)
-  intervalCount     Int                @default(1)
-  nextIssueDate     DateTime?          @db.Date
-  status            RecurringStatus    @default(active)
+  id                   String             @id @default(cuid())
+  accountId            String
+  account              Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  clientId             String
+  client               Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subject              String
+  frequency            RecurringFrequency @default(monthly)
+  intervalCount        Int                @default(1)
+  nextIssueDate        DateTime?          @db.Date
+  status               RecurringStatus    @default(active)
   // "Number of invoices to issue" (BugHerd #13): null = recur indefinitely; decremented per
   // generated invoice; at 0 the profile pauses and reads as Completed.
   remainingOccurrences Int?
-  amountCents       Int                @default(0)
-  paymentTerm       PaymentTerm        @default(net_30)
-  notes             String?
-  templateLineItems Json
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  amountCents          Int                @default(0)
+  paymentTerm          PaymentTerm        @default(net_30)
+  notes                String?
+  templateLineItems    Json
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@index([accountId])
   @@index([clientId])
@@ -990,15 +992,15 @@ model AuditLog {
 // ---------------------------------------------------------------------------
 
 model IntegrationConnection {
-  id       String              @id @default(cuid())
+  id        String              @id @default(cuid())
   accountId String
-  account  Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  provider IntegrationProvider
+  account   Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  provider  IntegrationProvider
   // Business entity this connection belongs to (specs/16). null = shared/account-wide (Asana);
   // non-null = entity-specific (Stripe, Xero) so each company routes to its own account/tenant.
-  entityId String?
-  entity   BusinessEntity?     @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  status   IntegrationStatus   @default(disconnected)
+  entityId  String?
+  entity    BusinessEntity?     @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  status    IntegrationStatus   @default(disconnected)
 
   // Secret material — AES-256-GCM encrypted at rest (lib/crypto). Never returned to the client.
   accessTokenEnc  String?
@@ -1033,7 +1035,7 @@ model IntegrationSyncLog {
   externalId String?
   ok         Boolean
   message    String?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime            @default(now())
 
   @@index([accountId, provider])
   @@index([entityType, entityId])
@@ -1096,4 +1098,34 @@ model MigrationIdMap {
 
   @@unique([accountId, entity, harvestId])
   @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Saved reports (specs/25)
+// ---------------------------------------------------------------------------
+
+enum SavedReportKind {
+  time_summary
+  detailed_time
+  detailed_expense
+}
+
+/// A named report = its kind + URL query (`params`), so relative timeframes ("This week") roll forward.
+/// Visible to the creator, or to the whole account when `shared`.
+model SavedReport {
+  id          String          @id @default(cuid())
+  accountId   String
+  account     Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User            @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  name        String
+  kind        SavedReportKind
+  params      Json            @default("{}")
+  shared      Boolean         @default(false)
+  archivedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([accountId])
+  @@index([createdById])
 }

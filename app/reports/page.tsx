@@ -8,6 +8,9 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
+import { SaveReportControls } from '@/components/SaveReportControls'
+import { savedReportContext, currentParams } from '@/modules/reports/savedReportContext'
+import { ymd } from '@/lib/week'
 import { resolveTimeframe, timeframeQuery, buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 import {
@@ -47,9 +50,10 @@ type Row = TimeTotals & {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: { tab?: string; group?: string; active?: string; period?: string; anchor?: string; from?: string; to?: string; sort?: string; dir?: string }
+  searchParams: { tab?: string; group?: string; active?: string; period?: string; anchor?: string; from?: string; to?: string; sort?: string; dir?: string; saved?: string }
 }) {
-  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const me = await requireUser()
+  const { accountId, permissionProfile, permissionOverrides } = me
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
   const tab = parseTimeTab(searchParams)
   const activeOnly = searchParams.active === '1'
@@ -143,17 +147,27 @@ export default async function ReportsPage({
   const activeq = activeOnly ? { active: '1' } : {}
   const isDefaultSort = sort.key === defaultSort.key && sort.dir === defaultSort.dir
   const sortq = isDefaultSort ? {} : { sort: sort.key, dir: sort.dir }
+  // Saving the report stores its current query; opened from Saved reports (?saved=) it shows the report's name menu.
+  const saveParams = currentParams(searchParams)
+  const saved = await savedReportContext(me, searchParams.saved, 'time_summary', saveParams)
+  // Hours cells open the Detailed time report for that row over the same dates (Harvest).
+  const detailedRange = tf.from || tf.till ? { range: 'custom', from: tf.from ? ymd(tf.from) : null, to: tf.till ? ymd(tf.till) : null } : { range: 'all' }
+  const filterKey = ({ clients: 'clients', projects: 'projects', tasks: 'tasks', users: 'users' } as const)[tab]
+  const detailHref = (key: string) => buildHref('/reports/detailed', { ...detailedRange, [filterKey]: key, active: activeOnly ? '1' : null })
   const sortHref = (s: SortState<TimeSortKey>) => buildHref('/reports', { tab, ...activeq, ...tfq, sort: s.key, dir: s.dir })
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">Reports</h1>
+        <div className="flex items-center gap-2">
+        <SaveReportControls kind="time_summary" params={saveParams} saved={saved} />
         {canExport && (
           <Link href={buildHref('/reports/export', tfq)} prefetch={false} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-50">
             Export CSV
           </Link>
         )}
+        </div>
       </div>
       <p className="mb-4 text-sm text-gray-500">Time report · live from Supabase</p>
       <ReportsTabs active="Time" timeframe={tfq} />
@@ -246,9 +260,9 @@ export default async function ReportsPage({
                     <td className="px-4 py-2 text-right tabular-nums text-gray-600">{billableHoursCell(s.totals)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-gray-700">{amountCell(s.totals.billableCents)}</td>
                   </tr>,
-                  ...s.rows.map((r) => <DataRow key={r.key} r={r} tab={tab} />),
+                  ...s.rows.map((r) => <DataRow key={r.key} r={r} tab={tab} detailHref={detailHref(r.key)} />),
                 ])
-              : rows.map((r) => <DataRow key={r.key} r={r} tab={tab} />)}
+              : rows.map((r) => <DataRow key={r.key} r={r} tab={tab} detailHref={detailHref(r.key)} />)}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="px-4 py-8 text-center text-gray-400">
@@ -278,7 +292,7 @@ export default async function ReportsPage({
 const billableHoursCell = (t: TimeTotals) => `${hrs(t.billableMinutes)} (${pct(t.billableMinutes, t.minutes)}%)`
 const amountCell = (cents: number) => (cents ? formatCents(cents) : '—')
 
-function DataRow({ r, tab }: { r: Row; tab: TimeTab }) {
+function DataRow({ r, tab, detailHref }: { r: Row; tab: TimeTab; detailHref: string }) {
   return (
     <tr className="border-b border-gray-100 last:border-0">
       <td className="px-4 py-3 font-medium text-gray-900">
@@ -308,7 +322,11 @@ function DataRow({ r, tab }: { r: Row; tab: TimeTab }) {
           )}
         </td>
       )}
-      <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(r.minutes)}</td>
+      <td className="px-4 py-3 text-right tabular-nums">
+        <Link href={detailHref} className="text-brand-teal underline decoration-brand-teal/30 underline-offset-2 hover:decoration-brand-teal" title="Open the detailed time report">
+          {hrs(r.minutes)}
+        </Link>
+      </td>
       <td className="px-4 py-3">
         <ShareBar billable={r.billableMinutes} total={r.minutes} />
       </td>
