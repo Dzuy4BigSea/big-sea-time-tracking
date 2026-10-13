@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { headers } from 'next/headers'
 import './globals.css'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { SiteFooter } from '@/components/SiteFooter'
 import { Shell } from '@/components/Shell'
+import { DriveExportNotice } from '@/components/DriveExportNotice'
 import { auth } from '@/auth'
 import { getCurrentUser, userCan } from '@/lib/session'
 import { getTopBarData } from '@/lib/topbar'
@@ -69,6 +71,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }
           footer={<SiteFooter />}
         >
+          {/* "Saved to your Google Drive · Open spreadsheet" after an export (reads ?driveFile= etc.). */}
+          <Suspense fallback={null}>
+            <DriveExportNotice />
+          </Suspense>
           {children}
         </Shell>
       </body>

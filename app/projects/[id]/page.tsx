@@ -31,6 +31,7 @@ import {
   setProjectArchivedAction,
 } from '@/app/projects/actions'
 import { createBlankInvoiceAction } from '@/app/invoices/[id]/edit/actions'
+import { ExportMenu } from '@/components/ExportMenu'
 
 export const dynamic = 'force-dynamic'
 
@@ -333,7 +334,7 @@ export default async function ProjectDetailPage({
         <TasksTab
           project={project} accountId={accountId} tf={tf} showCosts={showCosts} canManage={canManage} ratesMissing={ratesMissing}
           sort={sort} basePath={basePath} sortBase={sortBase} now={now} editHref={editHref}
-          toolbarActions={<a href={exportHref} className="text-sm text-brand-teal hover:underline">Export CSV</a>}
+          toolbarActions={<ExportMenu csvHref={exportHref} />}
           keep={{ tab, ...sortq }}
         />
       )}

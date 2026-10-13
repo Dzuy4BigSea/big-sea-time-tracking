@@ -9,6 +9,7 @@ import { parseDetailed, detailedQuery, detailedTimeframe, rangeOptions, type Det
 import { detailedTime, detailedPickers, DETAILED_ROW_LIMIT, type DetailedTimeRow } from '@/modules/reports/detailedSql'
 import { savedReportContext } from '@/modules/reports/savedReportContext'
 import { DetailedReportFilters } from '@/components/DetailedReportFilters'
+import { ExportMenu } from '@/components/ExportMenu'
 import { DetailedToolbar, DetailedSummary, usDate, rangeTitle, toolbarKeep, filterNames as names } from '@/components/DetailedReportParts'
 import { SaveReportControls } from '@/components/SaveReportControls'
 
@@ -89,7 +90,18 @@ export default async function DetailedTimePage({ searchParams }: { searchParams:
         ]}
       />
 
-      <DetailedToolbar kind="time" f={f} href={href} exportHref={buildHref(`${PATH}/export`, query)} />
+      <DetailedToolbar
+        kind="time"
+        f={f}
+        href={href}
+        exportHref={buildHref(`${PATH}/export`, query)}
+        exportMenu={
+          <ExportMenu
+            csvHref={buildHref(`${PATH}/export`, query)}
+            summaryClassName="cursor-pointer list-none rounded-md border border-gray-300 bg-white px-3 py-1 text-sm text-gray-800 shadow-sm hover:bg-gray-50"
+          />
+        }
+      />
 
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
