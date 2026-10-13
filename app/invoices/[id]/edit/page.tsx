@@ -7,6 +7,8 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { formatCents } from '@/lib/format'
 import { ymd } from '@/lib/week'
 import { EditInvoiceForm } from '@/components/EditInvoiceForm'
+import { FixedFeeProjectContext, type FixedFeeContextView } from '@/components/FixedFeeProjectContext'
+import { projectFeeCents } from '@/modules/invoicing/fixedFee'
 import { addLineItemAction, updateLineItemAction, removeLineItemAction } from '@/app/invoices/[id]/edit/actions'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +27,49 @@ export default async function EditInvoicePage({ params }: { params: { id: string
   if (!invoice) notFound()
 
   const isDraft = invoice.status === 'draft'
+
+  // Fixed Fee lines get Harvest's "Show project context" panel (fee / invoiced / remaining + related invoices).
+  const linkedIds = [...new Set(invoice.lineItems.map((li) => li.linkedProjectId).filter((x): x is string => !!x))]
+  const ffProjects = isDraft && linkedIds.length
+    ? await prisma.project.findMany({
+        where: { accountId, id: { in: linkedIds }, projectType: 'fixed_fee' },
+        select: { id: true, name: true, notes: true, projectFeesCents: true, budgetMethod: true, budgetValue: true },
+      })
+    : []
+  const ffContexts = new Map<string, FixedFeeContextView>()
+  if (ffProjects.length) {
+    const ids = ffProjects.map((p) => p.id)
+    // Same rule as fixedFeeStatus: every linked non-expense line on any existing invoice counts.
+    const sums = await prisma.invoiceLineItem.groupBy({
+      by: ['linkedProjectId', 'invoiceId'],
+      where: { accountId, linkedProjectId: { in: ids }, kind: { not: 'expense' } },
+      _sum: { amountCents: true },
+    })
+    const otherIds = [...new Set(sums.map((s) => s.invoiceId).filter((id) => id !== invoice.id))]
+    const others = otherIds.length
+      ? await prisma.invoice.findMany({ where: { accountId, id: { in: otherIds } }, select: { id: true, number: true, status: true, issueDate: true } })
+      : []
+    const byId = new Map(others.map((o) => [o.id, o]))
+    for (const p of ffProjects) {
+      const mine = sums.filter((s) => s.linkedProjectId === p.id)
+      const related = mine
+        .filter((s) => s.invoiceId !== invoice.id && byId.has(s.invoiceId))
+        .map((s) => {
+          const o = byId.get(s.invoiceId)!
+          return { id: o.id, label: o.number ? `#${o.number}` : 'Draft', status: o.status, issueDate: o.issueDate, amountCents: s._sum.amountCents ?? 0 }
+        })
+        .sort((a, b) => (b.issueDate?.getTime() ?? 0) - (a.issueDate?.getTime() ?? 0))
+      ffContexts.set(p.id, {
+        projectId: p.id,
+        projectName: p.name,
+        notes: p.notes,
+        feeCents: projectFeeCents(p),
+        invoicedElsewhereCents: related.reduce((s, r) => s + r.amountCents, 0),
+        thisInvoiceCents: mine.filter((s) => s.invoiceId === invoice.id).reduce((s, r) => s + (r._sum.amountCents ?? 0), 0),
+        related,
+      })
+    }
+  }
   const editableMeta = isDraft || invoice.status === 'open'
   const cur = invoice.currency
   const dec = (n: unknown) => (n == null ? '' : String(Number(n)))
@@ -99,6 +144,9 @@ export default async function EditInvoicePage({ params }: { params: { id: string
                   </td>
                   <td className="px-3 py-2">
                     <input form={`li-${li.id}`} name="unitPrice" defaultValue={(li.unitPriceCents / 100).toFixed(2)} className={`${inp} w-24`} />
+                    {li.linkedProjectId && ffContexts.has(li.linkedProjectId) && (
+                      <FixedFeeProjectContext ctx={ffContexts.get(li.linkedProjectId)!} currency={cur} canManageInvoices />
+                    )}
                   </td>
                   <td className="px-3 py-2 text-center">
                     <input form={`li-${li.id}`} type="checkbox" name="taxable" defaultChecked={li.taxable} className="h-4 w-4" />

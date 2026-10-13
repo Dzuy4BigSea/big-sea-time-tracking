@@ -11,6 +11,7 @@ import { prisma } from '@/lib/prisma'
 import { generateInvoice, GenerateInvoiceError } from './generateInvoice'
 import { sendInvoice, markInvoiceDraft, deleteInvoice } from './invoiceLifecycle'
 import { recordPayment, deletePayment } from './recordPayment'
+import { fixedFeeStatus } from './fixedFee'
 
 const A = 'acc_demo'
 const tag = `it_${Date.now()}`
@@ -65,15 +66,47 @@ describe('invoicing go-live guards (live DB)', () => {
 
     const invs = await prisma.invoice.findMany({ where: { clientId } })
     expect(invs).toHaveLength(1) // the loser left no orphan draft
-    const lines = await prisma.invoiceLineItem.findMany({ where: { invoiceId } })
-    expect(lines).toHaveLength(1)
-    expect(Number(lines[0].quantity)).toBe(1.33) // 80 min
-    expect(lines[0].amountCents).toBe(19950) // 1.33 × $150
-    expect(lines.some((l) => l.kind === 'flat')).toBe(false)
+    const lines = await prisma.invoiceLineItem.findMany({ where: { invoiceId }, orderBy: { sortOrder: 'asc' } })
+    expect(lines).toHaveLength(2)
+    const time = lines.find((l) => l.kind === 'time')!
+    expect(Number(time.quantity)).toBe(1.33) // 80 min
+    expect(time.amountCents).toBe(19950) // 1.33 × $150
+    // Fixed fee (Harvest): ONE flat line for the remaining fee, linked to the project.
+    const flat = lines.find((l) => l.kind === 'flat')!
+    expect(flat.amountCents).toBe(500000)
+    expect(Number(flat.quantity)).toBe(1)
+    expect(flat.linkedProjectId).toBe(ffProjectId)
     const ff = await prisma.timeEntry.findFirst({ where: { projectId: ffProjectId } })
-    expect(ff?.invoiceLineItemId).toBeNull() // fixed-fee time not pulled in
-    const fixed = await prisma.timeEntry.findFirst({ where: { projectId: tmProjectId, minutes: 60 } })
-    expect(fixed?.billableRateCents).toBe(15000) // re-derived via resolveRate, persisted
+    expect(ff?.invoiceLineItemId).toBeNull() // fixed-fee time not linked: stays uninvoiced hours
+    const rerated = await prisma.timeEntry.findFirst({ where: { projectId: tmProjectId, minutes: 60 } })
+    expect(rerated?.billableRateCents).toBe(15000) // re-derived via resolveRate, persisted
+  })
+
+  it('fixed fee: lowered unit price leaves the remainder for the next invoice; fully invoiced → nothing; project picker scopes', async () => {
+    const p = await prisma.project.create({ data: { accountId: A, clientId, name: `FF2 ${tag}`, projectType: 'fixed_fee', projectFeesCents: 100000 } })
+    await prisma.timeEntry.create({ data: { accountId: A, userId: 'usr_bob', projectId: p.id, taskId: 'task_dev', spentDate: day('2026-08-06'), minutes: 120, isBillable: true, billableRateCents: 0 } })
+    const first = await generateInvoice(prisma, { accountId: A, clientId, projectIds: [p.id] })
+    const l1 = await prisma.invoiceLineItem.findMany({ where: { invoiceId: first!.id } })
+    expect(l1).toHaveLength(1) // only the picked project
+    expect(l1[0].amountCents).toBe(100000)
+    // The user lowers the unit price on the draft: $1,000 → $600.
+    await prisma.invoiceLineItem.update({ where: { id: l1[0].id }, data: { unitPriceCents: 60000, amountCents: 60000 } })
+
+    const second = await generateInvoice(prisma, { accountId: A, clientId, projectIds: [p.id] })
+    const l2 = await prisma.invoiceLineItem.findMany({ where: { invoiceId: second!.id } })
+    expect(l2.map((l) => l.amountCents)).toEqual([40000]) // the remaining $400
+    expect(await generateInvoice(prisma, { accountId: A, clientId, projectIds: [p.id] })).toBeNull() // fully invoiced
+
+    // Deleting a draft returns its amount to the remaining fee.
+    await deleteInvoice(prisma, second!.id)
+    const [st] = await fixedFeeStatus(prisma, A, { projectIds: [p.id] })
+    expect(st).toMatchObject({ feeCents: 100000, invoicedCents: 60000, remainingCents: 40000 })
+    const te = await prisma.timeEntry.findFirst({ where: { projectId: p.id } })
+    expect(te?.invoiceLineItemId).toBeNull()
+
+    await prisma.invoice.delete({ where: { id: first!.id } })
+    await prisma.timeEntry.deleteMany({ where: { projectId: p.id } })
+    await prisma.project.delete({ where: { id: p.id } })
   })
 
   it('blocks generation when a billable entry has no resolvable rate', async () => {

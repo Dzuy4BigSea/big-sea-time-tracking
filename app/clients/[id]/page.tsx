@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { formatMinutes } from '@/modules/shared/duration'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
+import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { setClientArchivedAction, deleteContactAction, toggleInvoiceRecipientAction } from '@/app/clients/actions'
@@ -46,6 +47,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   })
   if (!client) notFound()
 
+  // Fixed Fee projects (Harvest): uninvoiced amount = project fee − amount invoiced, not hours × rate.
+  const fees = new Map((await fixedFeeStatus(prisma, accountId, { clientId: client.id })).map((f) => [f.projectId, f.remainingCents]))
   const projectRows = client.projects.map((p) => {
     let minutes = 0
     let uninvoicedCents = 0
@@ -56,6 +59,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         uninvoicedCents += amount
       }
     }
+    if (p.projectType === 'fixed_fee') uninvoicedCents = fees.get(p.id) ?? 0
     return { id: p.id, name: p.name, code: p.code, isActive: p.isActive, minutes, uninvoicedCents }
   })
 

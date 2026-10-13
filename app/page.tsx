@@ -6,6 +6,7 @@ import { startOfWeek, addDays } from '@/lib/week'
 import { requireUser } from '@/lib/session'
 import { getAccountClock } from '@/lib/accountClock'
 import { todayIn } from '@/lib/tz'
+import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,9 +58,13 @@ export default async function HomePage() {
         FROM "Invoice" WHERE "accountId" = ${accountId}`,
       // Unbilled billable time: `"invoiceLineItemId" IS NULL` is served by TimeEntry_invoiceLineItemId_idx
       // (Postgres b-trees index NULLs), so this reads only the not-yet-invoiced rows, not the history.
+      // Fixed Fee projects are not billed by hours × rate (Harvest): their time is left out here and
+      // their remaining fee (fee − invoiced, active projects) is added below.
       prisma.$queryRaw<{ c: number }[]>`
-        SELECT COALESCE(SUM(minutes/60.0 * COALESCE("billableRateCents",0)),0)::float8 AS c
-        FROM "TimeEntry" WHERE "accountId" = ${accountId} AND "isBillable" AND NOT "isRunning" AND "invoiceLineItemId" IS NULL AND "lockState"::text <> 'invoiced'`,
+        SELECT COALESCE(SUM(te.minutes/60.0 * COALESCE(te."billableRateCents",0)),0)::float8 AS c
+        FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
+        WHERE te."accountId" = ${accountId} AND te."isBillable" AND NOT te."isRunning" AND te."invoiceLineItemId" IS NULL
+          AND te."lockState"::text <> 'invoiced' AND p."projectType"::text <> 'fixed_fee'`,
       prisma.expense.findMany({
         where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
         select: { totalCents: true, markupPercent: true },
@@ -92,8 +97,10 @@ export default async function HomePage() {
   const recurringDue = recurring.filter((r) => r.nextIssueDate && utcMidnight(r.nextIssueDate) <= today).length
   const retainerBalance = retainers.reduce((s, r) => s + r.balanceCents, 0)
 
+  const fixedFees = await fixedFeeStatus(prisma, accountId, { activeOnly: true })
   const uninvoicedCents =
     Math.round(Number(uninvTimeAgg[0]?.c ?? 0)) +
+    fixedFees.reduce((s, f) => s + f.remainingCents, 0) +
     uninvExpenses.reduce((s, e) => s + Math.round(e.totalCents * (1 + (e.markupPercent ? Number(e.markupPercent) : 0) / 100)), 0)
   const capacityHours = Number(capacityAgg._sum.capacityHoursPerWeek ?? 0)
   const utilization = capacityHours > 0 ? Math.round((minWeek / 60 / capacityHours) * 100) : null
@@ -109,7 +116,7 @@ export default async function HomePage() {
         <Link href="/invoices?view=all" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
           <div className="text-xs uppercase tracking-wide text-gray-400">Uninvoiced</div>
           <div className="mt-1 text-2xl font-semibold text-brand-green">{formatCents(uninvoicedCents)}</div>
-          <div className="mt-0.5 text-xs text-gray-400">billable time + expenses waiting</div>
+          <div className="mt-0.5 text-xs text-gray-400">billable time, fixed fees + expenses waiting</div>
         </Link>
         <Link href="/reports/receivables" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
           <div className="text-xs uppercase tracking-wide text-gray-400">Overdue</div>

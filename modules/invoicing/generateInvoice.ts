@@ -8,15 +8,22 @@
  * pulled the same way and added as `expense` line items (billed amount = total × (1+markup)).
  * All in one transaction.
  *
+ * Fixed-fee projects (Harvest): each fixed-fee project in scope gets ONE `flat` line for its
+ * remaining uninvoiced fee (fee − already invoiced, modules/invoicing/fixedFee.ts); none when nothing
+ * remains. Its tracked hours are NOT pulled in or linked — they stay uninvoiced hours.
+ *
  * Safety rules (go-live audit):
- *  - Fixed-fee project time is NOT pulled in (Harvest bills a fixed fee via a manual line).
+ *  - Fixed-fee project time is NOT pulled in (the fee line bills the project, not its hours).
+ *  - The fixed-fee projects are row-locked inside the transaction and their remaining fee re-derived;
+ *    if another generation claimed some of it meanwhile, this one rolls back (no double-billed fee).
  *  - Billable T&M entries with no stored rate are re-resolved (resolveRate, as of spentDate); if any
  *    still lack a rate, generation is blocked with a GenerateInvoiceError naming them (no $0 lines).
  *  - Entries/expenses are reserved inside the transaction with a guarded updateMany
  *    (invoiceLineItemId still null, not invoiced) and a count check, so two concurrent generations
  *    can never put the same entry on two invoices (INV-4); the loser's transaction rolls back.
  */
-import type { PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
+import { fixedFeeLine, fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 import { groupTimeEntriesIntoLineItems, type TimeEntryForInvoice, type TimeGrouping } from '@/modules/invoicing/lineItems'
 import { computeTotals } from '@/modules/invoicing/totals'
 import { percentOf } from '@/modules/shared/money'
@@ -68,6 +75,11 @@ export interface GenerateInvoiceInput {
   accountId: string
   clientId: string
   grouping?: TimeGrouping
+  /**
+   * Projects to invoice (Harvest's project picker). Omitted → every project of the client, with
+   * fixed-fee lines only for its ACTIVE fixed-fee projects. Projects not on the client are ignored.
+   */
+  projectIds?: string[]
 }
 
 export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoiceInput) {
@@ -78,6 +90,9 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
     select: { id: true, name: true, currency: true, entityId: true, accountId: true },
   })
   if (client.accountId !== input.accountId) return null // INV-5
+  const projectIds = input.projectIds ? [...new Set(input.projectIds)] : undefined
+  if (projectIds && projectIds.length === 0) return null
+  const projectScope = projectIds ? { id: { in: projectIds } } : {}
 
   const rows = await prisma.timeEntry.findMany({
     where: {
@@ -87,7 +102,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
       invoiceLineItemId: null,
       lockState: { not: 'invoiced' },
       // Fixed-fee time is billed by a manual line, never from hours (see header).
-      project: { clientId: input.clientId, projectType: 'time_and_materials' },
+      project: { clientId: input.clientId, projectType: 'time_and_materials', ...projectScope },
     },
     select: {
       id: true,
@@ -111,7 +126,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
       isBillable: true,
       invoiceLineItemId: null,
       lockState: { not: 'invoiced' },
-      project: { clientId: input.clientId },
+      project: { clientId: input.clientId, ...projectScope },
     },
     select: {
       id: true,
@@ -125,7 +140,16 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
     orderBy: { spentDate: 'asc' },
   })
 
-  if (rows.length === 0 && expenseRows.length === 0) return null // nothing to invoice
+  // Fixed-fee projects in scope → one line each for the remaining uninvoiced fee.
+  const ffBefore = await fixedFeeStatus(prisma, input.accountId, {
+    clientId: input.clientId,
+    ...(projectIds ? { projectIds } : { activeOnly: true }),
+  })
+  const feeLines = ffBefore
+    .map((p) => fixedFeeLine({ id: p.projectId, name: p.name, feeCents: p.feeCents }, p.invoicedCents))
+    .filter((l): l is NonNullable<typeof l> => l != null)
+
+  if (rows.length === 0 && expenseRows.length === 0 && feeLines.length === 0) return null // nothing to invoice
 
   // Re-derive missing rates (INV-2); block generation when any are still missing.
   const rateCtx: PoolEntryRateContext[] = rows.map((r) => ({
@@ -172,7 +196,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
     notes: r.notes,
   }))
 
-  const lineItems = groupTimeEntriesIntoLineItems(entries, grouping)
+  const lineItems = [...feeLines, ...groupTimeEntriesIntoLineItems(entries, grouping)]
 
   // Each expense becomes its own line item; billed amount applies the markup.
   const ymd = (d: Date) => d.toISOString().slice(0, 10)
@@ -200,6 +224,17 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
         where: { id: u.id, accountId: input.accountId, lockState: 'open', invoiceLineItemId: null },
         data: { billableRateCents: u.rate },
       })
+    }
+    if (feeLines.length > 0) {
+      // Serialize fee claims per project, then re-derive what remains: a concurrent generation that
+      // already billed (part of) the fee makes this one roll back instead of double-billing it.
+      const ids = feeLines.map((l) => l.linkedProjectId)
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "Project" WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`)
+      const current = await fixedFeeStatus(tx, input.accountId, { projectIds: ids })
+      for (const l of feeLines) {
+        const cur = current.find((p) => p.projectId === l.linkedProjectId)
+        if (!cur || cur.remainingCents !== l.amountCents) throw new GenerateInvoiceError(RACE_MESSAGE)
+      }
     }
     const invoice = await tx.invoice.create({
       data: {

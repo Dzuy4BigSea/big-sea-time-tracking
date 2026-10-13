@@ -27,6 +27,12 @@ interface TemplateLine {
   unitPriceCents: number
   amountCents: number
   taxable?: boolean
+  /**
+   * Optional project link (e.g. a Fixed Fee project). Harvest keeps issuing a recurring line linked
+   * to a fixed-fee project regardless of whether the fee is exhausted, so no fee check is made here;
+   * the line simply counts toward that project's invoiced amount.
+   */
+  linkedProjectId?: string | null
 }
 
 export interface RecurringRunSummary {
@@ -83,6 +89,11 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
             totalCents: totals.totalCents,
           },
         })
+        // Keep only links to projects that still exist in this account (INV-5; templates can be stale).
+        const wanted = [...new Set(lines.map((li) => li.linkedProjectId).filter((x): x is string => !!x))]
+        const known = new Set(
+          wanted.length ? (await tx.project.findMany({ where: { accountId, id: { in: wanted } }, select: { id: true } })).map((x) => x.id) : [],
+        )
         let sortOrder = 0
         for (const li of lines) {
           await tx.invoiceLineItem.create({
@@ -90,6 +101,7 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
               accountId,
               invoiceId: invoice.id,
               kind: 'free_form',
+              linkedProjectId: li.linkedProjectId && known.has(li.linkedProjectId) ? li.linkedProjectId : null,
               description: li.description,
               quantity: li.quantity,
               unitPriceCents: li.unitPriceCents,

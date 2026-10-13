@@ -3,11 +3,10 @@
  *
  * Pure function. Splits every grouping by distinct rate (a line item has ONE unit price).
  *
- * Fixed-fee projects are NOT billed from tracked time. Harvest bills a fixed fee through a manual
- * line / amount, so auto-adding the whole project fee on every generation that happened to include
- * fixed-fee hours double-billed the fee (and a project with no fee produced a $0 line). The caller
- * (generateInvoice) leaves fixed-fee time out of the pool; this function also ignores any such
- * entry defensively.
+ * Fixed-fee projects are NOT billed from tracked time (Harvest): their fee is billed as ONE line for
+ * the remaining uninvoiced fee (modules/invoicing/fixedFee.ts → fixedFeeLine), and their hours are
+ * never attached to the invoice — they stay "uninvoiced hours". The caller (generateInvoice) leaves
+ * fixed-fee time out of the pool; this function also ignores any such entry defensively.
  *
  * Line math: quantity is the hours rounded half-up to 2 decimals (what the invoice, the client and
  * Xero see), and amount = rounded quantity × rate, so quantity × unit price always equals amount.
