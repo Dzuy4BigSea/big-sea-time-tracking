@@ -16,19 +16,31 @@
  *     rows left) is skipped. FRESH DB connection per year (a long-lived one went stale in August).
  *   - Gap: entries DELETED in Harvest after the full snapshot stay (deltas only carry changed rows).
  *
+ * GO-LIVE GUARD: this deletes and recreates Harvest-sourced time entries. Once Track2 is used for real
+ * work that would destroy Track2 history, so --apply REFUSES when any of these exist (dry run reports them):
+ *   - a time entry on a Track2 invoice line (invoiceLineItemId) or an approved timesheet,
+ *   - a time entry created in Track2 (harvestId null, createdAt >= BULK_CUTOFF), or a running timer,
+ *   - a Harvest-sourced entry edited in Track2 after import (updatedAt is neither the import's own
+ *     write time nor a whole-second Harvest stamp; see modules/migration/protect.ts).
+ * Override with --force-after-go-live. Even then, KEYED entries that are invoiced/approved/running/
+ * edited in Track2 are kept (not deleted, not re-created). MIGRATION_LOCKED=1 refuses --apply outright.
+ * Rows it writes carry updatedAt = Harvest's updated_at, so later imports can tell them from Track2 edits.
+ *
  * Usage:
- *   node --env-file=.env scripts/rebuild-timesheets.mjs            # dry run: per-year reconciliation
- *   node --env-file=.env scripts/rebuild-timesheets.mjs --apply    # write (safe to re-run)
- *   node --env-file=.env scripts/rebuild-timesheets.mjs --apply --force   # rewrite every year
- * Env: ACCOUNT_ID, FULL_SNAPSHOT_ID (optional), BULK_CUTOFF (default 2026-08-08T00:00:00Z).
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/rebuild-timesheets.mjs            # dry run: reconciliation + guard report
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/rebuild-timesheets.mjs --apply    # write (safe to re-run)
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/rebuild-timesheets.mjs --apply --force   # rewrite every year
+ * Env: ACCOUNT_ID (required), FULL_SNAPSHOT_ID (optional), BULK_CUTOFF (default 2026-08-08T00:00:00Z).
  *
  * Run the non-time import for each incremental snapshot FIRST (new people/projects/tasks must exist):
  *   SNAPSHOT_ID=<id> npx tsx --tsconfig scripts/tsconfig.scripts.json scripts/migrate-staged.ts full --apply
  */
 import { PrismaClient } from '@prisma/client'
+import { assertNotLocked, refuse, requireAccountId } from './lib/guards.mjs'
 
 const APPLY = process.argv.includes('--apply')
 const FORCE = process.argv.includes('--force')
+const AFTER_GO_LIVE = process.argv.includes('--force-after-go-live')
 const TE_CHUNK = 2000
 const ASG_CHUNK = 1000
 const DRY = '__dry__'
@@ -43,11 +55,43 @@ const yearOf = (te) => String(te.spent_date ?? '').slice(0, 4)
 const hrs = (m) => (m / 60).toLocaleString('en-US', { maximumFractionDigits: 1 })
 const log = (m) => process.stdout.write(m + '\n')
 
+if (APPLY) assertNotLocked('rebuild-timesheets --apply')
 const boot = new PrismaClient()
-const accountId =
-  process.env.ACCOUNT_ID ??
-  (await boot.account.findFirst({ where: { name: { contains: 'Big Sea' } }, select: { id: true } }))?.id
-if (!accountId) { log('No account; set ACCOUNT_ID.'); process.exit(1) }
+const accountId = (await requireAccountId(boot)).id
+
+// ---- go-live guard -------------------------------------------------------------------------------
+// "Edited in Track2": updatedAt is not a whole-second Harvest stamp AND differs from createdAt by more
+// than the slack of one write (same rule as modules/migration/protect.ts isImportStamped).
+const EDITED_SQL = `("updatedAt" <> date_trunc('second', "updatedAt") AND abs(extract(epoch from ("updatedAt" - "createdAt"))) > 2)`
+const [g] = await boot.$queryRawUnsafe(
+  `SELECT
+     COUNT(*) FILTER (WHERE "invoiceLineItemId" IS NOT NULL)::int AS linked,
+     COUNT(*) FILTER (WHERE "approvedTimesheetId" IS NOT NULL)::int AS approved,
+     COUNT(*) FILTER (WHERE "isRunning")::int AS running,
+     COUNT(*) FILTER (WHERE "harvestId" IS NULL AND "createdAt" >= $2)::int AS native,
+     COUNT(*) FILTER (WHERE ("harvestId" IS NOT NULL OR "createdAt" < $2) AND ${EDITED_SQL})::int AS edited,
+     MAX("createdAt") FILTER (WHERE "harvestId" IS NOT NULL OR "createdAt" < $2) AS "lastImport"
+   FROM "TimeEntry" WHERE "accountId" = $1`,
+  accountId, BULK_CUTOFF,
+)
+const goLive = { linked: g.linked, approved: g.approved, running: g.running, native: g.native, edited: g.edited }
+const goLiveHits = Object.values(goLive).reduce((a, b) => a + b, 0)
+log(`\n▶ Go-live check (account ${accountId}, last Harvest import write ${g.lastImport ? new Date(g.lastImport).toISOString() : 'n/a'})`)
+log(`  on Track2 invoices=${goLive.linked}  approved=${goLive.approved}  running timers=${goLive.running}  created in Track2=${goLive.native}  edited in Track2=${goLive.edited}`)
+if (goLive.edited > 0) {
+  const sample = await boot.$queryRawUnsafe(`SELECT id, "harvestId", "createdAt", "updatedAt" FROM "TimeEntry" WHERE "accountId" = $1 AND ${EDITED_SQL} ORDER BY "updatedAt" DESC LIMIT 5`, accountId)
+  for (const r of sample) log(`    edited: ${r.id} harvestId=${r.harvestId ?? '-'} created=${new Date(r.createdAt).toISOString()} updated=${new Date(r.updatedAt).toISOString()}`)
+}
+if (goLiveHits > 0 && APPLY && !AFTER_GO_LIVE) {
+  await boot.$disconnect()
+  refuse('Track2 already holds work that a rebuild would destroy', [
+    'This script deletes and recreates every Harvest-sourced time entry for each year.',
+    'Track2 has invoiced, approved, running, native or edited entries (counts above), so it looks',
+    'like Track2 is in real use. If you are certain, re-run with --apply --force-after-go-live',
+    '(keyed entries that Track2 owns are then kept; unkeyed bulk rows are still replaced).',
+  ])
+}
+if (goLiveHits > 0 && APPLY) log('  ⚠️  --force-after-go-live: proceeding; keyed Track2-owned entries are preserved.')
 
 const finished = { in: ['complete', 'partial'] }
 const full = process.env.FULL_SNAPSHOT_ID
@@ -107,7 +151,14 @@ const mapRow = (te) => {
     isBillable: te.billable ?? true,
     billableRateCents: cents(te.billable_rate),
     lockState: te.invoice?.id ? 'invoiced' : te.is_locked ? 'approved' : 'open',
+    // Harvest's whole-second updated_at: marks the row as "as imported" (protect.ts isImportStamped).
+    ...(stampOf(te.updated_at) ? { updatedAt: stampOf(te.updated_at) } : {}),
   }
+}
+function stampOf(v) {
+  if (!v) return null
+  const d = new Date(String(v))
+  return isNaN(d.getTime()) ? null : new Date(Math.floor(d.getTime() / 1000) * 1000)
 }
 
 // Rows the rebuild owns: keyed (from Harvest) or unkeyed bulk-import rows. Track2-native rows excluded.
@@ -157,16 +208,27 @@ async function processYear(year) {
     ])
     if (!FORCE && legacy === 0 && keyed === buf.length) { tot.written += keyed; log(`${line}   already keyed — skipped`); return }
 
+    // Keyed rows Track2 owns (invoiced/approved/running/edited there) are never deleted or re-created.
+    const keep = await db.$queryRawUnsafe(
+      `SELECT "harvestId" FROM "TimeEntry" WHERE "accountId" = $1 AND "harvestId" IS NOT NULL
+         AND ("invoiceLineItemId" IS NOT NULL OR "approvedTimesheetId" IS NOT NULL OR "isRunning" OR ${EDITED_SQL})`,
+      accountId,
+    )
+    const keepIds = new Set(keep.map((r) => r.harvestId))
+    const toWrite = keepIds.size ? buf.filter((r) => !keepIds.has(r.harvestId)) : buf
+    if (keepIds.size) log(`  ${year}: keeping ${keepIds.size} Track2-owned keyed entr${keepIds.size === 1 ? 'y' : 'ies'} (account-wide)`)
+    const protectedWhere = keepIds.size ? { NOT: { harvestId: { in: [...keepIds] } } } : {}
+
     await db.$transaction(async (tx) => {
-      await tx.timeEntry.deleteMany({ where: { ...inYear, ...harvestOwned } })
+      await tx.timeEntry.deleteMany({ where: { ...inYear, ...harvestOwned, ...protectedWhere } })
       // An entry whose date moved across years may still sit (keyed) in another year — clear it first.
-      for (let i = 0; i < buf.length; i += 5000) {
-        await tx.timeEntry.deleteMany({ where: { accountId, harvestId: { in: buf.slice(i, i + 5000).map((r) => r.harvestId) } } })
+      for (let i = 0; i < toWrite.length; i += 5000) {
+        await tx.timeEntry.deleteMany({ where: { accountId, harvestId: { in: toWrite.slice(i, i + 5000).map((r) => r.harvestId) } } })
       }
-      for (let i = 0; i < buf.length; i += TE_CHUNK) await tx.timeEntry.createMany({ data: buf.slice(i, i + TE_CHUNK) })
+      for (let i = 0; i < toWrite.length; i += TE_CHUNK) await tx.timeEntry.createMany({ data: toWrite.slice(i, i + TE_CHUNK) })
     }, { timeout: 600_000, maxWait: 60_000 })
     tot.written += buf.length
-    log(`${line}   wrote ${buf.length}`)
+    log(`${line}   wrote ${toWrite.length}${toWrite.length !== buf.length ? ` (kept ${buf.length - toWrite.length})` : ''}`)
   } finally {
     await db.$disconnect()
   }

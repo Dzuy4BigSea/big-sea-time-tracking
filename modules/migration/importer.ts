@@ -25,6 +25,10 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import {
+  decideExpenseUpdate, decideTimeEntryUpdate, harvestUpdatedAt, invoiceChangedInTrack2,
+  isMigrationLocked, MIGRATION_LOCKED_MESSAGE,
+} from './protect'
 
 type HRow = Record<string, any>
 
@@ -168,7 +172,9 @@ async function loadPartData(partId: string): Promise<HRow[]> {
 }
 
 // ---- stage definitions -----------------------------------------------------
-type Ctx = { accountId: string; maps: Maps; dryRun: boolean }
+type Ctx = { accountId: string; maps: Maps; dryRun: boolean; protectedRows: Record<string, number> }
+/** Count a row the importer deliberately left alone because Track2 owns it now (see protect.ts). */
+const protect = (ctx: Ctx, key: string) => { ctx.protectedRows[key] = (ctx.protectedRows[key] ?? 0) + 1 }
 type Stage = { entity: string; resource: string; label: string; importRow: (row: HRow, ctx: Ctx) => Promise<'created' | 'updated' | 'skipped'> }
 
 const STAGES: Stage[] = [
@@ -318,7 +324,6 @@ const STAGES: Stage[] = [
       const projectLocal = getLocal(maps, 'project', sid(te.project?.id))
       const taskLocal = getLocal(maps, 'task', sid(te.task?.id))
       if (!userLocal || !projectLocal || !taskLocal) return 'skipped'
-      await ensureAssignments(ctx, projectLocal, taskLocal, userLocal)
       const lockState = (te.invoice?.id ? 'invoiced' : te.is_locked ? 'approved' : 'open') as any
       const data = {
         userId: userLocal,
@@ -331,16 +336,34 @@ const STAGES: Stage[] = [
         billableRateCents: centsOrNull(te.billable_rate),
         lockState,
       }
+      // Stamp updatedAt with Harvest's whole-second updated_at so a later Track2 edit (ms precision)
+      // is detectable and an older snapshot can never roll the row back (protect.ts).
+      const hUpdated = harvestUpdatedAt(te.updated_at)
+      const stamped = hUpdated ? { ...data, updatedAt: hUpdated } : data
       // Keyed by TimeEntry.harvestId (not MigrationIdMap) so the 388k leaf rows don't need map rows.
-      const existing = await prisma.timeEntry.findUnique({ where: { accountId_harvestId: { accountId, harvestId: hid } }, select: { id: true } })
-      if (existing) { if (!dryRun) await prisma.timeEntry.update({ where: { id: existing.id }, data }); return 'updated' }
-      if (!dryRun) await prisma.timeEntry.create({ data: { accountId, harvestId: hid, ...data } })
+      const existing = await prisma.timeEntry.findUnique({
+        where: { accountId_harvestId: { accountId, harvestId: hid } },
+        select: { id: true, lockState: true, invoiceLineItemId: true, approvedTimesheetId: true, isRunning: true, createdAt: true, updatedAt: true },
+      })
+      if (existing) {
+        const decision = decideTimeEntryUpdate(existing, hUpdated)
+        if (decision.action === 'skip') {
+          protect(ctx, `time_entry:${decision.reason}`)
+          return 'skipped'
+        }
+        await ensureAssignments(ctx, projectLocal, taskLocal, userLocal)
+        if (!dryRun) await prisma.timeEntry.update({ where: { id: existing.id }, data: stamped })
+        return 'updated'
+      }
+      await ensureAssignments(ctx, projectLocal, taskLocal, userLocal)
+      if (!dryRun) await prisma.timeEntry.create({ data: { accountId, harvestId: hid, ...stamped } })
       return 'created'
     },
   },
   {
     entity: 'expense', resource: 'expenses', label: 'Expenses',
-    importRow: async (ex, { accountId, maps, dryRun }) => {
+    importRow: async (ex, ctx) => {
+      const { accountId, maps, dryRun } = ctx
       const hid = String(ex.id)
       const userLocal = getLocal(maps, 'user', sid(ex.user?.id))
       const projectLocal = getLocal(maps, 'project', sid(ex.project?.id))
@@ -358,7 +381,13 @@ const STAGES: Stage[] = [
         lockState: (ex.invoice?.id ? 'invoiced' : 'open') as any,
       }
       const local = getLocal(maps, 'expense', hid)
-      if (local) { if (!dryRun) await prisma.expense.update({ where: { id: local }, data }); return 'updated' }
+      if (local) {
+        const cur = await prisma.expense.findFirst({ where: { id: local, accountId }, select: { lockState: true, invoiceLineItemId: true } })
+        const decision = cur ? decideExpenseUpdate(cur) : ({ action: 'update' } as const)
+        if (decision.action === 'skip') { protect(ctx, `expense:${decision.reason}`); return 'skipped' }
+        if (!dryRun) await prisma.expense.update({ where: { id: local }, data })
+        return 'updated'
+      }
       const id = dryRun ? DRY : (await prisma.expense.create({ data: { accountId, ...data } })).id
       await recordMap(maps, 'expense', hid, id, dryRun, accountId)
       return 'created'
@@ -366,7 +395,8 @@ const STAGES: Stage[] = [
   },
   {
     entity: 'invoice', resource: 'invoices', label: 'Invoices',
-    importRow: async (inv, { accountId, maps, dryRun }) => {
+    importRow: async (inv, ctx) => {
+      const { accountId, maps, dryRun } = ctx
       const hid = String(inv.id)
       const clientLocal = getLocal(maps, 'client', sid(inv.client?.id))
       if (!clientLocal) return 'skipped'
@@ -400,6 +430,11 @@ const STAGES: Stage[] = [
       const local = getLocal(maps, 'invoice', hid)
       const isNew = !local
       let invoiceId = local
+      // Never overwrite (or rebuild the line items of) an invoice Track2 has touched since import.
+      if (local && (await importedInvoiceChangedInTrack2(accountId, local))) {
+        protect(ctx, 'invoice:changed_in_track2')
+        return 'skipped'
+      }
       if (local) {
         if (!dryRun) {
           await prisma.invoice.update({ where: { id: local }, data })
@@ -469,7 +504,8 @@ const STAGES: Stage[] = [
   },
   {
     entity: 'estimate', resource: 'estimates', label: 'Estimates',
-    importRow: async (es, { accountId, maps, dryRun }) => {
+    importRow: async (es, ctx) => {
+      const { accountId, maps, dryRun } = ctx
       const hid = String(es.id)
       const clientLocal = getLocal(maps, 'client', sid(es.client?.id))
       if (!clientLocal) return 'skipped'
@@ -492,6 +528,10 @@ const STAGES: Stage[] = [
       const lineItems: HRow[] = Array.isArray(es.line_items) ? es.line_items : []
       const local = getLocal(maps, 'estimate', hid)
       let estimateId = local
+      if (local) {
+        const cur = await prisma.estimate.findFirst({ where: { id: local, accountId }, select: { publicToken: true, convertedInvoice: { select: { id: true } } } })
+        if (cur?.publicToken || cur?.convertedInvoice) { protect(ctx, 'estimate:changed_in_track2'); return 'skipped' }
+      }
       if (local) {
         if (!dryRun) {
           await prisma.estimate.update({ where: { id: local }, data })
@@ -521,6 +561,43 @@ const STAGES: Stage[] = [
     },
   },
 ]
+
+// ---- Track2-ownership checks (go-live safety) ------------------------------
+async function importedInvoiceChangedInTrack2(accountId: string, invoiceId: string): Promise<boolean> {
+  const [inv, audits, payments, linkedTime, linkedExpenses] = await Promise.all([
+    prisma.invoice.findFirst({ where: { id: invoiceId, accountId }, select: { publicToken: true, xeroInvoiceId: true, stripePaymentIntentId: true, createdFromEstimateId: true } }),
+    prisma.auditLog.findMany({ where: { accountId, entityType: 'invoice', entityId: invoiceId }, select: { actorUserId: true, after: true } }),
+    prisma.payment.findMany({ where: { accountId, invoiceId }, select: { note: true } }),
+    prisma.timeEntry.count({ where: { accountId, invoiceLineItem: { invoiceId } } }),
+    prisma.expense.count({ where: { accountId, invoiceLineItem: { invoiceId } } }),
+  ])
+  if (!inv) return true // vanished or not ours: never touch
+  return invoiceChangedInTrack2({
+    audits: audits.map((a) => ({ actorUserId: a.actorUserId, summary: (a.after as { summary?: string } | null)?.summary ?? null })),
+    paymentNotes: payments.map((p) => p.note),
+    linkedItems: linkedTime + linkedExpenses,
+    externalIds: Boolean(inv.publicToken || inv.xeroInvoiceId || inv.stripePaymentIntentId || inv.createdFromEstimateId),
+  })
+}
+
+/**
+ * Highest numeric document number for the account. `number` is a String column, so Prisma's `_max`
+ * is alphabetical ('999' > '7801'); this takes the trailing digits as an integer instead.
+ */
+export async function numericMaxNumber(accountId: string, table: 'Invoice' | 'Estimate'): Promise<number | null> {
+  const rows = table === 'Invoice'
+    ? await prisma.$queryRaw<{ max: bigint | number | null }[]>`
+        SELECT MAX((substring("number" from '([0-9]+)[[:space:]]*$'))::bigint) AS max
+        FROM "Invoice" WHERE "accountId" = ${accountId} AND "number" ~ '[0-9]+[[:space:]]*$'`
+    : await prisma.$queryRaw<{ max: bigint | number | null }[]>`
+        SELECT MAX((substring("number" from '([0-9]+)[[:space:]]*$'))::bigint) AS max
+        FROM "Estimate" WHERE "accountId" = ${accountId} AND "number" ~ '[0-9]+[[:space:]]*$'`
+  const v = rows[0]?.max
+  if (v == null) return null
+  const n = Number(v)
+  // Sequences are Int columns: ignore absurd numbers (e.g. a pasted PO number) rather than overflow.
+  return Number.isSafeInteger(n) && n <= 2_147_483_647 ? n : null
+}
 
 // ---- assignment derivation (from time entries) -----------------------------
 const seenTaskAsg = new Set<string>()
@@ -565,6 +642,10 @@ export async function runImportBatch(
   snapshotId: string,
   opts: { dryRun: boolean; cursor?: ImportCursor | null; stopAfter?: string; fromEntity?: string },
 ): Promise<ImportBatchResult> {
+  // Hard kill switch: once Track2 is the system of record nothing may be written from Harvest.
+  if (!opts.dryRun && isMigrationLocked()) {
+    return { ok: false, message: MIGRATION_LOCKED_MESSAGE, dryRun: opts.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
+  }
   const snap = await prisma.migrationSnapshot.findFirst({ where: { id: snapshotId, accountId }, select: { entityCounts: true, mode: true } })
   if (!snap) return { ok: false, message: 'Snapshot not found.', dryRun: opts.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
   const counts = (snap.entityCounts as Record<string, number> | null) ?? {}
@@ -593,6 +674,13 @@ export async function runImportBatch(
     ;(batch[e] ??= { created: 0, updated: 0, skipped: 0, errors: 0 })[k]++
   }
 
+  const protectedRows: Record<string, number> = {}
+  const protectNotes = () => {
+    for (const [k, n] of Object.entries(protectedRows)) {
+      const [entity, reason] = k.split(':')
+      notes.push(`Protected ${n} ${entity.replace('_', ' ')} row${n === 1 ? '' : 's'} (${reason.replace(/_/g, ' ').replace('track2', 'Track2')}): Track2's copy was kept.`)
+    }
+  }
   const start = Date.now()
   let processedThisBatch = 0
   let stageLabel = STAGES[Math.min(stageIndex, STAGES.length - 1)]?.label ?? ''
@@ -615,10 +703,11 @@ export async function runImportBatch(
       const rows = await loadPartData(parts[partIndex].id) // one bounded part at a time
       for (; offset < rows.length; offset++) {
         if (Date.now() - start > BATCH_BUDGET_MS && processedThisBatch > 0) {
+          protectNotes()
           return { ok: true, dryRun, done: false, cursor: { stageIndex, partIndex, offset }, batch, processedThisBatch, totalRows, stageLabel, notes }
         }
         try {
-          const outcome = await stage.importRow(rows[offset], { accountId, maps, dryRun })
+          const outcome = await stage.importRow(rows[offset], { accountId, maps, dryRun, protectedRows })
           tally(stage.entity, outcome)
         } catch (e) {
           tally(stage.entity, 'errors')
@@ -636,12 +725,7 @@ export async function runImportBatch(
   // Done — bump document-number sequences past the highest imported number so new docs don't collide.
   // Only when the whole import finished; a partial phase (stopAfter) must not claim completion side effects.
   if (!dryRun && fullRun) {
-    const [invMax, estMax] = await Promise.all([
-      prisma.invoice.aggregate({ where: { accountId }, _max: { number: true } }),
-      prisma.estimate.aggregate({ where: { accountId }, _max: { number: true } }),
-    ])
-    const invN = trailingInt(invMax._max.number)
-    const estN = trailingInt(estMax._max.number)
+    const [invN, estN] = await Promise.all([numericMaxNumber(accountId, 'Invoice'), numericMaxNumber(accountId, 'Estimate')])
     const acct = await prisma.account.findUnique({ where: { id: accountId }, select: { invoiceNumberSeq: true, estimateNumberSeq: true } })
     await prisma.account.update({
       where: { id: accountId },
@@ -654,6 +738,7 @@ export async function runImportBatch(
     seenUserAsg.clear()
   }
 
+  protectNotes()
   return { ok: true, dryRun, done: true, cursor: null, batch, processedThisBatch, totalRows, stageLabel: 'Done', notes }
 }
 

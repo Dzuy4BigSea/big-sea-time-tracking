@@ -11,6 +11,7 @@ import { getConnectionWithSecrets } from '@/lib/integrations'
 import { pullAll, verifyHarvest, LIGHT_RESOURCES, HEAVY_RESOURCES } from '@/modules/integrations/harvestClient'
 import { runImportBatch, type ImportBatchResult, type ImportCursor } from '@/modules/migration/importer'
 import { isCleanPull, resolveDeltaSince } from '@/modules/migration/deltaSince'
+import { isMigrationLocked, MIGRATION_LOCKED_MESSAGE } from '@/modules/migration/protect'
 
 export type MigrateState = { error?: string; ok?: boolean }
 
@@ -24,6 +25,7 @@ async function requireMigrateAdmin() {
 export async function saveHarvestCredsAction(_prev: MigrateState, formData: FormData): Promise<MigrateState> {
   const actor = await requireMigrateAdmin()
   if (!actor) return { error: 'You do not have permission to configure migration.' }
+  if (isMigrationLocked()) return { error: MIGRATION_LOCKED_MESSAGE }
   if (!isEncryptionConfigured()) return { error: 'Set INTEGRATION_ENC_KEY before storing the Harvest token.' }
 
   const token = String(formData.get('accessToken') ?? '').trim()
@@ -259,7 +261,7 @@ async function executeBackupBatch(
 /** Plain form action — no-JS fallback that runs a single batch (one "Continue" press). */
 export async function createBackupSnapshotAction(formData: FormData): Promise<void> {
   const actor = await requireMigrateAdmin()
-  if (!actor) return
+  if (!actor || isMigrationLocked()) return
   await executeBackupBatch(actor, {
     resumeId: String(formData.get('snapshotId') ?? '') || undefined,
     mode: String(formData.get('mode') ?? 'full'),
@@ -270,6 +272,7 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
 export async function backupBatchAction(input: { snapshotId?: string; mode?: string }): Promise<BackupProgress> {
   const actor = await requireMigrateAdmin()
   if (!actor) return { ok: false, message: 'You do not have permission to run a migration.' }
+  if (isMigrationLocked()) return { ok: false, message: MIGRATION_LOCKED_MESSAGE }
   return executeBackupBatch(actor, { resumeId: input.snapshotId, mode: input.mode })
 }
 
@@ -288,6 +291,10 @@ export async function importBatchAction(input: {
       ok: false, message: 'You do not have permission to run a migration.',
       dryRun: input.dryRun, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [],
     }
+  }
+  // Kill switch: a dry-run preview is still allowed (it writes nothing); applying is refused.
+  if (!input.dryRun && isMigrationLocked()) {
+    return { ok: false, message: MIGRATION_LOCKED_MESSAGE, dryRun: false, done: true, cursor: null, batch: {}, processedThisBatch: 0, totalRows: 0, stageLabel: '', notes: [] }
   }
   const res = await runImportBatch(actor.accountId, input.snapshotId, { dryRun: input.dryRun, cursor: input.cursor })
   if (!input.dryRun && res.done) revalidatePath('/settings/migrate')

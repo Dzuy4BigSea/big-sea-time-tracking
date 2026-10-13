@@ -11,14 +11,18 @@
  * 100-req / 15s cap; fresh DB connection every N projects so no connection goes stale on a long run.
  *
  * Requires env: DATABASE_URL, INTEGRATION_ENC_KEY (same as Vercel). Optional: ACCOUNT_ID.
- * Usage: INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs [--dry]
+ * Upserts OVERWRITE Track2 assignment rates / PM flags with Harvest's, so (go-live guard) it is a DRY RUN
+ * unless --apply is passed, and MIGRATION_LOCKED=1 refuses --apply.
+ * Usage: INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs [--apply]
  */
 import { PrismaClient } from '@prisma/client'
 import { createDecipheriv, createHash } from 'node:crypto'
+import { assertNotLocked } from './lib/guards.mjs'
 
 const ENC_KEY = process.env.INTEGRATION_ENC_KEY
 if (!ENC_KEY || ENC_KEY.length < 16) { console.error('Set INTEGRATION_ENC_KEY.'); process.exit(1) }
-const DRY = process.argv.includes('--dry')
+const DRY = !process.argv.includes('--apply') // --dry kept as a no-op alias for the old flag
+if (!DRY) assertNotLocked('sync-assignments --apply')
 const HARVEST_API = 'https://api.harvestapp.com/v2'
 const RECONNECT_EVERY = 200
 const CALL_DELAY_MS = 160 // ~6/s, under 100/15s
@@ -125,5 +129,5 @@ for (const [hid, localProjectId] of projects) {
   if (n % RECONNECT_EVERY === 0) { await p.$disconnect(); p = new PrismaClient() } // avoid stale long-lived connection
 }
 console.log(`\n\nDone. projects synced=${n}  userAssignments upserted=${uUp} (PM=${pmSet}, rates=${rateSet}, skipped=${uSkip})  taskAssignments=${tUp} (skipped=${tSkip})  apiErrors=${apiErr}`)
-if (DRY) console.log('(dry — no writes, no done-markers. Re-run without --dry to apply.)')
+if (DRY) console.log('(dry — no writes, no done-markers. Re-run with --apply to write.)')
 await p.$disconnect()

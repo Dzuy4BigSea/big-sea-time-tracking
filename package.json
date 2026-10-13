@@ -13,6 +13,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "migrate:new": "prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script",
     "db:seed": "prisma db seed",
+    "db:health": "node scripts/check-db-health.mjs",
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
