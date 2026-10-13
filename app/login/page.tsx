@@ -2,12 +2,10 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
-  const router = useRouter()
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -26,8 +24,9 @@ export default function LoginPage() {
     }
     setPending(false)
     if (res && !res.error) {
-      router.push('/')
-      router.refresh()
+      // Full page load, not router.push: while signed out, the app shell's links were prefetched and
+      // cached as redirects to /login, so a client-side push could bounce straight back here.
+      window.location.assign('/')
       return
     }
     // A cold serverless/DB connection surfaces as a non-credentials error — don't call it a bad password.
@@ -49,7 +48,8 @@ export default function LoginPage() {
         <h1 className="mb-1 text-lg font-semibold">Sign in</h1>
         <p className="mb-6 text-sm text-gray-500">Time tracking + invoicing for Big Sea.</p>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        {/* method="post": if someone submits before JS loads, credentials must never land in the URL. */}
+        <form method="post" action="/login" onSubmit={onSubmit} className="space-y-4">
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-wide text-gray-400">Email</span>
             <input
