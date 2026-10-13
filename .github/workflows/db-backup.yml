@@ -1,0 +1,91 @@
+name: DB backup
+
+# Nightly off-site logical backup of the production Postgres (Supabase), kept as a GitHub Actions
+# artifact for 30 days. Restore procedure: OPS.md → "Restore from a nightly backup".
+#
+# Required secret:  BACKUP_DATABASE_URL  Supabase *session pooler* (:5432) or direct URL, sslmode=require.
+#                                        Use a dedicated read-only role if possible (see OPS.md).
+# Optional secret:  BACKUP_PASSPHRASE    When set, the dump is gpg-encrypted (AES256, symmetric) before
+#                                        upload. Strongly recommended: artifacts are readable by anyone
+#                                        with read access to the repository.
+
+on:
+  schedule:
+    - cron: '17 7 * * *' # 07:17 UTC daily (~3am Eastern), off the top of the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check secrets
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          if [ -z "$BACKUP_DATABASE_URL" ]; then
+            echo "::error::Set the BACKUP_DATABASE_URL repository secret (see OPS.md)."
+            exit 1
+          fi
+
+      - name: Install PostgreSQL 16 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
+
+      - name: pg_dump (custom format)
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          mkdir -p backup
+          /usr/lib/postgresql/16/bin/pg_dump "$BACKUP_DATABASE_URL" \
+            --format=custom --compress=9 --no-owner --no-privileges \
+            --schema=public \
+            --file="backup/track2-$STAMP.dump"
+          # Sanity: the archive must list the core tables, or the dump is useless.
+          /usr/lib/postgresql/16/bin/pg_restore --list "backup/track2-$STAMP.dump" > backup/toc.txt
+          for t in TimeEntry Invoice InvoiceLineItem Payment Client Project User _prisma_migrations; do
+            grep -q "TABLE DATA public \"\?$t\"\? " backup/toc.txt || { echo "::error::table $t missing from dump"; exit 1; }
+          done
+          ls -lh backup/
+          sha256sum "backup/track2-$STAMP.dump" | tee "backup/track2-$STAMP.dump.sha256"
+
+      - name: Encrypt (gpg symmetric, if BACKUP_PASSPHRASE is set)
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BACKUP_PASSPHRASE:-}" ]; then
+            gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+              --symmetric --cipher-algo AES256 \
+              --output "backup/track2-$STAMP.dump.gpg" "backup/track2-$STAMP.dump" <<< "$BACKUP_PASSPHRASE"
+            rm "backup/track2-$STAMP.dump"
+            echo "Encrypted with gpg (AES256)."
+          else
+            echo "::warning::BACKUP_PASSPHRASE is not set: the artifact is NOT encrypted."
+          fi
+          rm -f backup/toc.txt
+          ls -lh backup/
+
+      - name: Upload artifact (30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: track2-db-${{ env.STAMP }}
+          path: backup/
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0 # already compressed

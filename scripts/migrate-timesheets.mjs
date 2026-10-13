@@ -15,13 +15,22 @@
  * Assignments (project↔person, project↔task) are derived from the entries and upserted at the end
  * (Phase 4 later enriches with the real Harvest roster + PM flags + rates).
  *
+ * SUPERSEDED for the live account by scripts/rebuild-timesheets.mjs (keyed by harvestId). This script
+ * DELETES each year's time entries before re-inserting, so --apply is guarded (go-live):
+ *   - ACCOUNT_ID is required; MIGRATION_LOCKED=1 refuses;
+ *   - refuses when the account already has > 1,000 time entries (production has 388k) unless
+ *     ALLOW_BULK_REIMPORT=1 is set to finish an interrupted FIRST import into a fresh account;
+ *   - refuses outright when any entry is keyed (harvestId), on a Track2 invoice, approved, running,
+ *     or created in Track2 — and never deletes such rows.
+ *
  * Usage:
- *   node --env-file=.env scripts/migrate-timesheets.mjs             # dry run (map + reconcile)
- *   node --env-file=.env scripts/migrate-timesheets.mjs --apply     # import (resumable; safe to re-run)
- *   node --env-file=.env scripts/migrate-timesheets.mjs --apply --force   # redo every year
- * Env: ACCOUNT_ID, SNAPSHOT_ID (optional).
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/migrate-timesheets.mjs             # dry run (map + reconcile)
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/migrate-timesheets.mjs --apply     # import (resumable)
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/migrate-timesheets.mjs --apply --force   # redo every year
+ * Env: ACCOUNT_ID (required), SNAPSHOT_ID (optional), BULK_CUTOFF (default 2026-08-08T00:00:00Z).
  */
 import { PrismaClient } from '@prisma/client'
+import { assertNotLocked, PROD_TIME_ENTRY_THRESHOLD, refuse, requireAccountId } from './lib/guards.mjs'
 
 const APPLY = process.argv.includes('--apply')
 const FORCE = process.argv.includes('--force')
@@ -36,11 +45,38 @@ const sid = (v) => (v == null ? null : String(v))
 const log = (m) => process.stdout.write(m + '\n')
 
 // One short-lived client for setup/reconcile; per-part clients for the heavy work.
+if (APPLY) assertNotLocked('migrate-timesheets --apply')
 const boot = new PrismaClient()
-const accountId =
-  process.env.ACCOUNT_ID ??
-  (await boot.account.findFirst({ where: { name: { contains: 'Big Sea' } }, select: { id: true } }))?.id
-if (!accountId) { log('No account; set ACCOUNT_ID.'); process.exit(1) }
+const accountId = (await requireAccountId(boot)).id
+const BULK_CUTOFF = new Date(process.env.BULK_CUTOFF ?? '2026-08-08T00:00:00Z')
+if (APPLY) {
+  const [total, owned] = await Promise.all([
+    boot.timeEntry.count({ where: { accountId } }),
+    boot.timeEntry.count({
+      where: {
+        accountId,
+        OR: [
+          { harvestId: { not: null } }, { invoiceLineItemId: { not: null } }, { approvedTimesheetId: { not: null } },
+          { isRunning: true }, { createdAt: { gte: BULK_CUTOFF } },
+        ],
+      },
+    }),
+  ])
+  if (owned > 0) {
+    await boot.$disconnect()
+    refuse('migrate-timesheets would delete entries Track2 owns', [
+      `${owned} entries are keyed, invoiced/approved in Track2, running, or created after ${BULK_CUTOFF.toISOString()}.`,
+      'Use scripts/rebuild-timesheets.mjs (keyed, go-live aware) instead.',
+    ])
+  }
+  if (total > PROD_TIME_ENTRY_THRESHOLD && process.env.ALLOW_BULK_REIMPORT !== '1') {
+    await boot.$disconnect()
+    refuse(`account already has ${total} time entries`, [
+      'This script deletes each year before re-inserting it. It is only for the FIRST bulk import.',
+      'To finish an interrupted first import into a fresh account, set ALLOW_BULK_REIMPORT=1.',
+    ])
+  }
+}
 const snap = process.env.SNAPSHOT_ID
   ? await boot.migrationSnapshot.findFirst({ where: { id: process.env.SNAPSHOT_ID, accountId } })
   : (await boot.migrationSnapshot.findFirst({ where: { accountId, status: 'complete' }, orderBy: { createdAt: 'desc' } })) ??
@@ -107,7 +143,8 @@ async function processPart(part) {
       log(`  ${year}: already complete (${existing}) — skipped`)
       return
     }
-    if (existing > 0) await db.timeEntry.deleteMany({ where: { accountId, spentDate: { gte: yStart, lt: yEnd } } })
+    // Only unkeyed bulk rows are ever deleted here (the guard above refused if anything else exists).
+    if (existing > 0) await db.timeEntry.deleteMany({ where: { accountId, spentDate: { gte: yStart, lt: yEnd }, harvestId: null, invoiceLineItemId: null, approvedTimesheetId: null, isRunning: false, createdAt: { lt: BULK_CUTOFF } } })
     let w = 0
     for (let i = 0; i < buf.length; i += TE_CHUNK) {
       const r = await db.timeEntry.createMany({ data: buf.slice(i, i + TE_CHUNK) })

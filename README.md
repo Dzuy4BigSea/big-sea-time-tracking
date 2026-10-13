@@ -30,12 +30,18 @@ The data model is scaffolded as a Prisma schema + deterministic seed — the con
 
 ```bash
 npm install
-cp .env.example .env          # point DATABASE_URL at your Postgres
-npm run prisma:migrate        # create tables from prisma/schema.prisma
-# then apply the two raw-SQL constraints Prisma can't express:
-#   psql "$DATABASE_URL" -f prisma/sql/constraints.sql
-npm run db:seed               # load deterministic demo data (2 accounts)
+cp .env.example .env          # point DATABASE_URL at a LOCAL/DEV Postgres, never production
+npm run migrate:deploy        # create tables (0_init also applies prisma/sql/constraints.sql)
+ALLOW_SEED=1 npm run db:seed  # load deterministic demo data (2 accounts)
 ```
+
+> **Never seed production.** The seed deletes the accounts `acc_demo` and `acc_globex` and everything
+> in them before recreating demo data, and `acc_demo` is also the id of Big Sea's **production** account
+> (the migrated Harvest history). `prisma migrate reset` runs the seed too. The seed therefore refuses to
+> run unless `ALLOW_SEED=1` is set **and** both accounts look like demo data (no Harvest id-map rows or
+> snapshots, at most 1,000 time entries / 100 invoices / 50 people). Never run `db:seed` or
+> `prisma migrate reset` with `DATABASE_URL` pointing at Supabase. See [OPS.md](OPS.md) for backups,
+> restore and the DB health check.
 
 - `prisma/schema.prisma` — all entities/enums/relations from [specs/01-data-model.md](specs/01-data-model.md). Validated with `prisma validate`.
 - `prisma/seed.ts` — two accounts (Big Sea demo + an isolation-test tenant), users across the 6 permission profiles, projects covering every billing configuration, time entries with resolved rates, a sent invoice + partial payment, a draft invoice, expense, recurring profile, and retainer. Type-checks against the generated client. Demo login password: `password123`.

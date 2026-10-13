@@ -38,7 +38,10 @@ export default async function SettingsPage() {
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Settings</h1>
-      <p className="mb-6 text-sm text-gray-500">Account preferences, feature modules, and expense categories.</p>
+      <p className="mb-6 text-sm text-gray-500">
+        Account preferences, feature modules, and expense categories.{' '}
+        <a href="/settings/export" className="text-brand-teal hover:underline">Data export</a> downloads a full copy of the account.
+      </p>
 
       <section className="mb-8">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Preferences</h2>

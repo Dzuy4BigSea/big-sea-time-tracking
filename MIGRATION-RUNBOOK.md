@@ -11,6 +11,12 @@ account (Harvest-Account-Id `97126`).
 
 Every step is idempotent and keeps an untouched raw copy **before** any transform, so nothing is lost.
 
+> **Go-live safety (2026-10-13).** Once Track2 is the system of record, set `MIGRATION_LOCKED=1` in Vercel
+> (and in any shell that runs these scripts): Settings → Migrate and every migration script then refuse to
+> write. Until then, the importer never overwrites Track2-owned rows (see "What the importer does" below),
+> every destructive script is a dry run by default and needs an explicit `ACCOUNT_ID`, and wipes refuse on
+> production-sized data. Backups, restore, the DB health check and the full guard table are in [OPS.md](OPS.md).
+
 ## Data volumes (why some steps are offline)
 | Resource | Rows | Notes |
 |---|---|---|
@@ -52,10 +58,17 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
 - Writes a **new** `incremental` snapshot; the original full snapshot is never touched. Resumable.
 - Light resources: pulled whole. Expenses/invoices: `updated_since` delta (id-mapped → safe upserts).
 - **Time entries:** since 2026-10-07 every Harvest-sourced entry is keyed by `TimeEntry.harvestId`.
-  The first time after the bulk import, run `node --env-file=.env scripts/rebuild-timesheets.mjs`
-  (dry run, then `--apply`) after importing the delta's other entities: it composes full snapshot +
-  deltas and replaces each year with keyed rows, then writes the `time_harvest_ids` marker. From then
-  on the importer upserts time by `harvestId`. Deletions in Harvest are not caught by deltas.
+  The first time after the bulk import, run
+  `ACCOUNT_ID=acc_demo node --env-file=.env scripts/rebuild-timesheets.mjs` (dry run, then `--apply`)
+  after importing the delta's other entities: it composes full snapshot + deltas and replaces each year
+  with keyed rows, then writes the `time_harvest_ids` marker. From then on the importer upserts time by
+  `harvestId`. Deletions in Harvest are not caught by deltas.
+  - **Go-live guard:** the dry run prints a "Go-live check". `--apply` refuses if any entry is on a
+    Track2 invoice, approved, running, created in Track2 (after `BULK_CUTOFF`), or edited in Track2 after
+    import. If Track2 is already in real use, stop and decide; `--force-after-go-live` proceeds but keeps
+    keyed Track2-owned entries. Rows it writes carry `updatedAt` = Harvest's `updated_at` (see below).
+- **Assignments:** `INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs` is now a dry
+  run; add `--apply` to write (it overwrites assignment rates and PM flags with Harvest's).
 
 ## Step 2 — Import into Track2 (`Settings → Migrate → 3`)
 1. **Preview import (dry run)** — writes nothing; reports created/updated/skipped/errors per entity.
@@ -72,6 +85,26 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
   a single **payment** is synthesized per invoice for its paid portion (Harvest exposes payment history
   only per-invoice, which the flat backup doesn't capture).
 - Invoice/estimate number sequences are bumped past the highest imported number so new docs don't collide.
+  The highest number is now the **numeric** max of the trailing digits (until 2026-10-13 it was Prisma's
+  alphabetical `_max`, so `'999'` beat `'7801'` and the sequence could sit below real invoice numbers).
+  Repair an existing database with `ACCOUNT_ID=acc_demo node --env-file=.env scripts/fix-number-sequences.mjs`
+  (dry run) then `--confirm`; `scripts/check-db-health.mjs` reports whether it is needed.
+
+**What the importer never overwrites (go-live protections, `modules/migration/protect.ts`)**
+- Time entries that are locked (`lockState` not `open`), on a Track2 invoice line, on an approved timesheet,
+  running, or **edited in Track2 after import**. The importer and `rebuild-timesheets.mjs` stamp `updatedAt`
+  with Harvest's whole-second `updated_at`; a Track2 edit sets a millisecond-precision `updatedAt`, so an
+  entry whose `updatedAt` is neither a Harvest stamp nor its own creation time is treated as Track2's. A
+  Harvest version that is not newer than the stamp is skipped, so re-importing an old snapshot cannot roll
+  entries back.
+- Expenses that are on an invoice line or locked.
+- Invoices Track2 has touched: any audit entry by a person or not written by the importer (sent, paid,
+  edited, Stripe), a non-imported payment, linked time/expenses, a public link, a Xero copy. Their fields,
+  line items and payments are left alone (line items are never rebuilt).
+- Estimates that were sent from Track2 or converted to an invoice.
+- Each skip is reported as a "Protected N …" note under the import results. Entries **deleted** in Track2
+  but still in Harvest are re-created by an import, which is one more reason to set `MIGRATION_LOCKED=1`
+  at go-live.
 
 ## Step 3 — Verify + cutover
 - Compare Track2 counts (Reports, Clients, Projects, Team) against the snapshot's `entityCounts`.
@@ -79,6 +112,8 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
 - Run one final incremental backup + import immediately before switching the team over.
 
 ## Rollback / safety
+- Nightly off-site `pg_dump` (GitHub Actions) and the tested restore procedure: [OPS.md](OPS.md).
+- Settings → Data export downloads every table as CSV (admins).
 - The raw snapshot is immutable and downloadable (manifest + per-part, with checksums) from the Migrate page.
 - Re-running the import never duplicates (idempotent id-map). To discard an import and retry, clear the
   imported rows + `MigrationIdMap` for the account; the snapshot is untouched and can be re-imported.

@@ -16,6 +16,7 @@ import '../test/load-env'
 import { prisma } from '@/lib/prisma'
 import { runImportBatch, getImportableSnapshot, IMPORT_RESOURCES, type ImportCursor } from '@/modules/migration/importer'
 import { reconcile, formatReconTable, type ReconInput } from '@/modules/migration/reconcile'
+import { isMigrationLocked, MIGRATION_LOCKED_MESSAGE } from '@/modules/migration/protect'
 
 const PHASES: Record<string, { fromEntity?: string; stopAfter?: string; label: string }> = {
   team: { stopAfter: 'expense_category', label: 'Team + foundation (clients, contacts, tasks, users, categories)' },
@@ -51,6 +52,9 @@ async function main() {
     process.exit(1)
   }
 
+  // Writes need an explicit account (go-live guard); a dry run may still discover it by name.
+  if (apply && !process.env.ACCOUNT_ID) throw new Error('--apply requires ACCOUNT_ID (no account lookup by name when writing).')
+  if (apply && isMigrationLocked()) throw new Error(MIGRATION_LOCKED_MESSAGE)
   const accountId =
     process.env.ACCOUNT_ID ??
     (await prisma.account.findFirst({ where: { name: { contains: 'Big Sea' } }, select: { id: true } }))?.id
