@@ -8,34 +8,38 @@
  *
  * KEEPS: the account, business entities, integration connections, the migration snapshot(s) + id-map,
  * invoice item types / appearance / labels / message templates / sender addresses, and any real login
- * user (default: anyone NOT on the demo domain). Guarded: DRY RUN unless --confirm; refuses accounts
- * that already carry a migration id-map unless --force.
+ * user (default: anyone NOT on the demo domain).
+ *
+ * Guarded (go-live): DRY RUN unless --confirm; ACCOUNT_ID is REQUIRED (no lookup by name); refuses,
+ * with no override, any account that has Harvest id-map rows / snapshots or more than 1,000 time
+ * entries. Production (acc_demo, 388k entries) can never be cleared with this script.
  *
  * Usage:
- *   node --env-file=.env scripts/clear-demo-data.mjs                 # dry run (prints what it would do)
- *   node --env-file=.env scripts/clear-demo-data.mjs --confirm       # actually delete
- * Env: ACCOUNT_ID (else the Big Sea account), DEMO_USER_DOMAIN (default "bigsea.demo").
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/clear-demo-data.mjs             # dry run
+ *   ACCOUNT_ID=acc_x node --env-file=.env scripts/clear-demo-data.mjs --confirm   # actually delete
+ * Env: ACCOUNT_ID (required), DEMO_USER_DOMAIN (default "bigsea.demo").
  */
 import { PrismaClient } from '@prisma/client'
+import { PROD_TIME_ENTRY_THRESHOLD, refuse, requireAccountId } from './lib/guards.mjs'
 const p = new PrismaClient()
 
 const CONFIRM = process.argv.includes('--confirm')
-const FORCE = process.argv.includes('--force')
 const DEMO_DOMAIN = process.env.DEMO_USER_DOMAIN ?? 'bigsea.demo'
 
-const accountId =
-  process.env.ACCOUNT_ID ??
-  (await p.account.findFirst({ where: { name: { contains: 'Big Sea' } }, select: { id: true } }))?.id
-if (!accountId) {
-  console.error('No account found; set ACCOUNT_ID.')
-  process.exit(1)
-}
-const account = await p.account.findUnique({ where: { id: accountId }, select: { name: true } })
+const account = await requireAccountId(p)
+const accountId = account.id
 
-const idmap = await p.migrationIdMap.count({ where: { accountId } })
-if (idmap > 0 && !FORCE) {
-  console.error(`\n⛔ Account "${account?.name}" already has ${idmap} migration id-map rows — refusing to clear (real migrated data may be present). Use --force only if you are sure.`)
-  process.exit(1)
+const [idmap, snapshots, teCount] = await Promise.all([
+  p.migrationIdMap.count({ where: { accountId } }),
+  p.migrationSnapshot.count({ where: { accountId } }),
+  p.timeEntry.count({ where: { accountId } }),
+])
+if (idmap > 0 || snapshots > 0 || teCount > PROD_TIME_ENTRY_THRESHOLD) {
+  await p.$disconnect()
+  refuse(`account "${account.name}" (${accountId}) does not look like demo data`, [
+    `time entries=${teCount} (limit ${PROD_TIME_ENTRY_THRESHOLD})  Harvest id-map rows=${idmap}  snapshots=${snapshots}`,
+    'This script only clears seed/demo data. There is no override: real data is never wiped here.',
+  ])
 }
 
 // Users to delete: demo domain. Everyone else (e.g. @bigsea.co real admins) is preserved.
@@ -49,7 +53,7 @@ const [clients, projects, tasks, timeEntries, expenses, invoices, estimates, pay
 ])
 
 console.log(`\nTarget account: ${account?.name}  (${accountId})`)
-console.log(`Mode: ${CONFIRM ? 'CONFIRM — will DELETE' : 'DRY RUN — no changes'}${FORCE ? ' [--force]' : ''}`)
+console.log(`Mode: ${CONFIRM ? 'CONFIRM — will DELETE' : 'DRY RUN — no changes'}`)
 console.log(`\nWill DELETE:`)
 console.log(`  timeEntries=${timeEntries} expenses=${expenses} invoices=${invoices} (payments=${payments}) estimates=${estimates}`)
 console.log(`  projects=${projects} tasks=${tasks} clients=${clients} (contacts=${contacts}) expenseCategories=${cats}`)

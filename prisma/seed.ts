@@ -10,10 +10,15 @@
  * Fully deterministic: explicit ids + fixed dates, no randomness — so QA runs are
  * reproducible. Re-running deletes the two demo accounts (cascade) and recreates.
  *
- * Run: `npm run db:seed` (requires a migrated Postgres — `npm run prisma:migrate`).
+ * DANGER: acc_demo is also the id of Big Sea's PRODUCTION account. The seed is guarded by
+ * prisma/seedGuard.ts: it refuses unless ALLOW_SEED=1 is set AND both accounts look like demo
+ * data (no Harvest id-map rows, <= 1000 time entries, ...). Never point DATABASE_URL at production.
+ *
+ * Run (local/dev database only): `ALLOW_SEED=1 npm run db:seed` (requires a migrated Postgres).
  */
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { assertSeedAllowed } from './seedGuard'
 
 const prisma = new PrismaClient()
 
@@ -32,6 +37,9 @@ const ACCOUNT_A = 'acc_demo'
 const ACCOUNT_B = 'acc_globex'
 
 async function main() {
+  // Safety first: refuse unless ALLOW_SEED=1 and the targets are demo-sized (see seedGuard.ts).
+  await assertSeedAllowed(prisma, [ACCOUNT_A, ACCOUNT_B])
+
   // Idempotent: remove demo accounts; cascade wipes all children.
   await prisma.account.deleteMany({ where: { id: { in: [ACCOUNT_A, ACCOUNT_B] } } })
 
@@ -441,7 +449,7 @@ main()
     await prisma.$disconnect()
   })
   .catch(async (e) => {
-    console.error(e)
+    console.error(e instanceof Error && e.name === 'SeedRefused' ? e.message : e)
     await prisma.$disconnect()
     process.exit(1)
   })

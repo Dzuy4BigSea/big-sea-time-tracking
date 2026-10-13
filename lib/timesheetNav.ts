@@ -6,6 +6,7 @@
  * plus `user=<id>` on a teammate's sheet (authorized server-side, never here).
  */
 import { addDays, inWeek, parseYmd, sameDay, startOfWeek, ymd } from '@/lib/week'
+import { todayIn } from '@/lib/tz'
 
 export type TimesheetView = 'day' | 'week'
 
@@ -25,8 +26,10 @@ export function resolveTimesheetNav(
   params: { view?: string; date?: string; week?: string },
   now: Date,
   weekStartsOn: 'monday' | 'sunday' = 'monday',
+  /** Account timezone: "today" is the account's calendar day, not the server's UTC day. */
+  timezone?: string | null,
 ): TimesheetNav {
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const today = todayIn(timezone, now)
   const view: TimesheetView = params.view === 'day' ? 'day' : 'week'
   const anchor = view === 'day' ? parseYmd(params.date) ?? parseYmd(params.week) ?? today : parseYmd(params.week) ?? today
   const weekStart = startOfWeek(anchor, weekStartsOn)

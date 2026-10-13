@@ -4,11 +4,11 @@ import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
-import { generateInvoiceAction } from '@/app/invoices/actions'
+import { openGeneratePickerAction } from '@/app/invoices/actions'
 import { createBlankInvoiceAction } from '@/app/invoices/[id]/edit/actions'
 import { ClickableRow } from '@/components/ClickableRow'
 import { ColumnChart } from '@/components/ColumnChart'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 
 export const dynamic = 'force-dynamic'
@@ -45,9 +45,10 @@ const SORTS: Record<string, string> = { issueDate: 'Issue date', number: 'Number
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: { nothing?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
+  searchParams: { nothing?: string; error?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
 }) {
-  const { accountId } = await requireUser()
+  // Invoices are visible only with manage_invoices (Harvest: PMs/members don't see invoices).
+  const { accountId } = await requireCapability('manage_invoices')
   await requireModule(accountId, 'invoices')
 
   const today = new Date()
@@ -123,8 +124,8 @@ export default async function InvoicesPage({
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Invoices</h1>
-        <form action={generateInvoiceAction} className="flex items-center gap-2">
-          <select name="clientId" className="rounded border border-gray-300 px-2 py-1.5 text-sm" title="Generate from a client's tracked time">
+        <form action={openGeneratePickerAction} className="flex items-center gap-2">
+          <select name="clientId" className="rounded border border-gray-300 px-2 py-1.5 text-sm" title="Create an invoice for tracked time, expenses, or fixed fees">
             {clientsForGenerate.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Generate</button>
@@ -139,7 +140,10 @@ export default async function InvoicesPage({
         ))}
       </div>
 
-      {searchParams.nothing && <p className="mb-4 text-sm text-gray-500">No uninvoiced time or expenses for that client.</p>}
+      {searchParams.error && (
+        <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{searchParams.error}</div>
+      )}
+      {searchParams.nothing && <p className="mb-4 text-sm text-gray-500">No uninvoiced time, expenses, or fixed fees for that selection.</p>}
 
       {/* Reporting header */}
       <div className="mb-6 grid gap-4 lg:grid-cols-[280px_1fr]">

@@ -20,7 +20,16 @@ Account/invoice setting `timeGrouping`:
 - `by_project`: one line per project.
 - `detailed`: one line per time entry (date, person, notes).
 
-**Flat-fee projects** contribute a single `flat` line item of `flatFeeCents` regardless of hours; their time entries are still marked `invoiced` (so hours are captured) but do not multiply out.
+### Fixed-fee projects (Harvest-exact; `modules/invoicing/fixedFee.ts`)
+
+"Create an invoice for tracked time, expenses, or fixed fees" opens a project picker (`/invoices/generate?clientId=…`). Each selected **Fixed Fee** project contributes ONE `flat` line (qty 1, linked via `InvoiceLineItem.linkedProjectId`) for its **remaining uninvoiced fee = project fee − amount already invoiced for the project**; nothing remaining → no line.
+- **Project fee** = `Project.projectFeesCents` (Harvest "Project fees"), falling back to `budgetValue` when `budgetMethod = fee_total`.
+- **Amount invoiced** = sum of `amountCents` of every line linked to the project on any existing invoice — draft, open, paid, closed and written off — excluding `expense` lines (expenses bill on top of the fee). Deleting an invoice deletes its lines, returning their amount to the remaining fee. Drafts count, so two drafts can never claim the same fee. Because it is re-derived from lines, lowering the unit price on a draft (e.g. $1,000 → $600) leaves the difference available to a later invoice.
+- **Hours** tracked on a fixed-fee project are NOT billed by rate and NOT linked to the invoice; they remain uninvoiced hours.
+- Concurrent generations lock the fixed-fee project rows and re-derive the remainder inside the transaction; a loser rolls back.
+- **Recurring** invoices may carry a line linked to a fixed-fee project and keep generating regardless of fee exhaustion.
+- The draft editor shows **"Show project context"** under the unit price of each fixed-fee line: project notes; total project fee / amount invoiced (other invoices) / this invoice / remaining to invoice; related invoices with this project's amount on each (linked for invoice managers).
+- **Uninvoiced amount** for a fixed-fee project (project card, client page, retainers, dashboard) = fee − invoiced; its hours still count as uninvoiced hours. The Time report's "Uninvoiced amount" keeps excluding Fixed Fee projects (as Harvest's does).
 
 Each contributing TimeEntry gets `invoiceLineItemId` set and `lockState='invoiced'` **only when the invoice leaves `draft`** (see state machine). While `draft`, entries are *reserved* to the invoice but transition to `invoiced` on send. (Design choice: reserve-on-add, lock-on-send — documented so QA tests the boundary. See AC-INV-014.)
 
@@ -99,7 +108,12 @@ Resend · Copy invoice link · Edit invoice · Mark as draft · Duplicate · **C
 
 - **AC-INV-001** — *Given* 3 billable un-invoiced entries (Design 2h@$120, Design 1h@$120, Dev 4h@$150) and `timeGrouping=by_task`, *when* an invoice is generated, *then* two line items result: Design 3h × $120 = $360, Dev 4h × $150 = $600, subtotal $960.
 - **AC-INV-002** — *Given* entries for the same task at two different rates, *when* grouped `by_task`, *then* they split into two line items (one per rate).
-- **AC-INV-003** — *Given* a flat-fee project with 20h logged and a $5,000 fee, *when* invoiced, *then* one `flat` line item of $5,000 appears (not 20×rate), and the 20h of entries are marked invoiced.
+- **AC-INV-003** — *Given* a Fixed Fee project with 20h logged, a $5,000 fee and nothing invoiced, *when* it is picked for a new invoice, *then* one `flat` line of qty 1 × $5,000 linked to the project appears (not 20×rate), and the 20h of entries are NOT linked to the invoice (they stay uninvoiced hours).
+- **AC-INV-003a** — *Given* a $1,000 fixed fee whose generated draft line was edited to $600, *when* the project is invoiced again, *then* the new line is $400; *when* invoiced a third time, *then* no fixed-fee line is added.
+- **AC-INV-003b** — *Given* a fixed-fee project whose fee is fully invoiced (or has no fee), *when* picked, *then* no fixed-fee line is added (and with nothing else to bill, no invoice is created).
+- **AC-INV-003c** — *Given* a draft holding a fixed-fee line, *when* the draft is deleted, *then* its amount returns to the project's remaining fee.
+- **AC-INV-003d** — *Given* a draft with a fixed-fee line, *when* "Show project context" is opened, *then* it shows project notes, total fee, amount invoiced, remaining to invoice, and the related invoices with this project's amount on each.
+- **AC-INV-003e** — *Given* a fixed-fee project with a $1,000 fee and $600 invoiced, *when* its project card is viewed, *then* "Uninvoiced amount" is $400 and its uninvoiced hours are shown separately.
 - **AC-INV-004** — *Given* subtotal $1,000, discount 10%, tax1 8% taxable, `discountBeforeTax=true`, *when* totals compute, *then* discount=$100, tax=$72 (8% of $900), total=$972.
 - **AC-INV-005** — *Given* a draft invoice with 0 line items, *when* send is attempted, *then* it is rejected.
 - **AC-INV-006** — *Given* a draft invoice, *when* sent, *then* it gets a unique sequential `number`, `sentAt` set, a `publicToken`, and all its time entries become `lockState='invoiced'`.

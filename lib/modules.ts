@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 
@@ -23,7 +24,8 @@ export const DEFAULT_MODULES: ModuleFlags = {
   activityLog: false,
 }
 
-export async function getModules(accountId: string): Promise<ModuleFlags> {
+// Per-request memo: the layout and requireModule() on each page both read the flags.
+export const getModules = cache(async function getModules(accountId: string): Promise<ModuleFlags> {
   const row = await prisma.module.findUnique({ where: { accountId } })
   if (!row) return DEFAULT_MODULES
   return {
@@ -36,7 +38,7 @@ export async function getModules(accountId: string): Promise<ModuleFlags> {
     clientDashboard: row.clientDashboard,
     activityLog: row.activityLog,
   }
-}
+})
 
 /** Guard a module-gated page: redirects home when the feature is switched off (AC-MOD-001). */
 export async function requireModule(accountId: string, key: keyof ModuleFlags): Promise<void> {

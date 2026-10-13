@@ -10,6 +10,7 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { defaultPeriodFor, resolveTimeframe, timeframeQuery, endExclusive, buildHref, type Timeframe, type WeekStart } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 import {
   PROJECT_TYPE_LABEL, projectDateRange, budgetSummary, billableRatesMissing, initials, rollup, isBillableTask, preTaxCents,
   type TaskPersonCell,
@@ -109,7 +110,7 @@ export default async function ProjectDetailPage({
   const billableCentsSql = Prisma.sql`COALESCE(SUM(CASE WHEN "isBillable" THEN minutes/60.0*COALESCE("billableRateCents",0) ELSE 0 END),0)::float8`
 
   // Aggregates (DB-side — never load raw entries; a real project has thousands).
-  type Totals = { mins: number; bmins: number; bc: number; uc: number; norate: number }
+  type Totals = { mins: number; bmins: number; bc: number; uc: number; um: number; norate: number }
   const [chart, totalsRow, monthRow, invoicedRow, expenseRow, costRateCount] = await Promise.all([
     prisma.$queryRaw<{ m: number; mins: number }[]>`
       SELECT EXTRACT(MONTH FROM "spentDate")::int AS m, COALESCE(SUM(minutes),0)::int AS mins
@@ -121,6 +122,8 @@ export default async function ProjectDetailPage({
         ${billableCentsSql} AS bc,
         COALESCE(SUM(CASE WHEN "isBillable" AND "invoiceLineItemId" IS NULL AND "lockState" <> 'invoiced'
           THEN minutes/60.0*COALESCE("billableRateCents",0) ELSE 0 END),0)::float8 AS uc,
+        COALESCE(SUM(CASE WHEN "isBillable" AND "invoiceLineItemId" IS NULL AND "lockState" <> 'invoiced'
+          THEN minutes ELSE 0 END),0)::int AS um,
         COALESCE(SUM(CASE WHEN "isBillable" AND "billableRateCents" IS NULL THEN minutes ELSE 0 END),0)::int AS norate
       FROM "TimeEntry" WHERE ${w}`,
     monthly
@@ -141,7 +144,12 @@ export default async function ProjectDetailPage({
   const totalMin = num(totals?.mins)
   const billableMin = num(totals?.bmins)
   const invoicedCents = num(invoicedRow[0]?.c)
-  const uninvoicedCents = Math.round(num(totals?.uc))
+  // Fixed Fee (Harvest): uninvoiced amount = project fee − amount invoiced (any existing invoice,
+  // drafts included); its hours stay "uninvoiced hours" and are not billed by rate.
+  const isFixedFee = project.projectType === 'fixed_fee'
+  const ffStatus = isFixedFee ? (await fixedFeeStatus(prisma, accountId, { projectIds: [pid] }))[0] : undefined
+  const uninvoicedCents = isFixedFee ? ffStatus?.remainingCents ?? 0 : Math.round(num(totals?.uc))
+  const uninvoicedMin = num(totals?.um)
   const expenseCents = expenseRow._sum.totalCents ?? 0
   const ratesMissing = billableRatesMissing(project, num(totals?.norate))
 
@@ -269,7 +277,16 @@ export default async function ProjectDetailPage({
               {canManage && <Link href={editHref} className="text-brand-teal hover:underline">Set billable rates</Link>}
             </div>
           ) : (
-            <Big className={uninvoicedCents > 0 ? 'text-brand-green' : undefined}>{formatCents(uninvoicedCents)}</Big>
+            <>
+              <Big className={uninvoicedCents > 0 ? 'text-brand-green' : undefined}>{formatCents(uninvoicedCents)}</Big>
+              {isFixedFee && (
+                <>
+                  <Line label="Project fee" value={ffStatus?.feeCents != null ? formatCents(ffStatus.feeCents) : '—'} />
+                  <Line label="Invoiced" value={formatCents(ffStatus?.invoicedCents ?? 0)} />
+                  <Line label="Uninvoiced hours" value={(uninvoicedMin / 60).toFixed(2)} />
+                </>
+              )}
+            </>
           )}
         </Card>
       </div>

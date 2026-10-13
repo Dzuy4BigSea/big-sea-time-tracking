@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayYmdIn } from '@/lib/tz'
 import { requireModule } from '@/lib/modules'
 import {
   can,
@@ -19,7 +21,6 @@ import {
 } from '@/modules/shared/permissions'
 import { listEntities } from '@/lib/entities'
 import { formatCents, formatDate } from '@/lib/format'
-import { ymd } from '@/lib/week'
 import { PersonBasicForm } from '@/components/PersonBasicForm'
 import { PermissionsForm } from '@/components/PermissionsForm'
 import { PersonSecurityForm } from '@/components/PersonSecurityForm'
@@ -77,7 +78,7 @@ export default async function TeamMemberPage({
   await requireModule(accountId, 'team')
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')) redirect('/team')
 
-  const [person, entities] = await Promise.all([
+  const [person, entities, clock] = await Promise.all([
     prisma.user.findFirst({
       where: { id: params.id, accountId },
       select: {
@@ -88,8 +89,10 @@ export default async function TeamMemberPage({
       },
     }),
     listEntities(accountId),
+    getAccountClock(accountId),
   ])
   if (!person) notFound()
+  const todayYmd = todayYmdIn(clock.timezone) // rate start date default: the account's today
 
   const tab = TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab! : 'basic'
   const status: StatusFilter = searchParams.status === 'archived' || searchParams.status === 'all' ? searchParams.status : 'active'
@@ -234,14 +237,14 @@ export default async function TeamMemberPage({
                 <h2 className="mb-1 text-sm font-semibold text-gray-800">Billable rate</h2>
                 <p className="mb-3 text-xs text-gray-500">The hourly rate used when this person’s time is billed at the person level.</p>
                 <RateHistory rows={ratesData.billable} />
-                {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="billable" todayYmd={ymd(new Date())} /></div>}
+                {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="billable" todayYmd={todayYmd} /></div>}
               </div>
               {canViewCost ? (
                 <div className="rounded-lg border border-gray-200 bg-white p-5">
                   <h2 className="mb-1 text-sm font-semibold text-gray-800">Internal cost rate</h2>
                   <p className="mb-3 text-xs text-gray-500">What this person costs the business per hour (used for profitability). Admin-only.</p>
                   <RateHistory rows={ratesData.cost} />
-                  {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="cost" todayYmd={ymd(new Date())} /></div>}
+                  {canSetRates && <div className="mt-3 border-t border-gray-100 pt-3"><AddRateForm personId={person.id} kind="cost" todayYmd={todayYmd} /></div>}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">Internal cost rates are visible to administrators only.</div>

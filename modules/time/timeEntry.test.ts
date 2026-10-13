@@ -7,6 +7,12 @@ import {
   assertDeletable,
   LockedEntryError,
   startTimerPlan,
+  MAX_TIMER_MINUTES,
+  AUTO_STOP_NOTE,
+  isRunawayTimer,
+  appendAutoStopNote,
+  isUniqueViolation,
+  isDuplicateStart,
 } from './timeEntry'
 
 const t = (iso: string) => new Date(iso)
@@ -53,5 +59,42 @@ describe('startTimerPlan', () => {
     const plan = startTimerPlan(null, t('2026-07-10T09:45:00Z'))
     expect(plan.stopEntryId).toBeNull()
     expect(plan.stopMinutes).toBe(0)
+  })
+})
+
+describe('timer cap (runaway timers)', () => {
+  it('caps a single run at MAX_TIMER_MINUTES (12h)', () => {
+    expect(MAX_TIMER_MINUTES).toBe(720)
+    expect(computeTimerMinutes(t('2026-07-10T09:00:00Z'), t('2026-07-10T21:00:00Z'))).toBe(720)
+    expect(computeTimerMinutes(t('2026-07-10T09:00:00Z'), t('2026-07-12T09:00:00Z'))).toBe(720)
+    expect(computeTimerMinutes(t('2026-07-10T09:00:00Z'), t('2026-07-10T20:59:00Z'))).toBe(719)
+  })
+  it('startTimerPlan books at most the cap on the stopped timer', () => {
+    expect(startTimerPlan({ id: 'old', timerStartedAt: t('2026-07-09T09:00:00Z') }, t('2026-07-10T09:00:00Z')).stopMinutes).toBe(720)
+  })
+  it('isRunawayTimer is true only past 12h', () => {
+    expect(isRunawayTimer(t('2026-07-10T09:00:00Z'), t('2026-07-10T21:00:00Z'))).toBe(false)
+    expect(isRunawayTimer(t('2026-07-10T09:00:00Z'), t('2026-07-10T21:00:01Z'))).toBe(true)
+  })
+  it('appendAutoStopNote appends once', () => {
+    expect(appendAutoStopNote(null)).toBe(AUTO_STOP_NOTE)
+    expect(appendAutoStopNote('  design review ')).toBe(`design review ${AUTO_STOP_NOTE}`)
+    expect(appendAutoStopNote(`x ${AUTO_STOP_NOTE}`)).toBe(`x ${AUTO_STOP_NOTE}`)
+  })
+})
+
+describe('timer race handling', () => {
+  it('isUniqueViolation recognizes Prisma P2002 only', () => {
+    expect(isUniqueViolation({ code: 'P2002', meta: { target: 'one_running_timer_per_user' } })).toBe(true)
+    expect(isUniqueViolation({ code: 'P2025' })).toBe(false)
+    expect(isUniqueViolation(new Error('boom'))).toBe(false)
+    expect(isUniqueViolation(null)).toBe(false)
+  })
+  it('isDuplicateStart: same project/task started moments ago is a double-submit', () => {
+    const running = { projectId: 'p', taskId: 'k', timerStartedAt: t('2026-07-10T09:00:00Z') }
+    expect(isDuplicateStart(running, { projectId: 'p', taskId: 'k', now: t('2026-07-10T09:00:03Z') })).toBe(true)
+    expect(isDuplicateStart(running, { projectId: 'p', taskId: 'k', now: t('2026-07-10T09:05:00Z') })).toBe(false)
+    expect(isDuplicateStart(running, { projectId: 'p', taskId: 'other', now: t('2026-07-10T09:00:03Z') })).toBe(false)
+    expect(isDuplicateStart(null, { projectId: 'p', taskId: 'k', now: t('2026-07-10T09:00:03Z') })).toBe(false)
   })
 })

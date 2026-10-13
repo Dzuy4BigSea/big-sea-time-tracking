@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { requireUser } from '@/lib/session'
+import { requireUser, userCan } from '@/lib/session'
 import { toCsv, csvResponse } from '@/lib/csv'
 
 export const dynamic = 'force-dynamic'
@@ -8,7 +8,10 @@ const HOURS_BUDGETS = new Set(['hours_total', 'hours_per_task', 'hours_per_perso
 
 /** All projects with budget / spent-hours / expense-costs → CSV (Projects → Export). */
 export async function GET() {
-  const { accountId } = await requireUser()
+  const me = await requireUser()
+  // Budgets and fees are account-level financials: same audience as account reports.
+  if (!userCan(me, 'run_account_reports')) return new Response('Not found', { status: 404 })
+  const { accountId } = me
   const projects = await prisma.project.findMany({
     where: { accountId },
     select: { id: true, name: true, code: true, projectType: true, isActive: true, budgetMethod: true, budgetValue: true, projectFeesCents: true, client: { select: { name: true } } },

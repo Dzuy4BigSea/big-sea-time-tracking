@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayYmdIn } from '@/lib/tz'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { cadenceLabel, isCompleted, type RecurringFrequency } from '@/modules/invoicing/recurring'
@@ -18,16 +20,17 @@ export default async function RecurringPage() {
   }
   await requireModule(accountId, 'invoices')
 
-  const [profiles, clients] = await Promise.all([
+  const [profiles, clients, clock] = await Promise.all([
     prisma.recurringInvoiceProfile.findMany({
       where: { accountId },
       include: { client: { select: { name: true, currency: true } } },
       orderBy: [{ status: 'asc' }, { nextIssueDate: 'asc' }],
     }),
     prisma.client.findMany({ where: { accountId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    getAccountClock(accountId),
   ])
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayYmdIn(clock.timezone) // the account's calendar day, not the server's UTC day
   const dueCount = profiles.filter(
     (p) =>
       p.status === 'active' &&

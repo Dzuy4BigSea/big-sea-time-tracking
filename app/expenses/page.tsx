@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
+import { safeHttpUrl } from '@/modules/shared/safeUrl'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayYmdIn } from '@/lib/tz'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { requireModule } from '@/lib/modules'
 import { NewExpenseForm } from '@/components/NewExpenseForm'
@@ -17,7 +20,7 @@ export default async function ExpensesPage() {
   const canManageSettings = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')
   const canOthers = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'view_edit_others_time')
 
-  const [expenses, projects, categories] = await Promise.all([
+  const [expenses, projects, categories, clock] = await Promise.all([
     prisma.expense.findMany({
       where: { accountId },
       include: {
@@ -39,9 +42,10 @@ export default async function ExpensesPage() {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     }),
+    getAccountClock(accountId),
   ])
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayYmdIn(clock.timezone) // the account's calendar day, not the server's UTC day
   const projectOptions = projects.map((p) => ({ id: p.id, label: p.code ? `[${p.code}] ${p.name}` : p.name, group: p.client.name }))
   const categoryOptions = categories.map((c) => ({ id: c.id, label: c.name }))
 
@@ -103,8 +107,8 @@ export default async function ExpensesPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-2 text-xs">
-                    {e.receiptFileUrl && (
-                      <a href={e.receiptFileUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
+                    {safeHttpUrl(e.receiptFileUrl) && (
+                      <a href={safeHttpUrl(e.receiptFileUrl)!} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
                     )}
                     {e.lockState === 'invoiced' ? (
                       <span className="text-gray-300" title="Invoiced — locked">🔒</span>

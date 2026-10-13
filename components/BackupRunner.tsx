@@ -9,6 +9,8 @@ type Props = {
   hasCompleteBackup: boolean
   /** an in-flight snapshot found on the server, if any */
   running: { id: string; done: number; total: number; rows: number } | null
+  /** MIGRATION_LOCKED=1: Track2 is the system of record, so new Harvest pulls are disabled. */
+  locked?: boolean
 }
 
 const RESOURCE_ORDER = [
@@ -16,7 +18,7 @@ const RESOURCE_ORDER = [
   'time_entries', 'expenses', 'invoices',
 ]
 
-export function BackupRunner({ connected, hasCompleteBackup, running }: Props) {
+export function BackupRunner({ connected, hasCompleteBackup, running, locked = false }: Props) {
   const router = useRouter()
   const [progress, setProgress] = useState<BackupProgress | null>(
     running ? { ok: true, snapshotId: running.id, status: 'running', done: running.done, total: running.total, rows: running.rows, mode: 'full' } : null,
@@ -87,16 +89,17 @@ export function BackupRunner({ connected, hasCompleteBackup, running }: Props) {
         {!active && status !== 'running' && (
           <>
             <button
-              disabled={!connected}
+              disabled={!connected || locked}
+              title={locked ? 'Migration is locked (MIGRATION_LOCKED=1)' : ''}
               onClick={() => drive({ mode: 'full' })}
               className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {status === 'complete' || status === 'partial' ? 'Run another full backup' : 'Full backup'}
             </button>
             <button
-              disabled={!connected || !hasCompleteBackup}
+              disabled={!connected || !hasCompleteBackup || locked}
               onClick={() => drive({ mode: 'incremental' })}
-              title={!hasCompleteBackup ? 'Run a full backup first' : ''}
+              title={locked ? 'Migration is locked (MIGRATION_LOCKED=1)' : !hasCompleteBackup ? 'Run a full backup first' : ''}
               className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Incremental (delta since last)
@@ -107,6 +110,7 @@ export function BackupRunner({ connected, hasCompleteBackup, running }: Props) {
         {/* Resume a snapshot that was left running (e.g. page reloaded mid-backup) */}
         {!active && status === 'running' && (
           <button
+            disabled={locked}
             onClick={() => drive({ snapshotId: progress?.snapshotId })}
             className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90"
           >

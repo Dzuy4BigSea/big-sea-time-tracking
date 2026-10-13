@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["iad1"],
+  "functions": { "app/**/*": { "maxDuration": 30 } },
   "crons": [
-    {
-      "path": "/api/cron/recurring",
-      "schedule": "0 6 * * *"
-    }
+    { "path": "/api/cron/recurring", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/timers", "schedule": "0 9 * * *" }
   ]
 }

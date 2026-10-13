@@ -2,16 +2,21 @@ import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { toCsv, csvResponse } from '@/lib/csv'
+import { csvStreamResponse, EXPORT_BATCH } from '@/lib/csvStream'
 import { resolveTimeframe, type TimeframeParams } from '@/modules/shared/timeframe'
 import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // all-time exports stream ~200 batches
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10)
 const hrs = (m: number) => (m / 60).toFixed(2)
 
-/** Detailed time-entry export (Reports → Export CSV). Account-scoped; reports permission required. */
+/**
+ * Detailed time-entry export (Reports → Export CSV). Account-scoped; reports permission required.
+ * Streams: keyset pagination on (spentDate, id) in batches of EXPORT_BATCH, so "All time" (388k rows)
+ * never loads the whole table into memory.
+ */
 export async function GET(req: Request) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')) {
@@ -24,24 +29,22 @@ export async function GET(req: Request) {
   })
   const spentDate = tf.from || tf.till ? { ...(tf.from ? { gte: tf.from } : {}), ...(tf.till ? { lte: tf.till } : {}) } : undefined
 
-  const entries = await prisma.timeEntry.findMany({
-    where: { accountId, isRunning: false, ...(spentDate ? { spentDate } : {}) },
-    select: {
-      spentDate: true,
-      minutes: true,
-      notes: true,
-      isBillable: true,
-      billableRateCents: true,
-      invoiceLineItemId: true,
-      lockState: true,
-      user: { select: { firstName: true, lastName: true } },
-      task: { select: { name: true } },
-      project: { select: { name: true, code: true, client: { select: { name: true, currency: true } } } },
-    },
-    orderBy: [{ spentDate: 'asc' }],
-  })
+  const baseWhere = { accountId, isRunning: false, ...(spentDate ? { spentDate } : {}) }
+  const select = {
+    id: true,
+    spentDate: true,
+    minutes: true,
+    notes: true,
+    isBillable: true,
+    billableRateCents: true,
+    invoiceLineItemId: true,
+    lockState: true,
+    user: { select: { firstName: true, lastName: true } },
+    task: { select: { name: true } },
+    project: { select: { name: true, code: true, client: { select: { name: true, currency: true } } } },
+  } as const
 
-  const rows = entries.map((e) => {
+  const toRow = (e: Awaited<ReturnType<typeof fetchBatch>>[number]) => {
     const amountCents = e.isBillable && e.billableRateCents ? Math.round((e.minutes / 60) * e.billableRateCents) : 0
     const status = !e.isBillable
       ? 'non-billable'
@@ -62,11 +65,34 @@ export async function GET(req: Request) {
       e.project.client.currency,
       status,
     ]
-  })
+  }
 
-  const csv = toCsv(
+  async function fetchBatch(after: { spentDate: Date; id: string } | null) {
+    return prisma.timeEntry.findMany({
+      where: after
+        ? { AND: [baseWhere, { OR: [{ spentDate: { gt: after.spentDate } }, { spentDate: after.spentDate, id: { gt: after.id } }] }] }
+        : baseWhere,
+      select,
+      orderBy: [{ spentDate: 'asc' }, { id: 'asc' }],
+      take: EXPORT_BATCH,
+    })
+  }
+
+  async function* batches() {
+    let after: { spentDate: Date; id: string } | null = null
+    for (;;) {
+      const page = await fetchBatch(after)
+      if (!page.length) return
+      yield page.map(toRow)
+      if (page.length < EXPORT_BATCH) return
+      const last = page[page.length - 1]
+      after = { spentDate: last.spentDate, id: last.id }
+    }
+  }
+
+  return csvStreamResponse(
+    'time-report.csv',
     ['Date', 'Client', 'Project', 'Task', 'Person', 'Notes', 'Hours', 'Billable', 'Rate', 'Amount', 'Currency', 'Status'],
-    rows,
+    batches,
   )
-  return csvResponse('time-report.csv', csv)
 }

@@ -12,6 +12,7 @@ import { getImportableSnapshot } from '@/modules/migration/importer'
 import { IMPORT_RESOURCES } from '@/modules/migration/importer'
 import { resolveDeltaSince } from '@/modules/migration/deltaSince'
 import { formatDate } from '@/lib/format'
+import { isMigrationLocked } from '@/modules/migration/protect'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // allow long pulls; partial-failure handling covers plan caps
@@ -33,6 +34,7 @@ export default async function MigratePage() {
   const importCounts = (importable?.entityCounts as Record<string, number> | null) ?? {}
   const importTotalRows = IMPORT_RESOURCES.reduce((a, r) => a + (importCounts[r] ?? 0), 0)
   const connected = conn?.status === 'connected'
+  const locked = isMigrationLocked()
   const encOk = isEncryptionConfigured()
   const savedPulledAt = (conn?.config.lastPulledAt as string | undefined) ?? null
   // Falls back to the last finished full backup's start (it ends "partial" on the estimates 403).
@@ -60,6 +62,14 @@ export default async function MigratePage() {
         import it. The backup is taken <strong>before</strong> any transformation, so you always keep an untouched copy.
       </p>
 
+      {locked && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+          <strong>Migration is locked.</strong> <code>MIGRATION_LOCKED=1</code> is set: Track2 is the system of record, so
+          Harvest backups and imports are disabled (a dry-run preview still works). Existing snapshots can still be
+          downloaded below. Remove the variable in Vercel only if you deliberately need another Harvest sync.
+        </div>
+      )}
+
       {!encOk && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
           Set the <code>INTEGRATION_ENC_KEY</code> environment variable before storing the Harvest token.
@@ -75,7 +85,7 @@ export default async function MigratePage() {
       {/* Step 2 — backup */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">2 · Backup (before ETL)</h2>
       <div className="mb-1">
-        <BackupRunner connected={connected} hasCompleteBackup={hasCompleteBackup} running={running} />
+        <BackupRunner connected={connected} hasCompleteBackup={hasCompleteBackup} running={running} locked={locked} />
       </div>
       <p className="mb-4 text-xs text-gray-400">
         {deltaSince
@@ -158,6 +168,7 @@ export default async function MigratePage() {
         snapshotId={importable?.id ?? null}
         snapshotStatus={importable?.status ?? null}
         totalRows={importTotalRows}
+        locked={locked}
       />
     </div>
   )

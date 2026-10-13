@@ -45,6 +45,20 @@ export function advanceIssueDate(date: Date, frequency: RecurringFrequency, inte
 }
 
 /**
+ * The next issue date after generating for `date`: advance one interval, then keep advancing until
+ * the date is after `asOf`. A profile that fell behind (cron outage, paused then resumed) issues at
+ * most ONE catch-up invoice instead of a backlog of one per missed interval.
+ */
+export function nextFutureIssueDate(date: Date, frequency: RecurringFrequency, intervalCount: number, asOf: Date): Date {
+  const asOfDay = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate())
+  let next = advanceIssueDate(date, frequency, intervalCount)
+  for (let guard = 0; next.getTime() <= asOfDay && guard < 100_000; guard++) {
+    next = advanceIssueDate(next, frequency, intervalCount)
+  }
+  return next
+}
+
+/**
  * Is this profile due to generate as of `asOf` (date-only comparison)?
  * `remainingOccurrences`: null/undefined = recur indefinitely; ≤ 0 = the issue limit is used up.
  */

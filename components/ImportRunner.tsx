@@ -9,6 +9,8 @@ type Props = {
   snapshotId: string | null
   snapshotStatus: string | null
   totalRows: number
+  /** MIGRATION_LOCKED=1: preview still works, applying is refused (server enforces it too). */
+  locked?: boolean
 }
 
 const ENTITY_ORDER = ['client', 'contact', 'task', 'user', 'expense_category', 'project', 'time_entry', 'expense', 'invoice', 'invoice_payment', 'estimate']
@@ -19,7 +21,7 @@ const ENTITY_LABEL: Record<string, string> = {
 
 const emptyTally = (): EntityTally => ({ created: 0, updated: 0, skipped: 0, errors: 0 })
 
-export function ImportRunner({ snapshotId, snapshotStatus, totalRows }: Props) {
+export function ImportRunner({ snapshotId, snapshotStatus, totalRows, locked = false }: Props) {
   const router = useRouter()
   const [totals, setTotals] = useState<Record<string, EntityTally>>({})
   const [processed, setProcessed] = useState(0)
@@ -119,8 +121,8 @@ export function ImportRunner({ snapshotId, snapshotStatus, totalRows }: Props) {
           {active && mode === 'preview' ? 'Previewing…' : 'Preview import (dry run)'}
         </button>
         <button
-          disabled={active || !previewedOk}
-          title={!previewedOk ? 'Run a preview first' : ''}
+          disabled={active || !previewedOk || locked}
+          title={locked ? 'Migration is locked (MIGRATION_LOCKED=1)' : !previewedOk ? 'Run a preview first' : ''}
           onClick={() => {
             if (window.confirm('Apply the import? This writes clients, projects, people, time, expenses and invoices into Track2. It is idempotent, so re-running is safe.')) run(false)
           }}

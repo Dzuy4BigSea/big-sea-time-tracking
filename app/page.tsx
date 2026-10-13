@@ -2,12 +2,17 @@ import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
-import { startOfWeekMonday, addDays } from '@/lib/week'
+import { startOfWeek, addDays } from '@/lib/week'
 import { requireUser } from '@/lib/session'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayIn } from '@/lib/tz'
+import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 
 export const dynamic = 'force-dynamic'
 
 const utcMidnight = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+/** "Recently active projects" looks at time logged in this window (bounded scan, not all 388k rows). */
+const RECENT_PROJECT_DAYS = 60
 const startOfMonth = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
 const hrs = (minutes: number) => (minutes / 60).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
@@ -21,14 +26,16 @@ async function sumHours(accountId: string, gte: Date, lte: Date): Promise<number
 
 export default async function HomePage() {
   const { accountId } = await requireUser()
-  const now = new Date()
-  const today = utcMidnight(now)
+  // "Today" is the account's calendar day (Account.timezone), not the server's UTC day.
+  const { timezone, weekStartsOn } = await getAccountClock(accountId)
+  const today = todayIn(timezone)
   const yesterday = addDays(today, -1)
-  const weekStart = startOfWeekMonday(now)
+  const weekStart = startOfWeek(today, weekStartsOn)
   const lastWeekStart = addDays(weekStart, -7)
   const lastWeekEnd = addDays(weekStart, -1)
-  const monthStart = startOfMonth(now)
-  const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  const monthStart = startOfMonth(today)
+  const lastMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))
+  const recentCutoff = addDays(today, -RECENT_PROJECT_DAYS)
   const lastMonthEnd = addDays(monthStart, -1)
   const farFuture = new Date(Date.UTC(9999, 0, 1))
 
@@ -49,9 +56,15 @@ export default async function HomePage() {
           COALESCE(SUM(CASE WHEN "issueDate" >= ${monthStart} THEN "totalCents" ELSE 0 END),0)::bigint AS month,
           COALESCE(SUM(CASE WHEN status::text = 'open' AND "dueDate" < ${today} THEN "totalCents" - "paidCents" ELSE 0 END),0)::bigint AS overdue
         FROM "Invoice" WHERE "accountId" = ${accountId}`,
+      // Unbilled billable time: `"invoiceLineItemId" IS NULL` is served by TimeEntry_invoiceLineItemId_idx
+      // (Postgres b-trees index NULLs), so this reads only the not-yet-invoiced rows, not the history.
+      // Fixed Fee projects are not billed by hours × rate (Harvest): their time is left out here and
+      // their remaining fee (fee − invoiced, active projects) is added below.
       prisma.$queryRaw<{ c: number }[]>`
-        SELECT COALESCE(SUM(minutes/60.0 * COALESCE("billableRateCents",0)),0)::float8 AS c
-        FROM "TimeEntry" WHERE "accountId" = ${accountId} AND "isBillable" AND NOT "isRunning" AND "invoiceLineItemId" IS NULL AND "lockState"::text <> 'invoiced'`,
+        SELECT COALESCE(SUM(te.minutes/60.0 * COALESCE(te."billableRateCents",0)),0)::float8 AS c
+        FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
+        WHERE te."accountId" = ${accountId} AND te."isBillable" AND NOT te."isRunning" AND te."invoiceLineItemId" IS NULL
+          AND te."lockState"::text <> 'invoiced' AND p."projectType"::text <> 'fixed_fee'`,
       prisma.expense.findMany({
         where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
         select: { totalCents: true, markupPercent: true },
@@ -60,12 +73,19 @@ export default async function HomePage() {
       prisma.retainer.findMany({ where: { accountId, status: 'ongoing' }, select: { balanceCents: true } }),
       prisma.user.aggregate({ where: { accountId, isActive: true }, _sum: { capacityHoursPerWeek: true } }),
       prisma.$queryRaw<{ id: string; name: string; code: string | null; client: string; budgetMethod: string; budgetValue: number | null; spent: number; last: Date }[]>`
+        WITH recent AS (
+          -- The 5 projects with the latest time, from a bounded (accountId, spentDate) index range.
+          SELECT te."projectId", MAX(te."spentDate") AS last
+          FROM "TimeEntry" te
+          WHERE te."accountId" = ${accountId} AND te."spentDate" >= ${recentCutoff}
+          GROUP BY te."projectId"
+          ORDER BY MAX(te."spentDate") DESC LIMIT 5
+        )
         SELECT p.id, p.name, p.code, c.name AS client, p."budgetMethod" AS "budgetMethod", p."budgetValue" AS "budgetValue",
-          SUM(te.minutes)::int AS spent, MAX(te."spentDate") AS last
-        FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId" JOIN "Client" c ON c.id = p."clientId"
-        WHERE te."accountId" = ${accountId}
-        GROUP BY p.id, p.name, p.code, c.name, p."budgetMethod", p."budgetValue"
-        ORDER BY MAX(te."spentDate") DESC NULLS LAST LIMIT 5`,
+          -- All-time spent for just those 5 projects (TimeEntry_projectId_spentDate_idx).
+          COALESCE((SELECT SUM(t.minutes) FROM "TimeEntry" t WHERE t."projectId" = p.id), 0)::int AS spent, r.last
+        FROM recent r JOIN "Project" p ON p.id = r."projectId" JOIN "Client" c ON c.id = p."clientId"
+        ORDER BY r.last DESC`,
     ])
 
   const inv = invAgg[0]
@@ -77,8 +97,10 @@ export default async function HomePage() {
   const recurringDue = recurring.filter((r) => r.nextIssueDate && utcMidnight(r.nextIssueDate) <= today).length
   const retainerBalance = retainers.reduce((s, r) => s + r.balanceCents, 0)
 
+  const fixedFees = await fixedFeeStatus(prisma, accountId, { activeOnly: true })
   const uninvoicedCents =
     Math.round(Number(uninvTimeAgg[0]?.c ?? 0)) +
+    fixedFees.reduce((s, f) => s + f.remainingCents, 0) +
     uninvExpenses.reduce((s, e) => s + Math.round(e.totalCents * (1 + (e.markupPercent ? Number(e.markupPercent) : 0) / 100)), 0)
   const capacityHours = Number(capacityAgg._sum.capacityHoursPerWeek ?? 0)
   const utilization = capacityHours > 0 ? Math.round((minWeek / 60 / capacityHours) * 100) : null
@@ -94,7 +116,7 @@ export default async function HomePage() {
         <Link href="/invoices?view=all" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
           <div className="text-xs uppercase tracking-wide text-gray-400">Uninvoiced</div>
           <div className="mt-1 text-2xl font-semibold text-brand-green">{formatCents(uninvoicedCents)}</div>
-          <div className="mt-0.5 text-xs text-gray-400">billable time + expenses waiting</div>
+          <div className="mt-0.5 text-xs text-gray-400">billable time, fixed fees + expenses waiting</div>
         </Link>
         <Link href="/reports/receivables" className="rounded-lg border border-gray-200 bg-white p-4 hover:border-brand-teal">
           <div className="text-xs uppercase tracking-wide text-gray-400">Overdue</div>

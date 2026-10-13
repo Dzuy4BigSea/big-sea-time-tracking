@@ -1,0 +1,60 @@
+# Keep Track2 warm and double as an uptime check (specs/21-performance-scaling.md, "Cold start").
+#
+# Every 5 minutes during working hours (weekdays 11:00–02:00 UTC = 7am–10pm US Eastern) and hourly
+# otherwise, it requests:
+#   - /api/health?deep=1  → wakes a Vercel function, the Prisma engine and a pooler connection, and reads
+#                           through the busiest TimeEntry index so the database's cache stays warm;
+#   - /login              → warms the page-rendering function (layout + middleware) as well.
+# A failed or slow request fails the run, so GitHub's failed-workflow emails act as a free uptime alert.
+#
+# Target: repository variable APP_URL (Settings → Secrets and variables → Actions → Variables), falling
+# back to production. Minutes: each run is a few seconds but bills as 1 minute; in a private repo the
+# 5-minute cadence is ~4k Actions minutes/month — see the spec for cheaper alternatives.
+name: keep-warm
+
+on:
+  schedule:
+    # Minutes offset from :00, when GitHub's scheduler is busiest and drops or delays runs.
+    - cron: '2-59/5 11-23 * * 1-5' # Mon–Fri 11:00–23:59 UTC
+    - cron: '2-59/5 0-1 * * 2-6'   # Tue–Sat 00:00–01:59 UTC (Mon–Fri evening, US)
+    - cron: '17 * * * *'           # hourly, all other times (overlap with the above is harmless)
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      APP_URL: ${{ vars.APP_URL || 'https://track2.bigseabridge.com' }}
+    steps:
+      - name: Health (function + Prisma + database)
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 30 --retry 1 --retry-delay 5 \
+            -w '\nHTTP %{http_code} in %{time_total}s\n' "$APP_URL/api/health?deep=1"
+      - name: Login page (page-render function)
+        run: |
+          curl --fail --silent --show-error --max-time 30 --retry 1 --retry-delay 5 \
+            -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' "$APP_URL/login"
+
+  # Hourly: stop timers left running > 12h (app/api/cron/timers). Vercel Hobby crons are daily-only,
+  # so the daily Vercel cron in vercel.json is the fallback. Needs repo secret CRON_SECRET (same value
+  # as the Vercel env var); skipped when it isn't set.
+  stop-runaway-timers:
+    if: github.event.schedule == '17 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      APP_URL: ${{ vars.APP_URL || 'https://track2.bigseabridge.com' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Auto-stop runaway timers
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set; skipping"; exit 0; fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/timers"

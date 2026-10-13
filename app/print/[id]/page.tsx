@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { formatCents, formatDate } from '@/lib/format'
 import { PAYMENT_TERM_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 /** Chrome-free, auto-printing invoice document. Rendered bare (see layout BARE_PREFIXES); the browser
  * print dialog offers "Save as PDF". Auth-gated to the actor's account (spec 17). */
 export default async function PrintInvoicePage({ params }: { params: { id: string } }) {
-  const { accountId } = await requireUser()
+  const { accountId } = await requireCapability('manage_invoices')
   const invoice = await prisma.invoice.findFirst({
     where: { id: params.id, accountId },
     include: { client: true, account: true, entity: true, lineItems: { orderBy: { sortOrder: 'asc' } } },

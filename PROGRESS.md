@@ -2,9 +2,42 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-10-12._
+_Last updated: 2026-10-13._
 
 ## ▶ Resume here (next session)
+
+### 🚦 Go-live hardening (2026-10-13)
+A CTO-level audit (data safety, security, performance, invoicing) found go-live blockers; all code fixes are on branch `claude/pensive-davinci-vmc0bo` (PR "Go-live hardening"). Verified: 510 unit tests (UTC and America/New_York), tsc, next build, invoicing integration tests on a throwaway Postgres, and a browser click-through (login, double-click Start, Stop, member nav) on a seeded local DB. Not yet run against production data.
+
+**What changed (code)**
+- **Data safety:** seed refuses unless `ALLOW_SEED=1` and the accounts look like demo data; destructive scripts need explicit `ACCOUNT_ID` and refuse prod-sized/Track2-owned data; the importer never overwrites entries/invoices that are locked, invoiced or edited in Track2; `MIGRATION_LOCKED=1` disables import/sync; streamed CSV exports + admin "Export everything" (`/settings/export`); `scripts/check-db-health.mjs` (`npm run db:health`) and `scripts/fix-number-sequences.mjs`; CI (`ci.yml`) and nightly encrypted `pg_dump` (`db-backup.yml`); restore procedure tested and written up in [OPS.md](OPS.md).
+- **Security:** every invoice action needs `manage_invoices`; invoices/print/receivables/profitability gated; no self-promotion to Administrator; sessions re-check `isActive`/profile from the DB each request (deactivation is immediate); login lockout after 10 failures/15 min; PMs limited to projects they manage; rate overrides need `set_rates`; security headers; Stripe/email links from `APP_URL`.
+- **Time:** "today" is the account timezone (US Eastern) everywhere, so evening work no longer lands on tomorrow; timer double-click is safe; timer errors are shown; 12h timer cap + auto-stop cron; warning for timers started on an earlier day; audit trail (before/after) on every time-entry change; faster timesheet and dashboard.
+- **Invoicing:** no double-billing on concurrent generate; fixed-fee time no longer adds the full fee to every invoice; missing rates are re-derived or block generation (no silent $0); amount = rounded hours × rate (matches Xero/Harvest); Xero gets tax/discount lines; Stripe payments de-duplicated by PaymentIntent (ACH = bank transfer); paid invoices can't be deleted/reverted; re-send keeps its number; failed emails are shown; atomic number allocation that skips used numbers; recurring cron isolated per profile.
+- **Speed:** hot-path indexes (migration `20261013200000_hotpath_indexes`), Projects paginated (archived 1.35s → 0.35s), retainers summed in SQL, per-request caching, loading skeletons + friendly error pages, `/api/health?deep=1`, GitHub keep-warm pinger, region pin `iad1`, 30s function timeout.
+- **Login:** full page load after sign-in (a stale prefetch could bounce people back to /login); form POSTs so credentials never land in a URL.
+
+**Go-live checklist (Dzuy; details in [OPS.md](OPS.md))**
+1. Supabase: upgrade to **Pro** + PITR; confirm region is **us-east-1** (else change `regions` in vercel.json to match).
+2. Vercel env (Production only): `DATABASE_URL` add `&connection_limit=5&pool_timeout=20`; `APP_URL=https://track2.bigseabridge.com`; `CRON_SECRET` (enables recurring invoices + timer auto-stop); `MIGRATION_LOCKED=1` **after** the final Harvest sync. Make sure `DATABASE_URL`/`AUTH_SECRET`/`INTEGRATION_ENC_KEY` are **not** shared with Preview; turn on Vercel Authentication for previews; turn on **Fluid Compute**; add a WAF rate-limit rule on `POST /api/auth/callback/credentials`.
+3. GitHub secrets: `BACKUP_DATABASE_URL`, `BACKUP_PASSPHRASE`, `CRON_SECRET`; run "DB backup" once by hand.
+4. Prod DB: `npm run db:health`; apply anything it reports missing (constraints, the hot-path index migration — CONCURRENTLY versions are in the migration header); delete demo users/the `acc_globex` account; rename the account from "Big Sea (demo)".
+5. Invoice numbering: run `ACCOUNT_ID=acc_demo node --env-file=.env scripts/fix-number-sequences.mjs` and **decide** before `--confirm`: Harvest numbers like 387523 would make the next number ~389701. (Sends are already safe: allocation skips numbers in use.)
+6. Final Harvest sync, then set `MIGRATION_LOCKED=1`. Recreate recurring profiles in Track2 and switch Harvest's off the same day. Keep Harvest read-only ~30 days as a fallback.
+7. Click through on production: log time, timer, generate + send a test invoice to yourself, record a payment.
+
+**Decided 2026-10-13 (Dzuy)**
+- Sessions: 14-day sliding (was 12h). Access is still re-checked from the DB on every request.
+- Invoice numbering continues Harvest's sequence: after the final Harvest sync, run `scripts/fix-number-sequences.mjs` (Harvest's latest was #392666, so Track2 starts at the next number).
+- Members/PMs without billing capabilities don't see invoices or dollar amounts (approved).
+- Fixed fee works like Harvest (done, [spec 05](specs/05-invoicing.md) AC-INV-003a–e): "New invoice" (`/invoices/generate`) lets you pick projects; a Fixed Fee project adds one editable line for the remaining fee (fee − amount on existing invoices, drafts included); its hours stay uninvoiced; drafts show "Show project context" (notes, fee, invoiced, remaining, related invoices); project/client/retainers/dashboard uninvoiced amounts use fee − invoiced. Integration-tested on a local Postgres.
+- Google sign-in (done, off until configured; OPS.md §8): bigsea.co Workspace accounts only, matched to existing active users, password login kept as a fallback. Needs `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` from an Internal OAuth client.
+
+**GitHub Actions parked (2026-10-13):** CI, nightly backup and keep-warm workflows are in `ops/workflows/` and don't run (see OPS.md §2). The timer auto-stop runs daily from the Vercel cron only.
+
+**Waiting on Dzuy** (emailed 2026-10-13): Vercel plan (Hobby is non-commercial), keep-warm cadence vs UptimeRobot, Sentry, go-live date + cutover order, keep or drop password login after Google works, Drive export format (CSV to a folder vs Google Sheet; whose Drive), merge of the go-live PR.
+
+**Not done:** Google Drive export (next, on top of Google sign-in), `onDelete: Restrict` on cascades, DB trigger for INV-3, `/reports` hours visible to all members, project-level rates/fees without `set_rates`, Xero TaxType mapping, the project page "Invoiced amount" card excludes drafts while fee − invoiced counts them.
 
 ### 🐞 BugHerd feedback + Harvest parity (updated 2026-10-12, end of day)
 Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23-bugherd-feedback.md); the Harvest reference and capture prompt are in [specs/24](specs/24-harvest-ui-capture.md).
