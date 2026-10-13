@@ -40,10 +40,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const profile = (session?.user?.profile ?? 'member') as PermissionProfile
   const accountId = session?.user?.accountId
   // Independent per-request reads, in parallel. The timezone drives the top bar's default dates.
-  const [topBar, modules, clock] = await Promise.all([
+  const [topBar, modules, clock, showInvoices] = await Promise.all([
     userId ? getTopBarData(userId) : Promise.resolve({ projects: [], running: null }),
     accountId ? getModules(accountId) : Promise.resolve(DEFAULT_MODULES),
     accountId ? getAccountClock(accountId) : Promise.resolve({ timezone: DEFAULT_TIMEZONE }),
+    getCurrentUser().then((me) => !!me && userCan(me, 'manage_invoices')),
   ])
 
   return (
@@ -54,7 +55,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Sidebar
               userName={session?.user?.name ?? undefined}
               showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
-              showInvoices={await getCurrentUser().then((me) => !!me && userCan(me, 'manage_invoices'))}
+              showInvoices={showInvoices}
               modules={modules}
             />
           }

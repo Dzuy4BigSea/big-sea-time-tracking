@@ -41,3 +41,20 @@ jobs:
         run: |
           curl --fail --silent --show-error --max-time 30 --retry 1 --retry-delay 5 \
             -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' "$APP_URL/login"
+
+  # Hourly: stop timers left running > 12h (app/api/cron/timers). Vercel Hobby crons are daily-only,
+  # so the daily Vercel cron in vercel.json is the fallback. Needs repo secret CRON_SECRET (same value
+  # as the Vercel env var); skipped when it isn't set.
+  stop-runaway-timers:
+    if: github.event.schedule == '17 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      APP_URL: ${{ vars.APP_URL || 'https://track2.bigseabridge.com' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Auto-stop runaway timers
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set; skipping"; exit 0; fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/timers"
