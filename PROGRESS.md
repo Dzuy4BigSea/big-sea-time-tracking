@@ -7,7 +7,7 @@ _Last updated: 2026-10-13._
 ## ▶ Resume here (next session)
 
 ### 🚦 Go-live hardening (2026-10-13)
-A CTO-level audit (data safety, security, performance, invoicing) found go-live blockers; all code fixes are on branch `claude/pensive-davinci-vmc0bo` (PR "Go-live hardening"). Verified: 510 unit tests (UTC and America/New_York), tsc, next build, invoicing integration tests on a throwaway Postgres, and a browser click-through (login, double-click Start, Stop, member nav) on a seeded local DB. Not yet run against production data.
+A CTO-level audit (data safety, security, performance, invoicing) found go-live blockers. **All code fixes, Harvest-style fixed fee and Google sign-in are merged and live in production (PR #5, 2026-10-13)**; production check after deploy: new build serving from `iad1`, DB 70ms warm, signed-out pages redirect to /login, security headers present. Verified before merge: 510 unit tests (UTC and America/New_York), tsc, next build, invoicing integration tests on a throwaway Postgres, and a browser click-through (login, double-click Start, Stop, member nav) on a seeded local DB. Not yet run against production data.
 
 **What changed (code)**
 - **Data safety:** seed refuses unless `ALLOW_SEED=1` and the accounts look like demo data; destructive scripts need explicit `ACCOUNT_ID` and refuse prod-sized/Track2-owned data; the importer never overwrites entries/invoices that are locked, invoiced or edited in Track2; `MIGRATION_LOCKED=1` disables import/sync; streamed CSV exports + admin "Export everything" (`/settings/export`); `scripts/check-db-health.mjs` (`npm run db:health`) and `scripts/fix-number-sequences.mjs`; CI (`ci.yml`) and nightly encrypted `pg_dump` (`db-backup.yml`); restore procedure tested and written up in [OPS.md](OPS.md).
@@ -35,7 +35,7 @@ A CTO-level audit (data safety, security, performance, invoicing) found go-live 
 
 **GitHub Actions parked (2026-10-13):** CI, nightly backup and keep-warm workflows are in `ops/workflows/` and don't run (see OPS.md §2). The timer auto-stop runs daily from the Vercel cron only.
 
-**Waiting on Dzuy** (emailed 2026-10-13): Vercel plan (Hobby is non-commercial), keep-warm cadence vs UptimeRobot, Sentry, go-live date + cutover order, keep or drop password login after Google works, Drive export format (CSV to a folder vs Google Sheet; whose Drive), merge of the go-live PR.
+**Waiting on Dzuy** (emailed 2026-10-13; reviewing costs 2026-10-14): Vercel plan (Hobby is non-commercial), keep-warm cadence vs UptimeRobot (and whether to re-enable the parked GitHub Actions), Sentry, go-live date + cutover order, keep or drop password login after Google works, Drive export format (CSV to a folder vs Google Sheet; whose Drive). Until cutover: don't send real invoices from Track2; the hot-path index migration is not yet applied on production (safe to apply any time, OPS.md).
 
 **Not done:** Google Drive export (next, on top of Google sign-in), `onDelete: Restrict` on cascades, DB trigger for INV-3, `/reports` hours visible to all members, project-level rates/fees without `set_rates`, Xero TaxType mapping, the project page "Invoiced amount" card excludes drafts while fee − invoiced counts them.
 
