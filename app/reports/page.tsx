@@ -55,6 +55,8 @@ export default async function ReportsPage({
   const me = await requireUser()
   const { accountId, permissionProfile, permissionOverrides } = me
   const canExport = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'run_account_reports')
+  // Money columns only for people who may see billable rates/amounts; others get hours only.
+  const canSeeAmounts = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'view_billable_rates')
   const tab = parseTimeTab(searchParams)
   const activeOnly = searchParams.active === '1'
   const defaultSort = defaultTimeSort(tab)
@@ -124,8 +126,8 @@ export default async function ReportsPage({
       initials: tab === 'users' ? `${(r.fn ?? '').charAt(0)}${(r.ln ?? '').charAt(0)}`.toUpperCase() : undefined,
       minutes: Number(r.minutes),
       billableMinutes: Number(r.bmin),
-      billableCents: Math.round(Number(r.bcents)),
-      uninvoicedCents: Math.round(Number(r.ucents)),
+      billableCents: canSeeAmounts ? Math.round(Number(r.bcents)) : 0,
+      uninvoicedCents: canSeeAmounts ? Math.round(Number(r.ucents)) : 0,
     }
   })
   // Sort the aggregated rows (one per client/project/task/person — small), never raw entries.
@@ -198,11 +200,11 @@ export default async function ReportsPage({
         </div>
         <div className="min-w-0">
           <div className="text-sm text-gray-600">Billable amount</div>
-          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-gray-900">{formatCents(totals.billableCents)}</div>
+          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-gray-900">{canSeeAmounts ? formatCents(totals.billableCents) : '—'}</div>
         </div>
         <div className="min-w-0">
           <div className="text-sm text-gray-600">Uninvoiced amount</div>
-          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-brand-green">{formatCents(totals.uninvoicedCents)}</div>
+          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-brand-green">{canSeeAmounts ? formatCents(totals.uninvoicedCents) : '—'}</div>
           <div className="mt-1 text-xs text-gray-500">Excludes Fixed Fee projects</div>
         </div>
       </div>

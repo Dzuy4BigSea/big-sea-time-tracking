@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { Prisma } from '@prisma/client'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
 import { resolveTimeframe, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/shared/timeframe'
@@ -19,7 +19,8 @@ export default async function ProfitabilityPage({
 }: {
   searchParams: TimeframeParams & { sort?: string; dir?: string }
 }) {
-  const { accountId } = await requireUser()
+  // Money report: account-wide reports permission (Accounting / Executive / Admin).
+  const { accountId } = await requireCapability('run_account_reports')
   const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'revenue', dir: 'desc' })
   // Harvest: reports open on This week (week start per account preference, Monday by default).
   const tf = resolveTimeframe(searchParams, { defaultPeriod: 'week', weekStartsOn: await accountWeekStartsOn(accountId) })

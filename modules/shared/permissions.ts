@@ -203,3 +203,65 @@ export function computeOverrides(profile: PermissionProfile, checked: Capability
   if (revoke.length) out.revoke = revoke
   return out
 }
+
+// ---------------------------------------------------------------------------
+// Escalation guards for the team screens (who may change whose access/credentials)
+// ---------------------------------------------------------------------------
+
+/** Account administrators (anyone holding edit_account_settings) may change anyone's access. */
+export function isAccountAdmin(actor: Actor): boolean {
+  return can(actor, 'edit_account_settings')
+}
+
+/** Capabilities `target` holds that `actor` does not. */
+export function capabilitiesBeyond(target: Actor, actor: Actor): Capability[] {
+  return ALL_CAPABILITIES.filter((c) => can(target, c) && !can(actor, c))
+}
+
+/** Does `target` hold any capability the actor lacks (or is an Administrator)? */
+export function outranks(target: Actor, actor: Actor): boolean {
+  if (isAccountAdmin(actor)) return false
+  return target.permissionProfile === 'administrator' || capabilitiesBeyond(target, actor).length > 0
+}
+
+/**
+ * May `actor` set a person's access to `after` (from `before`, or null when creating them)?
+ * Returns an error message, or null when allowed. Non-administrators with manage_people can only
+ * hand out capabilities they hold themselves, can never assign the Administrator profile, and can't
+ * touch anyone who already holds capabilities they lack.
+ */
+export function checkAccessChange(actor: Actor, before: Actor | null, after: Actor): string | null {
+  if (!can(actor, 'manage_people')) return 'You do not have permission to change access.'
+  if (isAccountAdmin(actor)) return null
+  if (after.permissionProfile === 'administrator') return 'Only an administrator can grant Administrator access.'
+  if (before && outranks(before, actor)) {
+    return 'Only an administrator can change access for someone with permissions you don’t have.'
+  }
+  const beyond = capabilitiesBeyond(after, actor)
+  if (beyond.length) {
+    return `You can’t grant “${CAPABILITY_LABELS[beyond[0]]}” because you don’t have it yourself.`
+  }
+  return null
+}
+
+/**
+ * May `actor` change `target`'s sign-in credentials or active flag? Non-administrators can't
+ * touch anyone who outranks them (otherwise a password reset is an account takeover).
+ */
+export function checkSecurityChange(actor: Actor, target: Actor, isSelf: boolean): string | null {
+  if (!can(actor, 'manage_people')) return 'You do not have permission to change security settings.'
+  if (isSelf || isAccountAdmin(actor)) return null
+  if (outranks(target, actor)) {
+    return 'Only an administrator can change sign-in details for someone with permissions you don’t have.'
+  }
+  return null
+}
+
+/**
+ * Project Managers (Harvest parity) manage only the projects they are a PM on; everyone else
+ * holding manage_projects manages every project in the account. Callers must check the
+ * project assignment when this returns true.
+ */
+export function projectManagementScoped(actor: Actor): boolean {
+  return actor.permissionProfile === 'project_manager' && !isAccountAdmin(actor)
+}

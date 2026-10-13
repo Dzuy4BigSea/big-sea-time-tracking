@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { ReportsTabs } from '@/components/ReportsTabs'
-import { requireUser } from '@/lib/session'
+import { requireCapability } from '@/lib/session'
 import { SortableTh } from '@/components/SortableTh'
 import { buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
@@ -17,7 +17,8 @@ const SORT_KEYS = ['client', 'current', 'd1_30', 'd31_60', 'd60plus', 'total'] a
 type SortKey = (typeof SORT_KEYS)[number]
 
 export default async function ReceivablesPage({ searchParams }: { searchParams: { sort?: string; dir?: string } }) {
-  const { accountId } = await requireUser()
+  // Money report: account-wide reports permission (Accounting / Executive / Admin).
+  const { accountId } = await requireCapability('run_account_reports')
   const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'total', dir: 'desc' })
   const sortHref = (s: SortState<SortKey>) => buildHref('/reports/receivables', { sort: s.key, dir: s.dir })
   const invoices = await prisma.invoice.findMany({

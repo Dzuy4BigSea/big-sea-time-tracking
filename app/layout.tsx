@@ -6,6 +6,7 @@ import { TopBar } from '@/components/TopBar'
 import { SiteFooter } from '@/components/SiteFooter'
 import { Shell } from '@/components/Shell'
 import { auth } from '@/auth'
+import { getCurrentUser, userCan } from '@/lib/session'
 import { getTopBarData } from '@/lib/topbar'
 import { getModules, DEFAULT_MODULES } from '@/lib/modules'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -48,6 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Sidebar
               userName={session?.user?.name ?? undefined}
               showSettings={can({ permissionProfile: profile }, 'edit_account_settings')}
+              showInvoices={await getCurrentUser().then((me) => !!me && userCan(me, 'manage_invoices'))}
               modules={modules}
             />
           }

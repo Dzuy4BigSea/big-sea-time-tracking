@@ -1,18 +1,15 @@
 'use server'
 
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
 import { entityIdForInvoice } from '@/lib/entities'
 import { createCheckoutSession } from '@/modules/integrations/stripeClient'
+import { resolveAppUrl } from '@/lib/appUrl'
 
-function baseUrl(): string {
-  const h = headers()
-  const proto = h.get('x-forwarded-proto') ?? 'https'
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
-  return `${proto}://${host}`
-}
+// Success/cancel URLs come from configuration (APP_URL / AUTH_URL / NEXTAUTH_URL), never from the
+// client-controllable x-forwarded-host header.
+const baseUrl = (): string => resolveAppUrl()
 
 /** Start a Stripe Checkout for an open invoice from its public link (specs/14, AC-STRIPE-001). */
 export async function startStripeCheckoutAction(formData: FormData): Promise<void> {

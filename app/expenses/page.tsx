@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { safeHttpUrl } from '@/modules/shared/safeUrl'
 import { formatCents, formatDate } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -103,8 +104,8 @@ export default async function ExpensesPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-2 text-xs">
-                    {e.receiptFileUrl && (
-                      <a href={e.receiptFileUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
+                    {safeHttpUrl(e.receiptFileUrl) && (
+                      <a href={safeHttpUrl(e.receiptFileUrl)!} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
                     )}
                     {e.lockState === 'invoiced' ? (
                       <span className="text-gray-300" title="Invoiced — locked">🔒</span>

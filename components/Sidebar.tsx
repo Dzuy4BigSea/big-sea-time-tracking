@@ -7,7 +7,7 @@ import type { ModuleFlags } from '@/lib/modules'
 import { DEFAULT_MODULES } from '@/lib/modules'
 
 type Item = { label: string; href: string; ready?: boolean; moduleKey?: keyof ModuleFlags }
-type Section = { heading?: string; items: Item[] }
+type Section = { heading?: string; items: Item[]; needsInvoices?: boolean }
 
 const NAV: Section[] = [
   { items: [{ label: 'Home', href: '/', ready: true }] },
@@ -29,6 +29,7 @@ const NAV: Section[] = [
   },
   {
     heading: 'Bill',
+    needsInvoices: true,
     items: [
       { label: 'Invoices', href: '/invoices', ready: true, moduleKey: 'invoices' },
       { label: 'Estimates', href: '/estimates', ready: true, moduleKey: 'estimates' },
@@ -45,14 +46,17 @@ const ROPE = 'repeating-linear-gradient(45deg,#bbfd50 0 7px,#ffffff 7px 14px)'
 export function Sidebar({
   userName,
   showSettings,
+  showInvoices = false,
   modules = DEFAULT_MODULES,
 }: {
   userName?: string
   showSettings?: boolean
+  /** Bill section (invoices/estimates/recurring/retainers) needs manage_invoices. */
+  showInvoices?: boolean
   modules?: ModuleFlags
 }) {
   const pathname = usePathname()
-  const visibleNav = NAV.map((section) => ({
+  const visibleNav = NAV.filter((section) => !section.needsInvoices || showInvoices).map((section) => ({
     ...section,
     items: section.items.filter((i) => !i.moduleKey || modules[i.moduleKey]),
   })).filter((section) => section.items.length > 0)
