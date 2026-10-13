@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
-import { logTimeAction, startTimerAction, type LogTimeState } from '@/app/timesheet/actions'
+import { logTimeAction, startTimerAction, type LogTimeState, type TimerState } from '@/app/timesheet/actions'
 import { Combobox } from '@/components/Combobox'
 import {
   defaultTaskId,
@@ -52,7 +52,7 @@ export function ProjectTaskPicker({ projects }: { projects: TimeEntryProject[] }
   )
 }
 
-function PrimaryButton({ hasDuration }: { hasDuration: boolean }) {
+function PrimaryButton({ hasDuration, timerAction }: { hasDuration: boolean; timerAction: (formData: FormData) => void }) {
   const { pending } = useFormStatus()
   // With a duration entered the green button logs the entry; empty → it starts a timer (Harvest).
   // On a teammate's timesheet the timer is theirs (forUserId is posted and re-authorized server-side).
@@ -60,7 +60,7 @@ function PrimaryButton({ hasDuration }: { hasDuration: boolean }) {
   return (
     <button
       type="submit"
-      formAction={startsTimer ? startTimerAction : undefined}
+      formAction={startsTimer ? timerAction : undefined}
       disabled={pending}
       className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
     >
@@ -88,12 +88,21 @@ export function TimeEntryModal({
   forUser?: { id: string; name: string }
 }) {
   const [state, formAction] = useFormState<LogTimeState, FormData>(logTimeAction, {})
+  const [timerState, timerAction] = useFormState<TimerState, FormData>(startTimerAction, {})
   const [duration, setDuration] = useState('')
+  // The most recent submission's error (log time or start timer).
+  const [lastError, setLastError] = useState<string | undefined>()
 
   useEffect(() => {
+    setLastError(state.error)
     if (state.ok) onClose()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
+  useEffect(() => {
+    setLastError(timerState.error)
+    if (timerState.ok) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerState])
 
   if (!open) return null
   const noProjects = projects.length === 0
@@ -148,11 +157,11 @@ export function TimeEntryModal({
             </div>
 
             <div className="flex items-center gap-3 pt-1">
-              <PrimaryButton hasDuration={hasDuration} />
+              <PrimaryButton hasDuration={hasDuration} timerAction={timerAction} />
               <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-700">
                 Cancel
               </button>
-              {state.error && <span className="text-sm text-red-600">{state.error}</span>}
+              {lastError && <span role="alert" className="text-sm text-red-600">{lastError}</span>}
             </div>
           </form>
         )}

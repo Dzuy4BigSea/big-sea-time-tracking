@@ -9,6 +9,8 @@ import { auth } from '@/auth'
 import { getCurrentUser, userCan } from '@/lib/session'
 import { getTopBarData } from '@/lib/topbar'
 import { getModules, DEFAULT_MODULES } from '@/lib/modules'
+import { getAccountClock } from '@/lib/accountClock'
+import { DEFAULT_TIMEZONE } from '@/lib/tz'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 
 export const metadata: Metadata = {
@@ -36,10 +38,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const session = await auth()
   const userId = session?.user?.id
   const profile = (session?.user?.profile ?? 'member') as PermissionProfile
-  const topBar = userId ? await getTopBarData(userId) : { projects: [], running: null }
   const accountId = session?.user?.accountId
-  const modules = accountId ? await getModules(accountId) : DEFAULT_MODULES
-  const today = new Date().toISOString().slice(0, 10)
+  // Independent per-request reads, in parallel. The timezone drives the top bar's default dates.
+  const [topBar, modules, clock] = await Promise.all([
+    userId ? getTopBarData(userId) : Promise.resolve({ projects: [], running: null }),
+    accountId ? getModules(accountId) : Promise.resolve(DEFAULT_MODULES),
+    accountId ? getAccountClock(accountId) : Promise.resolve({ timezone: DEFAULT_TIMEZONE }),
+  ])
 
   return (
     <html lang="en">
@@ -58,7 +63,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               projects={topBar.projects}
               running={topBar.running}
               canManageInvoices={can({ permissionProfile: profile }, 'manage_invoices')}
-              today={today}
+              timezone={clock.timezone}
             />
           }
           footer={<SiteFooter />}

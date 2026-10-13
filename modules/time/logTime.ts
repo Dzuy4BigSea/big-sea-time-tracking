@@ -8,6 +8,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { resolveRate } from '@/modules/projects/resolveRate'
 import { loggableProjectError } from '@/modules/time/actingFor'
+import { timeEntryAuditData, timeEntrySnapshot } from '@/modules/time/timeAudit'
 
 export interface LogTimeInput {
   userId: string
@@ -16,6 +17,8 @@ export interface LogTimeInput {
   spentDate: Date
   minutes: number
   notes?: string
+  /** Who logged it (defaults to userId); differs when acting for a teammate. Audited with the create. */
+  actorUserId?: string
 }
 
 export interface ResolvedEntryRate {
@@ -80,18 +83,32 @@ export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
     spentDate: input.spentDate,
   })
 
-  return prisma.timeEntry.create({
-    data: {
-      accountId,
-      userId: input.userId,
-      projectId: input.projectId,
-      taskId: input.taskId,
-      spentDate: input.spentDate,
-      minutes: input.minutes,
-      notes: input.notes,
-      isBillable,
-      billableRateCents,
-    },
+  return prisma.$transaction(async (tx) => {
+    const entry = await tx.timeEntry.create({
+      data: {
+        accountId,
+        userId: input.userId,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        spentDate: input.spentDate,
+        minutes: input.minutes,
+        notes: input.notes,
+        isBillable,
+        billableRateCents,
+      },
+    })
+    await tx.auditLog.create({
+      data: timeEntryAuditData({
+        accountId,
+        actorUserId: input.actorUserId ?? input.userId,
+        subjectUserId: input.userId,
+        entryId: entry.id,
+        event: 'logged',
+        before: null,
+        after: timeEntrySnapshot(entry),
+      }),
+    })
+    return entry
   })
 }
 

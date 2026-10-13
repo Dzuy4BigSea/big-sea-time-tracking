@@ -7,6 +7,8 @@ import type { AuditAction, Prisma } from '@prisma/client'
  * business action, so failures are swallowed. `summary` is a human-readable line for the timeline;
  * `detail` optionally carries structured before/after context.
  */
+// Time entries write their audit rows inside the same transaction as the change, through the pure
+// builder modules/time/timeAudit.ts (tx.auditLog.create), so a committed edit/delete always has one.
 export async function writeAudit(input: {
   accountId: string
   actorUserId?: string | null
@@ -15,6 +17,8 @@ export async function writeAudit(input: {
   action: AuditAction
   summary: string
   detail?: Record<string, unknown>
+  /** Optional prior state, stored in the `before` column (after = summary + detail). */
+  before?: Record<string, unknown>
   /** Override the entry timestamp — used when back-dating imported historical events. */
   at?: Date
 }): Promise<void> {
@@ -26,6 +30,7 @@ export async function writeAudit(input: {
         entityType: input.entityType,
         entityId: input.entityId,
         action: input.action,
+        ...(input.before ? { before: input.before as Prisma.InputJsonValue } : {}),
         after: { summary: input.summary, ...(input.detail ?? {}) } as Prisma.InputJsonValue,
         ...(input.at ? { createdAt: input.at } : {}),
       },

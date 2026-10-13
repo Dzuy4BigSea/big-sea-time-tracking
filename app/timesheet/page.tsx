@@ -5,15 +5,14 @@ import { addDays, ymd, sameDay, weekdayShort, dayMonth, weekNavLabel, dayNavLabe
 import { resolveTimesheetNav, timesheetUrl, navQuery, type TimesheetNav } from '@/lib/timesheetNav'
 import { TimeEntryButton } from '@/components/TimeEntryButton'
 import { EntryRow, type EntryRowData } from '@/components/EntryRow'
-import { stopTimerAction } from '@/app/timesheet/actions'
 import { requireUser } from '@/lib/session'
 import { requireModule } from '@/lib/modules'
 import { listActablePeople, loggableProjectsFor, managedProjectIdsFor, resolveSubjectUserId } from '@/lib/timesheetSubject'
 import { TimesheetPersonSwitcher } from '@/components/TimesheetPersonSwitcher'
 import { toTimeEntryProject } from '@/lib/timeEntryProjects'
-
-const timeFmt = (d: Date) =>
-  new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(d)
+import { getAccountClock } from '@/lib/accountClock'
+import { formatTimeIn, todayIn } from '@/lib/tz'
+import { TimerStopButton } from '@/components/TimerStopButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,48 +29,54 @@ export default async function TimesheetPage({
 }) {
   const current = await requireUser()
   const { accountId } = current
-  await requireModule(accountId, 'timeTracking')
-  // Whose timesheet: ?user=<id> when the actor may act for that person (view_edit_others_time,
-  // scope + tenancy re-checked server-side); anything else falls back to the actor's own.
-  const userId = (await resolveSubjectUserId(current, searchParams.user)) ?? current.userId
+  // Round 1 (independent): module gate, whose sheet (?user=<id> when the actor may act for that
+  // person: view_edit_others_time, scope + tenancy re-checked server-side; anything else falls
+  // back to the actor's own), and the account's timezone + week start.
+  const [, subjectId, clock] = await Promise.all([
+    requireModule(accountId, 'timeTracking'),
+    resolveSubjectUserId(current, searchParams.user),
+    getAccountClock(accountId),
+  ])
+  const userId = subjectId ?? current.userId
   const isSelf = userId === current.userId
-  const [user, account, people] = await Promise.all([
+  const { timezone, weekStartsOn } = clock
+
+  // Open on the current week (in the account timezone), as Harvest does; ?week= navigates
+  // elsewhere, ?view=day&date= is the Day view.
+  const now = new Date()
+  const nav = resolveTimesheetNav(searchParams, now, weekStartsOn, timezone)
+  const { weekStart, weekEnd, days } = nav
+  const subjectParam = isSelf ? undefined : userId
+
+  // Round 2 (independent, all keyed on the subject + week): run in parallel.
+  const [user, people, entries, loggable, running, managed] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, type: true } }),
-    prisma.account.findUnique({ where: { id: accountId }, select: { weekStartsOn: true } }),
     listActablePeople(current),
+    // Bounded to one person's week (indexed on userId, spentDate); the Day view filters this in memory.
+    prisma.timeEntry.findMany({
+      where: { accountId, userId, spentDate: { gte: weekStart, lte: weekEnd } },
+      include: { project: projectSelect, task: { select: { name: true } } },
+      orderBy: [{ spentDate: 'asc' }, { createdAt: 'asc' }],
+    }),
+    // Active projects (with their tasks) this user may log against. Archived projects / clients
+    // are excluded (BugHerd #1).
+    loggableProjectsFor(userId),
+    // Any running timer for this user (shown regardless of the viewed week).
+    prisma.timeEntry.findFirst({
+      where: { accountId, userId, isRunning: true },
+      include: { project: projectSelect, task: { select: { name: true } } },
+    }),
+    // On someone else's sheet a project manager only acts on projects they manage (null = no limit).
+    isSelf ? Promise.resolve(null) : managedProjectIdsFor(current),
   ])
   const userName = user ? `${user.firstName} ${user.lastName}`.trim() : userId
   // The switcher lists active people; keep a permitted-but-archived subject selectable too.
   if (people.length > 0 && !people.some((p) => p.id === userId)) {
     people.push({ id: userId, name: userName, type: user?.type ?? 'employee' })
   }
-  const weekStartsOn = (account?.weekStartsOn ?? 'monday') as 'monday' | 'sunday'
-
-  // Open on the current week, as Harvest does; ?week= navigates elsewhere, ?view=day&date= is the Day view.
-  const nav = resolveTimesheetNav(searchParams, new Date(), weekStartsOn)
-  const { weekStart, weekEnd, days } = nav
-  const subjectParam = isSelf ? undefined : userId
-
-  // Bounded to one person's week (indexed on userId, spentDate); the Day view filters this in memory.
-  const entries = await prisma.timeEntry.findMany({
-    where: { accountId, userId, spentDate: { gte: weekStart, lte: weekEnd } },
-    include: { project: projectSelect, task: { select: { name: true } } },
-    orderBy: [{ spentDate: 'asc' }, { createdAt: 'asc' }],
-  })
-
-  // Active projects (with their tasks) this user may log against, to populate the log-time form.
-  // Archived projects / clients are excluded (BugHerd #1).
-  // On someone else's sheet a project manager only acts on projects they manage (null = no limit).
-  const managed = isSelf ? null : await managedProjectIdsFor(current)
-  const projectOptions = (await loggableProjectsFor(userId))
-    .filter((p) => managed === null || managed.has(p.id))
-    .map(toTimeEntryProject)
-
-  // Any running timer for this user (shown regardless of the viewed week).
-  const running = await prisma.timeEntry.findFirst({
-    where: { accountId, userId, isRunning: true },
-    include: { project: projectSelect, task: { select: { name: true } } },
-  })
+  const projectOptions = loggable.filter((p) => managed === null || managed.has(p.id)).map(toTimeEntryProject)
+  // A timer still running from a previous day (account timezone) is probably forgotten.
+  const runningFromPreviousDay = !!running?.timerStartedAt && todayIn(timezone, running.timerStartedAt) < nav.today
 
   // Group into rows keyed by project+task; each row holds minutes per weekday.
   type Row = { key: string; projectLabel: string; taskName: string; perDay: number[]; total: number }
@@ -179,18 +184,20 @@ export default async function TimesheetPage({
               {projectLabel(running.project)} · {running.task.name}
             </span>
             {running.timerStartedAt && (
-              <span className="ml-2 text-xs text-gray-500">since {timeFmt(running.timerStartedAt)} UTC</span>
+              <span className="ml-2 text-xs text-gray-500">
+                since {runningFromPreviousDay && `${ymd(todayIn(timezone, running.timerStartedAt))} `}
+                {formatTimeIn(running.timerStartedAt, timezone)}
+              </span>
+            )}
+            {runningFromPreviousDay && (
+              <div role="status" className="mt-1 text-xs font-medium text-amber-800">
+                ⚠ This timer was started on a previous day. Stop it and check the time; timers stop
+                automatically after 12 hours.
+              </div>
             )}
           </div>
           {/* On a teammate's sheet the timer is theirs to stop too (re-authorized server-side). */}
-          {canStopRunning && (
-            <form action={stopTimerAction}>
-              {!isSelf && <input type="hidden" name="forUserId" value={userId} />}
-              <button className="rounded bg-brand-teal px-3 py-1 text-sm font-medium text-white hover:opacity-90">
-                ■ Stop
-              </button>
-            </form>
-          )}
+          {canStopRunning && <TimerStopButton forUserId={isSelf ? undefined : userId} />}
         </div>
       )}
 
@@ -199,6 +206,8 @@ export default async function TimesheetPage({
           key={`${userId}|${ymd(nav.date)}`}
           projects={projectOptions}
           defaultDate={ymd(nav.date)}
+          timezone={timezone}
+          followToday={nav.isToday}
           forUser={isSelf ? undefined : { id: userId, name: userName }}
         />
       </div>
