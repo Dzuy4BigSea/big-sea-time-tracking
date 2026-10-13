@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client'
 import { requireUser } from '@/lib/session'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
-import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/shared/timeframe'
+import { resolveTimeframe, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 
 export const dynamic = 'force-dynamic'
@@ -21,12 +21,8 @@ export default async function ProfitabilityPage({
 }) {
   const { accountId } = await requireUser()
   const sort = parseSort<SortKey>(searchParams, SORT_KEYS, { key: 'revenue', dir: 'desc' })
-  let fallbackAnchor: Date | null = null
-  if (needsFallbackAnchor(searchParams)) {
-    const latest = await prisma.timeEntry.aggregate({ where: { accountId }, _max: { spentDate: true } })
-    fallbackAnchor = latest._max.spentDate ?? new Date()
-  }
-  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
+  // Harvest: reports open on This week (week start per account preference, Monday by default).
+  const tf = resolveTimeframe(searchParams, { defaultPeriod: 'week', weekStartsOn: await accountWeekStartsOn(accountId) })
   const tfq = timeframeQuery(tf)
   const sortq = sort.key === 'revenue' && sort.dir === 'desc' ? {} : { sort: sort.key, dir: sort.dir }
   const sortHref = (s: SortState<SortKey>) => buildHref('/reports/profitability', { ...tfq, sort: s.key, dir: s.dir })

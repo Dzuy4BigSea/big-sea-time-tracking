@@ -8,7 +8,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
 import { SortableTh } from '@/components/SortableTh'
-import { resolveTimeframe, needsFallbackAnchor, timeframeQuery, buildHref } from '@/modules/shared/timeframe'
+import { resolveTimeframe, timeframeQuery, buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 import {
   TIME_SORT_KEYS,
@@ -58,13 +58,8 @@ export default async function ReportsPage({
   // The Clients column only exists on the Projects tab.
   const sort = parsedSort.key === 'client' && tab !== 'projects' ? defaultSort : parsedSort
 
-  // Anchor for week/month/… navigation defaults to the latest tracked day, so there's data.
-  let fallbackAnchor: Date | null = null
-  if (needsFallbackAnchor(searchParams)) {
-    const latest = await prisma.timeEntry.aggregate({ where: { accountId }, _max: { spentDate: true } })
-    fallbackAnchor = latest._max.spentDate ?? new Date()
-  }
-  const tf = resolveTimeframe(searchParams, { fallbackAnchor, weekStartsOn: await accountWeekStartsOn(accountId) })
+  // Harvest: reports open on This week (week start per account preference, Monday by default).
+  const tf = resolveTimeframe(searchParams, { defaultPeriod: 'week', weekStartsOn: await accountWeekStartsOn(accountId) })
   const { from, till } = tf
 
   // Aggregate in the DB (never load raw entries — 388k rows). Metric expressions are shared;
