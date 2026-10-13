@@ -62,50 +62,65 @@ export default async function ExpensesPage() {
       <NewExpenseForm projects={projectOptions} categories={categoryOptions} today={today} />
       {canManageSettings && <NewCategoryForm />}
 
+      {/* Fixed layout so every column fits at laptop widths (~1000px content); long text truncates with a
+          title tooltip. overflow-x-auto + min-w only kick in as a fallback on very narrow screens. */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[820px] table-fixed text-sm">
+          <colgroup>
+            <col className="w-[100px]" />
+            <col />
+            <col className="w-[15%]" />
+            <col className="w-[13%]" />
+            <col className="w-[64px]" />
+            <col className="w-[104px]" />
+            <col className="w-[112px]" />
+            <col className="w-[92px]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium">Project</th>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Person</th>
-              <th className="px-4 py-3 font-medium">Billable</th>
-              <th className="px-4 py-3 text-right font-medium">Amount</th>
-              <th className="px-4 py-3 text-right font-medium">Billed (w/ markup)</th>
-              <th className="px-4 py-3" />
+              <th className="px-3 py-3 font-medium">Date</th>
+              <th className="px-3 py-3 font-medium">Project</th>
+              <th className="px-3 py-3 font-medium">Category</th>
+              <th className="px-3 py-3 font-medium">Person</th>
+              <th className="px-2 py-3 text-center font-medium" title="Billable">Bill.</th>
+              <th className="px-3 py-3 text-right font-medium">Amount</th>
+              <th className="whitespace-nowrap px-3 py-3 text-right font-medium" title="Billed amount, including markup">Billed</th>
+              <th className="px-3 py-3"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {expenses.map((e) => {
               const editable = (e.userId === userId || canOthers) && e.lockState !== 'invoiced'
+              const projectLabel = `${e.project.code ? `[${e.project.code}] ` : ''}${e.project.name}`
+              const person = `${e.user.firstName} ${e.user.lastName}`
               return (
-              <tr key={e.id} className="border-b border-gray-100 last:border-0">
-                <td className="px-4 py-3 text-gray-600">{formatDate(e.spentDate)}</td>
-                <td className="px-4 py-3">
-                  <span className="font-medium text-gray-900">
-                    {e.project.code ? `[${e.project.code}] ` : ''}
-                    {e.project.name}
-                  </span>
-                  {e.notes && <div className="text-xs text-gray-400">{e.notes}</div>}
+              <tr key={e.id} className="border-b border-gray-100 align-top last:border-0">
+                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-gray-600">{formatDate(e.spentDate)}</td>
+                <td className="px-3 py-2.5">
+                  <div className="truncate font-medium text-gray-900" title={projectLabel}>{projectLabel}</div>
+                  {e.notes && <div className="truncate text-xs text-gray-400" title={e.notes}>{e.notes}</div>}
                 </td>
-                <td className="px-4 py-3 text-gray-600">{e.category.name}</td>
-                <td className="px-4 py-3 text-gray-600">
-                  {e.user.firstName} {e.user.lastName}
+                <td className="px-3 py-2.5 text-gray-600">
+                  <div className="truncate" title={e.category.name}>{e.category.name}</div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-2.5 text-gray-600">
+                  <div className="truncate" title={person}>{person}</div>
+                </td>
+                <td className="px-2 py-2.5 text-center">
                   {e.isBillable ? (
-                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Billable</span>
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-xs font-semibold text-green-700" title="Billable">
+                      ✓<span className="sr-only">Billable</span>
+                    </span>
                   ) : (
-                    <span className="text-xs text-gray-400">no</span>
+                    <span className="text-xs text-gray-300" title="Non-billable">—<span className="sr-only">Non-billable</span></span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-700">{formatCents(e.totalCents)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-700">{formatCents(e.totalCents)}</td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
                   {e.isBillable ? formatCents(withMarkup(e)) : '—'}
-                  {e.markupPercent ? <span className="ml-1 text-xs text-gray-400">+{Number(e.markupPercent)}%</span> : null}
+                  {e.markupPercent ? <div className="text-xs text-gray-400">+{Number(e.markupPercent)}% markup</div> : null}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="whitespace-nowrap px-3 py-2.5 text-right">
                   <div className="flex items-center justify-end gap-2 text-xs">
                     {safeHttpUrl(e.receiptFileUrl) && (
                       <a href={safeHttpUrl(e.receiptFileUrl)!} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-brand-teal" title="View receipt">📎</a>
