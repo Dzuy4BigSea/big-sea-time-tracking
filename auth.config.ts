@@ -5,8 +5,9 @@ import type { NextAuthConfig } from 'next-auth'
  * full config in auth.ts. The Credentials provider (which needs Prisma) is added there.
  */
 export const authConfig = {
-  pages: { signIn: '/login' },
-  providers: [], // real provider added in auth.ts (Node runtime)
+  // Auth.js errors (e.g. a refused Google sign-in → AccessDenied) land on /login?error=… too.
+  pages: { signIn: '/login', error: '/login' },
+  providers: [], // real providers (Credentials, optional Google) added in auth.ts (Node runtime)
   // 14-day sliding sessions (re-issued at most daily while in use), so people who track time every
   // day aren't asked to sign in each morning (Dzuy, 2026-10-13). Access itself (active flag,
   // profile, overrides) is re-checked from the DB per request in lib/session.ts, so deactivation
@@ -19,6 +20,8 @@ export const authConfig = {
       if (nextUrl.pathname.startsWith('/login')) return true
       return isLoggedIn
     },
+    // Shared by both providers: for Google, auth.ts' signIn callback has already swapped the Google
+    // profile for the matched Track2 user (id, accountId, permissionProfile) before this runs.
     jwt({ token, user }) {
       if (user) {
         token.userId = user.id
