@@ -18,12 +18,14 @@ const TYPE_BADGE: Record<string, { label: string; className: string }> = {
   non_billable: { label: 'Non-Billable', className: 'bg-gray-100 text-gray-600' },
 }
 const HOURS_BUDGETS = new Set(['hours_total', 'hours_per_task', 'hours_per_person'])
+/** Projects per page. The archived list is ~2k projects; rendering them all made a multi-MB page. */
+const PAGE_SIZE = 100
 const hours = (m: number) => (m / 60).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; client?: string; manager?: string; q?: string }
+  searchParams: { status?: string; client?: string; manager?: string; q?: string; page?: string }
 }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_projects')
@@ -32,6 +34,7 @@ export default async function ProjectsPage({
   const clientId = searchParams.client || ''
   const managerId = searchParams.manager || ''
   const q = (searchParams.q ?? '').trim()
+  const requestedPage = Math.max(1, Math.floor(Number(searchParams.page)) || 1)
 
   const where: Prisma.ProjectWhereInput = {
     accountId,
@@ -41,7 +44,7 @@ export default async function ProjectsPage({
     ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' } }, { code: { contains: q, mode: 'insensitive' } }, { client: { name: { contains: q, mode: 'insensitive' } } }] } : {}),
   }
 
-  const [projects, activeCount, clients, managerRows, entities] = await Promise.all([
+  const findPage = (pg: number) =>
     prisma.project.findMany({
       where,
       select: {
@@ -49,19 +52,36 @@ export default async function ProjectsPage({
         client: { select: { id: true, name: true } },
         entity: { select: { code: true, name: true } },
       },
-      orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
-    }),
-    prisma.project.count({ where: { accountId, isActive: true } }),
+      // id last: a stable order so pages never overlap or skip a project.
+      orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }, { id: 'asc' }],
+      skip: (pg - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    })
+
+  const [firstTry, total, activeCount, clients, managerRows, entities] = await Promise.all([
+    findPage(requestedPage),
+    prisma.project.count({ where }),
+    // On the default (active, unfiltered) view this equals `total`; skip the second count there.
+    status === 'active' && !clientId && !managerId && !q ? null : prisma.project.count({ where: { accountId, isActive: true } }),
     prisma.client.findMany({ where: { accountId, projects: { some: {} } }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-    prisma.projectUserAssignment.findMany({ where: { accountId, isProjectManager: true }, select: { user: { select: { id: true, firstName: true, lastName: true } } }, distinct: ['userId'] }),
+    // Distinct managers in the DB (one row per person) instead of materialising every PM assignment.
+    prisma.$queryRaw<{ id: string; firstName: string; lastName: string }[]>`
+      SELECT DISTINCT u.id, u."firstName", u."lastName"
+      FROM "ProjectUserAssignment" a JOIN "User" u ON u.id = a."userId"
+      WHERE a."accountId" = ${accountId} AND a."isProjectManager"`,
     listEntities(accountId),
   ])
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const page = Math.min(requestedPage, pageCount)
+  // A ?page= past the end (e.g. after archiving the last few) falls back to the last page.
+  const projects = page === requestedPage ? firstTry : await findPage(page)
 
   // Current month window — for projects whose budget resets monthly, spent/remaining are scoped to it.
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
 
+  // Aggregates are bounded to this page's project ids (indexed on projectId / projectId+spentDate).
   const ids = projects.map((p) => p.id)
   const [spentAgg, spentMonthAgg, expenseAgg] = await Promise.all([
     ids.length ? prisma.timeEntry.groupBy({ by: ['projectId'], where: { accountId, projectId: { in: ids } }, _sum: { minutes: true } }) : Promise.resolve([]),
@@ -73,8 +93,7 @@ export default async function ProjectsPage({
   const costBy = new Map(expenseAgg.map((r) => [r.projectId, r._sum.totalCents ?? 0]))
 
   // Distinct managers for the filter dropdown.
-  const managers = managerRows
-    .map((r) => r.user)
+  const managers = [...managerRows]
     .sort((a, b) => (a.firstName + a.lastName).localeCompare(b.firstName + b.lastName))
 
   // Group by client for the Harvest-style grouped table.
@@ -87,6 +106,7 @@ export default async function ProjectsPage({
 
   const qp = (over: Record<string, string>) => {
     const p = new URLSearchParams({ ...(status !== 'active' ? { status } : {}), ...(clientId ? { client: clientId } : {}), ...(managerId ? { manager: managerId } : {}), ...(q ? { q } : {}), ...over })
+    if (p.get('page') === '1') p.delete('page')
     const s = p.toString()
     return s ? `/projects?${s}` : '/projects'
   }
@@ -105,7 +125,7 @@ export default async function ProjectsPage({
       {/* Filter controls */}
       <form className="mb-4 flex flex-wrap items-center gap-2">
         <select name="status" defaultValue={status} className={input}>
-          <option value="active">Active projects ({activeCount})</option>
+          <option value="active">Active projects ({activeCount ?? total})</option>
           <option value="archived">Archived projects</option>
           <option value="all">All projects</option>
         </select>
@@ -122,7 +142,9 @@ export default async function ProjectsPage({
         {(clientId || managerId || q || status !== 'active') && (
           <Link href="/projects" className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>
         )}
-        <span className="ml-auto text-sm text-gray-400">{projects.length} shown</span>
+        <span className="ml-auto text-sm text-gray-400">
+          {total > PAGE_SIZE ? `${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + projects.length} of ${total}` : `${total} shown`}
+        </span>
       </form>
 
       <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
@@ -147,6 +169,21 @@ export default async function ProjectsPage({
           </tbody>
         </table>
       </div>
+      {pageCount > 1 && (
+        <nav className="mt-3 flex items-center justify-end gap-3 text-sm" aria-label="Pagination">
+          {page > 1 ? (
+            <Link href={qp({ page: String(page - 1) })} className="rounded border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50">← Previous</Link>
+          ) : (
+            <span className="rounded border border-gray-200 px-3 py-1.5 text-gray-300">← Previous</span>
+          )}
+          <span className="text-gray-500">Page {page} of {pageCount}</span>
+          {page < pageCount ? (
+            <Link href={qp({ page: String(page + 1) })} className="rounded border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50">Next →</Link>
+          ) : (
+            <span className="rounded border border-gray-200 px-3 py-1.5 text-gray-300">Next →</span>
+          )}
+        </nav>
+      )}
       <p className="mt-2 text-xs text-gray-400">Spent/remaining reflect all tracked time. Costs are expenses (labor cost joins once cost rates are imported).</p>
     </div>
   )

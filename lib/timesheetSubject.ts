@@ -4,11 +4,23 @@
  * The client may send a `user` / `forUserId`, but it is never trusted: every call re-checks
  * the target's account (INV-5) and the actor's `view_edit_others_time` scope via canActFor.
  */
+import * as React from 'react'
 import { prisma } from '@/lib/prisma'
 import type { CurrentUser } from '@/lib/session'
 import type { Actor, PermissionProfile } from '@/modules/shared/permissions'
 import { isCapabilityScoped } from '@/modules/shared/permissions'
 import { canActFor, canActForOthers, LOGGABLE_PROJECT_WHERE } from '@/modules/time/actingFor'
+
+/**
+ * Per-request memoisation (React `cache`): the root layout's top bar and the page both ask for the same
+ * project list, so the second caller reuses the first's in-flight query instead of repeating ~5 round
+ * trips. Keys must be primitives (cache compares arguments by identity). `cache` only exists in the
+ * react-server build Next uses for server components and actions; elsewhere (unit tests, scripts) this is
+ * a pass-through. Cached results are shared, so the exported functions hand back copies.
+ */
+const perRequest: <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A) => R =
+  (React as unknown as { cache?: <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A) => R }).cache ??
+  ((fn) => fn)
 
 export function actorOf(u: CurrentUser): Actor {
   return { permissionProfile: u.permissionProfile as PermissionProfile, permissionOverrides: u.permissionOverrides }
@@ -56,12 +68,16 @@ export async function mayActFor(current: CurrentUser, targetUserId: string): Pro
  */
 export async function managedProjectIdsFor(current: CurrentUser): Promise<Set<string> | null> {
   if (!isCapabilityScoped(actorOf(current), 'view_edit_others_time')) return null
+  return new Set(await managedProjectIdList(current.accountId, current.userId))
+}
+
+const managedProjectIdList = perRequest(async (accountId: string, userId: string): Promise<string[]> => {
   const rows = await prisma.projectUserAssignment.findMany({
-    where: { accountId: current.accountId, userId: current.userId, isProjectManager: true, isActive: true },
+    where: { accountId, userId, isProjectManager: true, isActive: true },
     select: { projectId: true },
   })
-  return new Set(rows.map((r) => r.projectId))
-}
+  return rows.map((r) => r.projectId)
+})
 
 /**
  * mayActFor narrowed to one project: a project manager may act for someone only on projects they
@@ -99,6 +115,11 @@ export async function listActablePeople(current: CurrentUser): Promise<PersonOpt
   const actor = actorOf(current)
   if (!canActForOthers(actor)) return []
   const scoped = isCapabilityScoped(actor, 'view_edit_others_time')
+  return [...(await actablePeople(current.accountId, current.userId, scoped))]
+}
+
+const actablePeople = perRequest(async (accountId: string, userId: string, scoped: boolean): Promise<PersonOption[]> => {
+  const current = { accountId, userId }
   const people = await prisma.user.findMany({
     where: {
       accountId: current.accountId,
@@ -118,7 +139,7 @@ export async function listActablePeople(current: CurrentUser): Promise<PersonOpt
   const opts: PersonOption[] = people.map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim(), type: p.type }))
   const self = opts.filter((p) => p.id === current.userId)
   return [...self, ...opts.filter((p) => p.id !== current.userId)]
-}
+})
 
 export interface LoggableProjectOption {
   id: string
@@ -135,6 +156,10 @@ export interface LoggableProjectOption {
  * timesheet and the top bar.
  */
 export async function loggableProjectsFor(userId: string): Promise<LoggableProjectOption[]> {
+  return [...(await loggableProjectsCached(userId))]
+}
+
+const loggableProjectsCached = perRequest(async (userId: string): Promise<LoggableProjectOption[]> => {
   const assignments = await prisma.projectUserAssignment.findMany({
     where: { userId, isActive: true, project: LOGGABLE_PROJECT_WHERE },
     select: {
@@ -158,4 +183,4 @@ export async function loggableProjectsFor(userId: string): Promise<LoggableProje
     clientName: a.project.client.name,
     tasks: a.project.taskAssignments.map((ta) => ta.task),
   }))
-}
+})

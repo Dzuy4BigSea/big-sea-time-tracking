@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma'
 import { formatCents } from '@/lib/format'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
-import { isUninvoiced } from '@/modules/invoicing/uninvoiced'
 import { requireModule } from '@/lib/modules'
 import { NewRetainerForm } from '@/components/NewRetainerForm'
 import { addDepositAction, applyDrawdownAction, archiveRetainerAction } from '@/app/retainers/actions'
@@ -30,31 +29,35 @@ export default async function RetainersPage() {
       select: { id: true, name: true, projects: { where: { isActive: true }, select: { id: true, name: true } } },
       orderBy: { name: 'asc' },
     }),
-    prisma.timeEntry.findMany({
-      where: { accountId, isBillable: true, isRunning: false, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
-      select: { minutes: true, billableRateCents: true, invoiceLineItemId: true, lockState: true, isBillable: true, project: { select: { id: true, clientId: true } } },
-    }),
-    prisma.expense.findMany({
-      where: { accountId, isBillable: true, invoiceLineItemId: null, lockState: { not: 'invoiced' } },
-      select: { totalCents: true, markupPercent: true, project: { select: { id: true, clientId: true } } },
-    }),
+    // Uninvoiced billable totals per project, summed in the DB (one row per project, not one per entry).
+    // The WHERE is the uninvoiced-pool predicate (modules/invoicing/uninvoiced.ts: billable, not on a line
+    // item, not locked as invoiced) plus "timer not running". Each entry is rounded to whole cents before
+    // summing with the same float math as the old JS (Math.round(minutes / 60 * rate) = FLOOR(x + 0.5) on
+    // float8), so totals match to the cent. Served by the partial index TimeEntry_uninvoiced_billable_idx.
+    prisma.$queryRaw<{ clientId: string; projectId: string; cents: bigint }[]>`
+      SELECT p."clientId", te."projectId",
+             COALESCE(SUM(FLOOR(te.minutes::float8 / 60 * te."billableRateCents" + 0.5)), 0)::bigint AS cents
+      FROM "TimeEntry" te JOIN "Project" p ON p.id = te."projectId"
+      WHERE te."accountId" = ${accountId} AND te."isBillable" AND NOT te."isRunning"
+        AND te."invoiceLineItemId" IS NULL AND te."lockState"::text <> 'invoiced'
+      GROUP BY p."clientId", te."projectId"`,
+    prisma.$queryRaw<{ clientId: string; projectId: string; cents: bigint }[]>`
+      SELECT p."clientId", x."projectId",
+             COALESCE(SUM(FLOOR(x."totalCents" * (1 + COALESCE(x."markupPercent", 0)::float8 / 100) + 0.5)), 0)::bigint AS cents
+      FROM "Expense" x JOIN "Project" p ON p.id = x."projectId"
+      WHERE x."accountId" = ${accountId} AND x."isBillable"
+        AND x."invoiceLineItemId" IS NULL AND x."lockState"::text <> 'invoiced'
+      GROUP BY p."clientId", x."projectId"`,
   ])
 
-  // Aggregate uninvoiced billable amounts keyed by clientId and by clientId|projectId.
+  // Uninvoiced billable amounts keyed by clientId and by clientId|projectId.
   const byClient = new Map<string, number>()
   const byProject = new Map<string, number>()
-  const add = (clientId: string, projectId: string, cents: number) => {
-    byClient.set(clientId, (byClient.get(clientId) ?? 0) + cents)
-    byProject.set(`${clientId}|${projectId}`, (byProject.get(`${clientId}|${projectId}`) ?? 0) + cents)
-  }
-  for (const e of timeRows) {
-    if (!isUninvoiced({ isBillable: e.isBillable, invoiceLineItemId: e.invoiceLineItemId, lockState: e.lockState })) continue
-    const cents = e.billableRateCents ? Math.round((e.minutes / 60) * e.billableRateCents) : 0
-    add(e.project.clientId, e.project.id, cents)
-  }
-  for (const x of expenseRows) {
-    const pct = x.markupPercent ? Number(x.markupPercent) : 0
-    add(x.project.clientId, x.project.id, Math.round(x.totalCents * (1 + pct / 100)))
+  for (const r of [...timeRows, ...expenseRows]) {
+    const cents = Number(r.cents)
+    byClient.set(r.clientId, (byClient.get(r.clientId) ?? 0) + cents)
+    const key = `${r.clientId}|${r.projectId}`
+    byProject.set(key, (byProject.get(key) ?? 0) + cents)
   }
   const uninvoicedFor = (clientId: string, projectId: string | null) =>
     projectId ? byProject.get(`${clientId}|${projectId}`) ?? 0 : byClient.get(clientId) ?? 0
