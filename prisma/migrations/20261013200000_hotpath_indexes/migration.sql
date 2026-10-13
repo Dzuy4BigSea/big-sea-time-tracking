@@ -5,6 +5,7 @@
 -- `migrate deploy` uses), then let `migrate deploy` mark this migration applied (the IF NOT EXISTS
 -- statements become no-ops):
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS "ProjectUserAssignment_userId_isActive_idx" ON "ProjectUserAssignment"("userId", "isActive");
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "InvoiceLineItem_linkedProjectId_idx" ON "InvoiceLineItem"("linkedProjectId");
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS "TimeEntry_uninvoiced_billable_idx" ON "TimeEntry"("accountId", "projectId") INCLUDE ("minutes", "billableRateCents", "isRunning", "lockState") WHERE "isBillable" AND "invoiceLineItemId" IS NULL;
 
 -- loggableProjectsFor (timesheet + the top bar on every page), managedProjectIdsFor, mayActFor:
@@ -18,3 +19,6 @@ CREATE INDEX IF NOT EXISTS "ProjectUserAssignment_userId_isActive_idx" ON "Proje
 CREATE INDEX IF NOT EXISTS "TimeEntry_uninvoiced_billable_idx" ON "TimeEntry"("accountId", "projectId")
   INCLUDE ("minutes", "billableRateCents", "isRunning", "lockState")
   WHERE "isBillable" AND "invoiceLineItemId" IS NULL;
+
+-- Fixed-fee "amount invoiced so far" per project (modules/invoicing/fixedFee.ts): lines linked to a project.
+CREATE INDEX IF NOT EXISTS "InvoiceLineItem_linkedProjectId_idx" ON "InvoiceLineItem"("linkedProjectId");

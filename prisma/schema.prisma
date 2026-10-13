@@ -738,6 +738,7 @@ model InvoiceLineItem {
   expenses    Expense[]
 
   @@index([accountId])
+  @@index([linkedProjectId])
   @@index([invoiceId])
 }
 

@@ -26,11 +26,16 @@ A CTO-level audit (data safety, security, performance, invoicing) found go-live 
 6. Final Harvest sync, then set `MIGRATION_LOCKED=1`. Recreate recurring profiles in Track2 and switch Harvest's off the same day. Keep Harvest read-only ~30 days as a fallback.
 7. Click through on production: log time, timer, generate + send a test invoice to yourself, record a payment.
 
-**Decisions / follow-ups**
-- Sessions are 12h (everyone signs in each morning). Access is re-checked per request, so longer sessions (e.g. 14 days) would be safe; change `maxAge` in `auth.config.ts` if you want that.
-- Members and PMs no longer see the Bill section or dollar amounts on Reports without the matching capabilities; check this matches how the team works.
-- Fixed-fee projects: time is no longer pulled into generated invoices; bill the fee with a manual line (Harvest-style).
-- Not done: Google sign-in, `onDelete: Restrict` on cascades, DB trigger for INV-3, `/reports` hours visible to all members, project-level rates/fees without `set_rates`, Xero TaxType mapping.
+**Decided 2026-10-13 (Dzuy)**
+- Sessions: 14-day sliding (was 12h). Access is still re-checked from the DB on every request.
+- Invoice numbering continues Harvest's sequence: after the final Harvest sync, run `scripts/fix-number-sequences.mjs` (Harvest's latest was #392666, so Track2 starts at the next number).
+- Members/PMs without billing capabilities don't see invoices or dollar amounts (approved).
+- Fixed fee works like Harvest (done, [spec 05](specs/05-invoicing.md) AC-INV-003a–e): "New invoice" (`/invoices/generate`) lets you pick projects; a Fixed Fee project adds one editable line for the remaining fee (fee − amount on existing invoices, drafts included); its hours stay uninvoiced; drafts show "Show project context" (notes, fee, invoiced, remaining, related invoices); project/client/retainers/dashboard uninvoiced amounts use fee − invoiced. Integration-tested on a local Postgres.
+- Google sign-in (done, off until configured; OPS.md §8): bigsea.co Workspace accounts only, matched to existing active users, password login kept as a fallback. Needs `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` from an Internal OAuth client.
+
+**Waiting on Dzuy** (emailed 2026-10-13): Vercel plan (Hobby is non-commercial), keep-warm cadence vs UptimeRobot, Sentry, go-live date + cutover order, keep or drop password login after Google works, Drive export format (CSV to a folder vs Google Sheet; whose Drive), merge of the go-live PR.
+
+**Not done:** Google Drive export (next, on top of Google sign-in), `onDelete: Restrict` on cascades, DB trigger for INV-3, `/reports` hours visible to all members, project-level rates/fees without `set_rates`, Xero TaxType mapping, the project page "Invoiced amount" card excludes drafts while fee − invoiced counts them.
 
 ### 🐞 BugHerd feedback + Harvest parity (updated 2026-10-12, end of day)
 Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23-bugherd-feedback.md); the Harvest reference and capture prompt are in [specs/24](specs/24-harvest-ui-capture.md).
