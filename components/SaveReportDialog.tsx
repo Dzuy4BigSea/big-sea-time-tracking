@@ -78,6 +78,10 @@ export function SaveReportDialog({
               maxLength={200}
               defaultValue={mode === 'edit' ? report?.name : ''}
               autoFocus
+              // Not a login field: keep password managers (1Password, LastPass) from overlaying it.
+              autoComplete="off"
+              data-1p-ignore=""
+              data-lpignore="true"
               className="w-full rounded border border-gray-300 px-2 py-1.5"
             />
           </label>
