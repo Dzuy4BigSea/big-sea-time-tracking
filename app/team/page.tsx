@@ -11,6 +11,7 @@ import { LiveSearchInput, LiveSelect } from '@/components/LiveFilters'
 import { DropdownMenu } from '@/components/DropdownMenu'
 import { listEntities } from '@/lib/entities'
 import { startOfWeek, addDays, ymd, parseYmd } from '@/lib/week'
+import { groupTeammates } from '@/lib/teammates'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,8 +95,13 @@ export default async function TeamPage({
     const total = wk.b + wk.n
     const capMin = u.capacityHoursPerWeek ? Number(u.capacityHoursPerWeek) * 60 : 0
     const util = capMin > 0 ? Math.round((total / capMin) * 100) : 0
-    return { u, billMin: wk.b, nonBillMin: wk.n, total, capMin, util }
+    return { id: u.id, name: `${u.firstName} ${u.lastName}`, type: u.type, u, billMin: wk.b, nonBillMin: wk.n, total, capMin, util }
   })
+  // Harvest splits the list into Employees then Contractors when both kinds of teammate are present.
+  // Order within each group is the query's order, so sorting and filters still apply per group.
+  const groups = groupTeammates(rows)
+  const sectioned = groups.length > 1
+  const colCount = canManage ? 6 : 5
   const sum = rows.reduce((a, r) => ({ total: a.total + r.total, bill: a.bill + r.billMin, nonbill: a.nonbill + r.nonBillMin, cap: a.cap + r.capMin }), { total: 0, bill: 0, nonbill: 0, cap: 0 })
   const teamUtilBill = sum.cap > 0 ? (sum.bill / sum.cap) * 100 : 0
   const teamUtilNon = sum.cap > 0 ? (sum.nonbill / sum.cap) * 100 : 0
@@ -171,7 +177,7 @@ export default async function TeamPage({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
-                  <th className="px-4 py-3 font-medium">Employees ({rows.length})</th>
+                  <th className="px-4 py-3 font-medium">{sectioned ? `Name (${rows.length})` : `${groups[0]?.label ?? 'Employees'} (${rows.length})`}</th>
                   <th className="px-4 py-3 font-medium">Hours</th>
                   <th className="px-4 py-3 text-right font-medium">Utilization</th>
                   <th className="px-4 py-3 text-right font-medium">Capacity</th>
@@ -180,7 +186,15 @@ export default async function TeamPage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ u, billMin, nonBillMin, total, capMin, util }) => {
+                {groups.map((g) => [
+                  sectioned && (
+                    <tr key={`section-${g.label}`} className="border-b border-gray-200 bg-gray-50">
+                      <th colSpan={colCount} scope="colgroup" className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                        {g.label} <span className="font-normal text-gray-400">({g.people.length})</span>
+                      </th>
+                    </tr>
+                  ),
+                  ...g.people.map(({ u, billMin, nonBillMin, total, capMin, util }) => {
                   const over = util > 100
                   const billW = capMin > 0 ? Math.min(100, (billMin / capMin) * 100) : 0
                   const nonW = capMin > 0 ? Math.min(Math.max(0, 100 - billW), (nonBillMin / capMin) * 100) : 0
@@ -218,9 +232,10 @@ export default async function TeamPage({
                       )}
                     </tr>
                   )
-                })}
+                  }),
+                ])}
                 {rows.length === 0 && (
-                  <tr><td colSpan={canManage ? 6 : 5} className="px-4 py-8 text-center text-gray-400">No people match.</td></tr>
+                  <tr><td colSpan={colCount} className="px-4 py-8 text-center text-gray-400">No people match.</td></tr>
                 )}
               </tbody>
             </table>
