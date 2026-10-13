@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolveTimeframe, needsFallbackAnchor, timeframeQuery, inTimeframe, buildHref, parsePeriod, customSeed, defaultPeriodFor, endExclusive, PERIODS, periodHeading,
+  stepperLabel, dayRangeLabel,
 } from './timeframe'
 import { parseYmd } from '@/lib/week'
 
@@ -274,5 +275,37 @@ describe('periodHeading', () => {
   it('passes All time and custom ranges through', () => {
     expect(periodHeading(resolveTimeframe({}, { now }), now)).toBe('All time')
     expect(periodHeading(resolveTimeframe({ period: 'custom', from: '2026-01-01', to: '2026-01-31' }, { now }), now)).toBe('1/1/2026 – 1/31/2026')
+  })
+})
+
+describe('dayRangeLabel', () => {
+  it('collapses the shared month and year', () => {
+    expect(dayRangeLabel(d('2026-10-12'), d('2026-10-18'))).toBe('12 – 18 Oct 2026')
+  })
+  it('names both months across a month boundary', () => {
+    expect(dayRangeLabel(d('2026-09-28'), d('2026-10-04'))).toBe('28 Sep – 4 Oct 2026')
+  })
+  it('names both years across a year boundary', () => {
+    expect(dayRangeLabel(d('2025-12-29'), d('2026-01-04'))).toBe('29 Dec 2025 – 4 Jan 2026')
+  })
+})
+
+describe('stepperLabel', () => {
+  const now = new Date('2026-10-13T15:00:00.000Z')
+  it('prefixes the current week like Harvest ("This week 12 – 18 Oct 2026")', () => {
+    const tf = resolveTimeframe({ period: 'week' }, { now })
+    expect(stepperLabel(tf, now)).toEqual({ prefix: 'This week', range: '12 – 18 Oct 2026' })
+  })
+  it('drops the prefix once stepped away from today', () => {
+    const tf = resolveTimeframe({ period: 'semimonth', anchor: '2026-09-20' }, { now })
+    expect(stepperLabel(tf, now)).toEqual({ prefix: null, range: '16 – 30 Sep 2026' })
+  })
+  it('uses the period label for month / quarter / year', () => {
+    expect(stepperLabel(resolveTimeframe({ period: 'month' }, { now }), now)).toEqual({ prefix: 'This month', range: 'October 2026' })
+    expect(stepperLabel(resolveTimeframe({ period: 'quarter', anchor: '2026-01-05' }, { now }), now)).toEqual({ prefix: null, range: 'Q1 2026' })
+    expect(stepperLabel(resolveTimeframe({ period: 'year' }, { now }), now)).toEqual({ prefix: 'This year', range: '2026' })
+  })
+  it('passes All time through without a prefix', () => {
+    expect(stepperLabel(resolveTimeframe({}, { now }), now)).toEqual({ prefix: null, range: 'All time' })
   })
 })

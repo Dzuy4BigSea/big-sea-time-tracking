@@ -165,35 +165,36 @@ export default async function ReportsPage({
 
       <ReportTimeframe basePath="/reports" tf={tf} keep={{ tab, ...activeq, ...sortq }} />
 
-      {/* Summary card: total hours + billable donut, billable amount, uninvoiced amount */}
-      <div className="mb-4 grid gap-6 rounded-lg border border-gray-200 bg-white p-5 sm:grid-cols-3">
-        <div className="flex items-center gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-gray-400">Total hours</div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900">{hrs(totals.minutes)}</div>
-          </div>
+      {/* Summary card (Harvest layout): total hours | billable donut + legend | billable amount | uninvoiced amount.
+          Each column is min-w-0 and the figures never wrap, so large all-time totals can't overlap. */}
+      <div className="mb-4 grid gap-x-10 gap-y-6 rounded-lg border border-gray-200 bg-white p-6 sm:grid-cols-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="text-sm text-gray-600">Total hours</div>
+          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-gray-900">{hrs(totals.minutes)}</div>
+        </div>
+        <div className="flex min-w-0 items-center gap-5">
           <BillableDonut percent={billablePct} empty={totals.minutes === 0} />
-          <dl className="space-y-1 text-xs text-gray-600">
-            <div className="flex items-center gap-1.5">
-              <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-brand-blue" />
-              <dt>Billable</dt>
-              <dd className="ml-auto pl-3 tabular-nums font-medium text-gray-800">{hrs(totals.billableMinutes)}</dd>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-gray-300" />
-              <dt>Non-billable</dt>
-              <dd className="ml-auto pl-3 tabular-nums font-medium text-gray-800">{hrs(nonBillableMinutes)}</dd>
-            </div>
+          <dl className="grid min-w-0 grid-cols-[auto_auto] items-center gap-x-6 gap-y-1.5 text-sm">
+            <dt className="flex items-center gap-2 whitespace-nowrap text-gray-700">
+              <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm bg-brand-blue" />
+              Billable
+            </dt>
+            <dd className="whitespace-nowrap text-right font-semibold tabular-nums text-gray-900">{hrs(totals.billableMinutes)}</dd>
+            <dt className="flex items-center gap-2 whitespace-nowrap text-gray-700">
+              <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm bg-gray-300" />
+              Non-billable
+            </dt>
+            <dd className="whitespace-nowrap text-right font-semibold tabular-nums text-gray-900">{hrs(nonBillableMinutes)}</dd>
           </dl>
         </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-gray-400">Billable amount</div>
-          <div className="mt-1 text-2xl font-semibold text-gray-900">{formatCents(totals.billableCents)}</div>
+        <div className="min-w-0">
+          <div className="text-sm text-gray-600">Billable amount</div>
+          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-gray-900">{formatCents(totals.billableCents)}</div>
         </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-gray-400">Uninvoiced amount</div>
-          <div className="mt-1 text-2xl font-semibold text-brand-green">{formatCents(totals.uninvoicedCents)}</div>
-          <div className="text-xs text-gray-400">Excludes Fixed Fee projects</div>
+        <div className="min-w-0">
+          <div className="text-sm text-gray-600">Uninvoiced amount</div>
+          <div className="mt-1 whitespace-nowrap text-3xl font-semibold tabular-nums text-brand-green">{formatCents(totals.uninvoicedCents)}</div>
+          <div className="mt-1 text-xs text-gray-500">Excludes Fixed Fee projects</div>
         </div>
       </div>
 
@@ -338,10 +339,10 @@ function BillableDonut({ percent, empty }: { percent: number; empty: boolean }) 
     <div
       role="img"
       aria-label={`${percent}% billable`}
-      className="relative h-16 w-16 shrink-0 rounded-full"
+      className="relative h-20 w-20 shrink-0 rounded-full"
       style={{ background: empty ? '#e5e7eb' : `conic-gradient(#5180eb 0 ${percent}%, #d1d5db ${percent}% 100%)` }}
     >
-      <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-xs font-semibold text-gray-700">{percent}%</div>
+      <div className="absolute inset-2.5 flex items-center justify-center rounded-full bg-white text-base font-semibold text-gray-800">{percent}%</div>
     </div>
   )
 }

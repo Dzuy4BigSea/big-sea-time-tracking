@@ -22,6 +22,8 @@ export function Shell({
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
   useEffect(() => setOpen(false), [pathname]) // close drawer on navigation
+  // Report tables are wide (Harvest runs them full-width); everything else keeps the readable 6xl column.
+  const wide = pathname?.startsWith('/reports')
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -53,7 +55,7 @@ export function Shell({
         </div>
 
         {topbar}
-        <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-8">{children}</div>
+        <div className={`mx-auto w-full flex-1 px-4 py-6 sm:px-8 ${wide ? 'max-w-[1600px]' : 'max-w-6xl'}`}>{children}</div>
         {footer}
       </main>
     </div>

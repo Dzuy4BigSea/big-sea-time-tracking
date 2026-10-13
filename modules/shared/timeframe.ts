@@ -195,6 +195,30 @@ export function periodHeading(tf: Timeframe, now: Date = new Date()): string {
   return inTimeframe(tf, dayOf(now)) ? `This ${p.label}: ${tf.label}` : tf.label
 }
 
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dMon = (d: Date) => `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`
+
+/** "12 – 18 Oct 2026", "28 Sep – 4 Oct 2026", "29 Dec 2025 – 4 Jan 2026" (Harvest's range style). */
+export function dayRangeLabel(from: Date, till: Date): string {
+  const y1 = from.getUTCFullYear()
+  const y2 = till.getUTCFullYear()
+  if (y1 !== y2) return `${dMon(from)} ${y1} – ${dMon(till)} ${y2}`
+  if (from.getUTCMonth() !== till.getUTCMonth()) return `${dMon(from)} – ${dMon(till)} ${y2}`
+  return `${from.getUTCDate()} – ${dMon(till)} ${y2}`
+}
+
+/**
+ * Report period-stepper label, Harvest-style: `prefix` is "This week" / "This month" / … when the
+ * anchored period contains today (else null); `range` is "12 – 18 Oct 2026" for week/semimonth and
+ * the period label ("October 2026", "Q4 2026", "2026") otherwise.
+ */
+export function stepperLabel(tf: Timeframe, now: Date = new Date()): { prefix: string | null; range: string } {
+  if (!isAnchored(tf.period) || !tf.from || !tf.till) return { prefix: null, range: tf.label }
+  const range = tf.period === 'week' || tf.period === 'semimonth' ? dayRangeLabel(tf.from, tf.till) : tf.label
+  const p = PERIODS.find((x) => x.key === tf.period)!
+  return { prefix: inTimeframe(tf, dayOf(now)) ? `This ${p.label.toLowerCase()}` : null, range }
+}
+
 /** URL params that reproduce this timeframe (so links, tabs and exports keep it). */
 export function timeframeQuery(tf: Timeframe): Record<string, string> {
   if (tf.period === 'custom') {

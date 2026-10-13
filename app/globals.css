@@ -38,6 +38,14 @@ table th {
   font-variant-numeric: tabular-nums;
 }
 
+/* Tables: headers and figures never wrap ("BILLABLE / HOURS", "$1,234 / .56"); only text columns
+   such as names wrap, so the numbers stay on one aligned line in every table. */
+table th,
+table td.tabular-nums,
+table td.text-right {
+  white-space: nowrap;
+}
+
 /* Poppins runs slightly wide; nudge tracking on dense caps text rather than shrinking. */
 .text-xs {
   letter-spacing: 0.005em;
