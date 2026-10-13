@@ -21,7 +21,8 @@ import { DropdownMenu } from '@/components/DropdownMenu'
 import {
   ProjectTaskBreakdown, type BreakdownRow, type BreakdownChild, type BreakdownSortKey,
 } from '@/components/ProjectTaskBreakdown'
-import { ColumnChart } from '@/components/ColumnChart'
+import { ProjectBudgetChart, type ChartBudget } from '@/components/ProjectBudgetChart'
+import { fmtAmount, remainingText } from '@/modules/projects/budgetChart'
 import {
   addTaskToProjectAction,
   removeTaskFromProjectAction,
@@ -111,10 +112,17 @@ export default async function ProjectDetailPage({
 
   // Aggregates (DB-side — never load raw entries; a real project has thousands).
   type Totals = { mins: number; bmins: number; bc: number; uc: number; um: number; norate: number }
-  const [chart, totalsRow, monthRow, invoicedRow, expenseRow, costRateCount] = await Promise.all([
-    prisma.$queryRaw<{ m: number; mins: number }[]>`
-      SELECT EXTRACT(MONTH FROM "spentDate")::int AS m, COALESCE(SUM(minutes),0)::int AS mins
+  const hasBudget = project.budgetMethod !== 'none' && Boolean(project.budgetValue)
+  const [chart, priorRow, totalsRow, monthRow, invoicedRow, expenseRow, costRateCount] = await Promise.all([
+    prisma.$queryRaw<{ m: number; mins: number; bc: number }[]>`
+      SELECT EXTRACT(MONTH FROM "spentDate")::int AS m, COALESCE(SUM(minutes),0)::int AS mins, ${billableCentsSql} AS bc
       FROM "TimeEntry" WHERE ${w} AND "spentDate" >= ${yStart} AND "spentDate" < ${yEnd} GROUP BY 1`,
+    // Spend before the chart year: the starting point of the cumulative "Project progress" line.
+    hasBudget && !monthly
+      ? prisma.$queryRaw<{ mins: number; bc: number }[]>`
+          SELECT COALESCE(SUM(minutes),0)::int AS mins, ${billableCentsSql} AS bc
+          FROM "TimeEntry" WHERE ${w} AND "spentDate" < ${yStart}`
+      : Promise.resolve([] as { mins: number; bc: number }[]),
     // All-time totals for the summary cards, in one pass.
     prisma.$queryRaw<Totals[]>`
       SELECT COALESCE(SUM(minutes),0)::int AS mins,
@@ -161,8 +169,17 @@ export default async function ProjectDetailPage({
   )
   const fmtBudget = (v: number) => (budget?.unit === 'money' ? formatCents(v) : hrs(v))
 
-  const chartMap = new Map(chart.map((r) => [r.m, r.mins]))
-  const months = MONTHS.map((_, i) => chartMap.get(i + 1) ?? 0)
+  const chartMap = new Map(chart.map((r) => [r.m, r]))
+  const months = MONTHS.map((_, i) => num(chartMap.get(i + 1)?.mins))
+  const monthCents = MONTHS.map((_, i) => Math.round(num(chartMap.get(i + 1)?.bc)))
+  // Last chart month that isn't in the future (the progress line stops there).
+  const chartLastIndex = chartYear < now.getUTCFullYear() ? 11 : chartYear > now.getUTCFullYear() ? -1 : now.getUTCMonth()
+  const chartBudget: ChartBudget | null = budget
+    ? {
+        unit: budget.unit, value: budget.budget, monthly,
+        priorMinutes: num(priorRow[0]?.mins), priorCents: Math.round(num(priorRow[0]?.bc)),
+      }
+    : null
   // Highlight the chart months that overlap the selected timeframe (the current month for All time).
   const inTimeframe = (i: number) => {
     if (!tf.from && !tf.till) return chartYear === now.getUTCFullYear() && i === now.getUTCMonth()
@@ -217,24 +234,23 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
-      {/* Monthly hours chart (follows the selected timeframe's year; ?cy= navigates years) */}
+      {/* Hours chart (follows the selected timeframe's year; ?cy= navigates years). With a budget it
+          opens on Harvest's cumulative "Project progress" view against the budget line. */}
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
-        <div className="mb-3 flex items-center gap-3">
-          <Link href={qp({ cy: String(chartYear - 1) })} className="rounded border border-gray-300 px-2 text-sm text-gray-600 hover:bg-gray-50">←</Link>
-          <Link href={qp({ cy: String(chartYear + 1) })} className="rounded border border-gray-300 px-2 text-sm text-gray-600 hover:bg-gray-50">→</Link>
-          <h2 className="text-sm font-semibold text-gray-700">Hours tracked — {chartYear}</h2>
-        </div>
-        <ColumnChart
-          format={(v) => `${Math.round(v / 60)}h`}
-          bars={months.map((mins, i) => {
-            const isCurrent = inTimeframe(i)
-            return {
-              label: MONTHS[i],
-              title: `${MONTHS[i]} ${chartYear}: ${hrs(mins)}h`,
-              highlight: isCurrent,
-              segments: [{ value: mins, color: isCurrent ? '#9ca3af' : '#c7ccd1' }],
-            }
-          })}
+        <ProjectBudgetChart
+          year={chartYear}
+          labels={MONTHS}
+          highlight={MONTHS.map((_, i) => inTimeframe(i))}
+          minutes={months}
+          cents={monthCents}
+          budget={chartBudget}
+          lastIndex={chartLastIndex}
+          nav={
+            <>
+              <Link href={qp({ cy: String(chartYear - 1) })} aria-label={`Previous year (${chartYear - 1})`} className="rounded border border-gray-300 px-2 text-sm text-gray-600 hover:bg-gray-50">←</Link>
+              <Link href={qp({ cy: String(chartYear + 1) })} aria-label={`Next year (${chartYear + 1})`} className="rounded border border-gray-300 px-2 text-sm text-gray-600 hover:bg-gray-50">→</Link>
+            </>
+          }
         />
       </div>
 
@@ -249,9 +265,22 @@ export default async function ProjectDetailPage({
           <Card title={`Budget remaining (${budget.pctRemaining}%)`} note={monthly ? `${MONTHS[now.getUTCMonth()]} ${now.getUTCFullYear()} · resets monthly` : undefined}>
             <Big className={budget.over ? 'text-red-600' : undefined}>{fmtBudget(budget.remaining)}</Big>
             <Line label={monthly ? 'Monthly budget' : 'Total budget'} value={fmtBudget(budget.budget)} />
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100" title={`${budget.pctSpent}% spent`}>
-              <div className={`h-full rounded-full ${budget.over ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${budget.pctSpent}%` }} />
-            </div>
+            {(() => {
+              const spentText = `Spent: ${fmtAmount(budget.spent, budget.unit)} of ${fmtAmount(budget.budget, budget.unit)} (${budget.pctSpent}%)`
+              const leftText = remainingText(budget.remaining, budget.unit)
+              return (
+                // Hover / focus shows spent + remaining (Harvest's budget bar tooltip); CSS-only.
+                <div className="group relative mt-2 outline-none" tabIndex={0} role="img" aria-label={`${spentText}. ${leftText}`}>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 group-focus-visible:ring-2 group-focus-visible:ring-brand-orange/50">
+                    <div className={`h-full rounded-full ${budget.over ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${budget.pctSpent}%` }} />
+                  </div>
+                  <div aria-hidden className="pointer-events-none absolute left-0 top-3 z-10 hidden whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg group-hover:block group-focus:block">
+                    <div className="tabular-nums text-gray-600">{spentText}</div>
+                    <div className={`font-medium tabular-nums ${budget.over ? 'text-red-600' : 'text-gray-900'}`}>{leftText}</div>
+                  </div>
+                </div>
+              )
+            })()}
           </Card>
         ) : (
           <Card title="Budget">
