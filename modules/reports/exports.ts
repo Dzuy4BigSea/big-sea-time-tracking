@@ -228,6 +228,8 @@ export async function profitabilityExport(me: CurrentUser, sp: URLSearchParams):
  */
 export async function projectTasksExport(me: CurrentUser, projectId: string, sp: URLSearchParams): Promise<ExportBuild> {
   const { accountId } = me
+  // Dollar amounts follow the same rule as Reports: only for people who may see billable rates.
+  const showAmounts = can({ permissionProfile: me.permissionProfile as PermissionProfile, permissionOverrides: me.permissionOverrides }, 'view_billable_rates')
   const [owns, account] = await Promise.all([
     prisma.project.findFirst({
       where: { id: projectId, accountId },
@@ -254,7 +256,10 @@ export async function projectTasksExport(me: CurrentUser, projectId: string, sp:
       FROM "TimeEntry" te JOIN "Task" t ON t.id = te."taskId" JOIN "User" u ON u.id = te."userId"
       WHERE te."accountId" = ${accountId} AND te."projectId" = ${projectId} ${range.length ? Prisma.join(range, ' ') : Prisma.empty}
       GROUP BY t.name, u."firstName", u."lastName" ORDER BY t.name ASC, mins DESC`
-    yield rows.map((r) => [r.task, `${r.fn} ${r.ln}`.trim(), (Number(r.mins) / 60).toFixed(2), (Number(r.bc) / 100).toFixed(2)])
+    yield rows.map((r) => {
+      const base = [r.task, `${r.fn} ${r.ln}`.trim(), (Number(r.mins) / 60).toFixed(2)]
+      return showAmounts ? [...base, (Number(r.bc) / 100).toFixed(2)] : base
+    })
   }
 
   const label = `${owns.code ? owns.code + '-' : ''}${owns.name}`.replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 40)
@@ -264,7 +269,7 @@ export async function projectTasksExport(me: CurrentUser, projectId: string, sp:
     spec: {
       filename: `project-${label}-${period}.csv`,
       sheetName: buildSheetName([owns.code ? `[${owns.code}] ${owns.name}` : owns.name, 'Tasks'], tf),
-      headers: ['Task', 'Person', 'Hours', 'Billable amount'],
+      headers: showAmounts ? ['Task', 'Person', 'Hours', 'Billable amount'] : ['Task', 'Person', 'Hours'],
       batches,
     },
   }
