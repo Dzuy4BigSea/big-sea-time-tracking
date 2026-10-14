@@ -94,7 +94,7 @@ export async function getConnectionWithSecrets(
 }
 
 /** Decrypt a stored secrets map, skipping values that fail (e.g. key rotated). */
-function decryptSecretMap(secretsEnc: unknown): Record<string, string> {
+export function decryptSecretMap(secretsEnc: unknown): Record<string, string> {
   const encMap = (secretsEnc as Record<string, string> | null) ?? {}
   const secrets: Record<string, string> = {}
   for (const [k, v] of Object.entries(encMap)) {
@@ -130,6 +130,14 @@ export async function listConnectionsWithSecrets(
     config: (r.config as Record<string, unknown> | null) ?? {},
     secrets: decryptSecretMap(r.secretsEnc),
   }))
+}
+
+/**
+ * Postgres advisory-lock key serializing writes to one Xero connection's tokens (refresh rotation in
+ * modules/integrations/xeroSync.ts and the settings save), so a rotated refresh token is never lost.
+ */
+export function xeroTokenLockKey(connectionId: string): string {
+  return `xero-token:${connectionId}`
 }
 
 export function isProviderConnected(view: ConnectionView | undefined): boolean {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toXeroInvoice, toXeroPayment, centsToMajor, buildXeroLines, xeroLinesTotalCents } from './xeroMap'
+import { toXeroInvoice, toXeroPayment, centsToMajor, buildXeroLines, xeroLinesTotalCents, taxLinesFor, paymentReference, majorToCents } from './xeroMap'
 
 describe('xero invoice mapper', () => {
   const base = {
@@ -95,5 +95,35 @@ describe('xero payment mapper', () => {
 describe('centsToMajor', () => {
   it('converts cents to major units', () => {
     expect(centsToMajor(52500)).toBe(525)
+  })
+})
+
+describe('taxLinesFor', () => {
+  const base = { tax1Name: 'Sales tax', tax2Name: 'City', discountPercent: null, lineItems: [{ amountCents: 10000, taxable: true }, { amountCents: 5000, taxable: false }] }
+  it('splits into named taxes when recomputation reproduces the stored tax', () => {
+    expect(taxLinesFor({ ...base, taxCents: 1200, tax1Percent: 8, tax2Percent: 4 })).toEqual([
+      { name: 'Sales tax (8%)', cents: 800 },
+      { name: 'City (4%)', cents: 400 },
+    ])
+  })
+  it('falls back to one line carrying the stored tax (legacy rounding) so totals still match', () => {
+    expect(taxLinesFor({ ...base, taxCents: 1201, tax1Percent: 8, tax2Percent: 4 })).toEqual([{ name: 'Sales tax', cents: 1201 }])
+  })
+  it('no tax → no lines', () => {
+    expect(taxLinesFor({ ...base, taxCents: 0, tax1Percent: null, tax2Percent: null })).toEqual([])
+  })
+})
+
+describe('payment reference marker', () => {
+  it('always carries T2:<paymentId> and stays within 255 chars', () => {
+    expect(paymentReference('pay_1', 'Paid online via Stripe')).toBe('Paid online via Stripe · T2:pay_1')
+    expect(paymentReference('pay_1', null)).toBe('Track2 payment T2:pay_1')
+    const long = paymentReference('pay_1', 'x'.repeat(400))
+    expect(long.length).toBeLessThanOrEqual(255)
+    expect(long).toContain('T2:pay_1')
+  })
+  it('majorToCents rounds Xero floats', () => {
+    expect(majorToCents(1649.5)).toBe(164950)
+    expect(majorToCents(0.1 + 0.2)).toBe(30)
   })
 })

@@ -126,8 +126,10 @@ export async function POST(request: Request, { params }: { params: { accountId: 
   // Email the client a receipt (best-effort).
   const receiptSummary = await sendReceipt(accountId, invoice.id, p.amountReceivedCents, p.method, new Date()).catch(() => null)
   if (receiptSummary) await writeAudit({ accountId, actorUserId: null, entityType: 'invoice', entityId: invoice.id, action: 'update', summary: receiptSummary })
-  // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort).
-  await copyPaymentToXero(accountId, invoice.id).catch(() => {})
+  // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort). The payment is
+  // already recorded: a short budget keeps the ack fast; anything left (or failed) is traced, logged
+  // and picked up by syncPendingXero / "Copy to Xero". Never turns the webhook into a 500.
+  await copyPaymentToXero(accountId, invoice.id, { budgetMs: 8_000 }).catch(() => {})
 
   return Response.json({ received: true })
 }
