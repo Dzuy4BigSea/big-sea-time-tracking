@@ -47,10 +47,10 @@ export function filterPeople<T extends TeammateOption>(people: readonly T[], que
  * The /timesheet URL for `userId`, keeping every other current param (week, …). Picking yourself
  * drops `?user=` so the URL is the plain own-timesheet one.
  */
-export function timesheetHrefFor(currentParams: string | URLSearchParams, userId: string, selfId: string): string {
+export function timesheetHrefFor(currentParams: string | URLSearchParams, userId: string, selfId: string, basePath = '/timesheet'): string {
   const params = new URLSearchParams(currentParams)
   if (!userId || userId === selfId) params.delete('user')
   else params.set('user', userId)
   const qs = params.toString()
-  return qs ? `/timesheet?${qs}` : '/timesheet'
+  return qs ? `${basePath}?${qs}` : basePath
 }

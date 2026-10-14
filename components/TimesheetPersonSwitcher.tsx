@@ -16,12 +16,15 @@ export function TimesheetPersonSwitcher({
   selectedId,
   selfId,
   query,
+  basePath = '/timesheet',
 }: {
   people: TeammateOption[]
   selectedId: string
   selfId: string
   /** The view/date/week on screen (without `user`), so switching person keeps it. */
   query: string
+  /** Page the switcher navigates on: /timesheet, or /expenses for the Expenses Teammates button. */
+  basePath?: string
 }) {
   const router = useRouter()
   const uid = useId()
@@ -53,7 +56,7 @@ export function TimesheetPersonSwitcher({
 
   const choose = (id: string) => {
     close()
-    router.push(timesheetHrefFor(query, id, selfId))
+    router.push(timesheetHrefFor(query, id, selfId, basePath))
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

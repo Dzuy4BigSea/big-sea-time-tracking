@@ -40,6 +40,10 @@ describe('timesheetHrefFor', () => {
   it('keeps the day view and date', () => {
     expect(timesheetHrefFor('view=day&date=2026-10-07', 'u3', 'u1')).toBe('/timesheet?view=day&date=2026-10-07&user=u3')
   })
+  it('targets another page, e.g. the Expenses Teammates button (specs/26 AC-EXP-113)', () => {
+    expect(timesheetHrefFor('', 'u2', 'u1', '/expenses')).toBe('/expenses?user=u2')
+    expect(timesheetHrefFor('user=u2', 'u1', 'u1', '/expenses')).toBe('/expenses')
+  })
 })
 
 describe('groupTeammates', () => {
