@@ -70,6 +70,12 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
 - **Assignments:** `INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs` is now a dry
   run; add `--apply` to write (it overwrites assignment rates and PM flags with Harvest's).
 
+**No local machine? Run the scripts from GitHub.** `.github/workflows/migration-script.yml` is a
+manual-only workflow (Actions → "Migration script (manual)" → Run workflow): pick `rebuild-timesheets`
+or `sync-assignments`, leave **apply** unticked for the dry run, read the log, then run again with
+**apply** ticked. It needs the repository secrets `DATABASE_URL` (Supabase session pooler, port 5432)
+and `INTEGRATION_ENC_KEY` (same as Vercel). It never runs on its own.
+
 ## Step 2 — Import into Track2 (`Settings → Migrate → 3`)
 1. **Preview import (dry run)** — writes nothing; reports created/updated/skipped/errors per entity.
    Review the counts against the table above.
