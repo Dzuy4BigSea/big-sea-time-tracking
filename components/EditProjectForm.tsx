@@ -7,6 +7,7 @@ import { updateProjectAction, type EditProjectState } from '@/app/projects/actio
 import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 import { useProjectBilling } from '@/components/ProjectBillingContext'
 import { useLeavePageGuard } from '@/components/useLeavePageGuard'
+import { ProjectTypeFields } from '@/components/ProjectTypeFields'
 import dynamic from 'next/dynamic'
 
 // The editor (TipTap) loads in its own chunk so the Projects list doesn't ship it up front. Until it
@@ -24,9 +25,9 @@ function Submit() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+      className="rounded bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-green-d disabled:opacity-50"
     >
-      {pending ? 'Saving…' : 'Save'}
+      {pending ? 'Saving…' : 'Update project'}
     </button>
   )
 }
@@ -37,6 +38,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>
       {children}
     </label>
+  )
+}
+
+/** Harvest's label-left form row. */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2 border-t border-gray-100 pt-4 first:border-t-0 first:pt-0 md:grid-cols-[10rem_1fr] md:gap-4">
+      <div className="text-sm font-medium text-gray-700 md:pt-2">{label}</div>
+      <div className="min-w-0">{children}</div>
+    </div>
   )
 }
 
@@ -75,112 +86,85 @@ export function EditProjectForm({ project, entities = [] }: { project: EditableP
   useEffect(() => {
     if (state.ok) setDirty(false)
   }, [state])
-  const initialBudget =
-    project.budgetMethod === 'hours_total' ? 'hours_total' : project.budgetMethod === 'fee_total' ? 'fee_total' : 'none'
-  const [budget, setBudget] = useState(initialBudget)
-
-  const isTM = projectType === 'time_and_materials'
-  const isFixed = projectType === 'fixed_fee'
   const dollars = (c: number | null) => (c ? (c / 100).toString() : '')
+  const budgetMethod = project.budgetMethod === 'hours_total' || project.budgetMethod === 'fee_total' ? project.budgetMethod : 'none'
 
   return (
     <form action={formAction} onChange={() => setDirty(true)} className="space-y-4 rounded-lg border border-gray-200 bg-white p-5">
       <input type="hidden" name="id" value={project.id} />
-      <div className="text-xs text-gray-400">Client: {project.clientName} (fixed)</div>
 
-      <div className="flex flex-wrap gap-3">
-        <Field label="Name">
-          <input name="name" required defaultValue={project.name} className={`${input} w-64`} />
-        </Field>
-        <Field label="Code">
-          <input name="code" defaultValue={project.code ?? ''} className={`${input} w-32`} />
-        </Field>
-        <EntitySelect entities={entities} name="entityId" defaultValue={project.entityId} label="Company" />
-      </div>
+      <Row label="Client">
+        <div className="text-sm text-gray-800 md:pt-2">{project.clientName}</div>
+      </Row>
 
-      <ProjectNotesField initialHtml={project.notesHtml} onChange={() => setDirty(true)} />
+      <Row label="Project">
+        <div className="flex flex-wrap gap-3">
+          <Field label="Name">
+            <input name="name" required defaultValue={project.name} className={`${input} w-64`} />
+          </Field>
+          <Field label="Code">
+            <input name="code" defaultValue={project.code ?? ''} className={`${input} w-32`} />
+          </Field>
+          <EntitySelect entities={entities} name="entityId" defaultValue={project.entityId} label="Company" />
+        </div>
+      </Row>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label="Project type">
-          <select name="projectType" value={projectType} onChange={(e) => setProjectType(e.target.value)} className={input}>
-            <option value="time_and_materials">Time &amp; Materials</option>
-            <option value="fixed_fee">Fixed Fee</option>
-            <option value="non_billable">Non-Billable</option>
-          </select>
-        </Field>
-        {isTM && (
-          <Field label="Billable rate">
-            <select name="billableRateMethod" value={rateMethod} onChange={(e) => setRateMethod(e.target.value)} className={input}>
-              <option value="none">No billable rate</option>
-              <option value="project">Project rate</option>
-              <option value="person">Person rate</option>
-              <option value="task">Task rate</option>
-            </select>
-          </Field>
-        )}
-        {isTM && rateMethod === 'project' && (
-          <Field label="Project rate ($/h)">
-            <input name="projectRate" defaultValue={dollars(project.projectHourlyRateCents)} className={`${input} w-28`} />
-          </Field>
-        )}
-        {isFixed && (
-          <Field label="Project fees ($)">
-            <input name="projectFees" defaultValue={dollars(project.projectFeesCents)} className={`${input} w-32`} />
-          </Field>
-        )}
-      </div>
+      <Row label="Notes">
+        <ProjectNotesField initialHtml={project.notesHtml} onChange={() => setDirty(true)} hideLabel />
+      </Row>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <Field label="Budget">
-          <select name="budgetMethod" value={budget} onChange={(e) => setBudget(e.target.value)} className={input}>
-            <option value="none">No budget</option>
-            <option value="hours_total">Total hours</option>
-            <option value="fee_total">Total fees</option>
-          </select>
-        </Field>
-        {budget === 'hours_total' && (
-          <Field label="Budget hours">
-            <input
-              name="budgetHours"
-              defaultValue={project.budgetValue ? (project.budgetValue / 60).toString() : ''}
-              className={`${input} w-24`}
-            />
-          </Field>
-        )}
-        {budget === 'fee_total' && (
-          <Field label="Budget fees ($)">
-            <input name="budgetFee" defaultValue={dollars(project.budgetValue)} className={`${input} w-28`} />
-          </Field>
-        )}
-        {budget !== 'none' && (
-          <>
-            <Field label="Alert at (%)">
-              <input name="budgetAlertPercent" defaultValue={project.budgetAlertPercent?.toString() ?? ''} className={`${input} w-20`} />
-            </Field>
-            <label className="flex items-center gap-1.5 pb-2 text-sm text-gray-600">
-              <input type="checkbox" name="budgetResetsMonthly" defaultChecked={project.budgetResetsMonthly} /> Resets monthly
-            </label>
-          </>
-        )}
-      </div>
+      <Row label="Project type">
+        <ProjectTypeFields
+          projectType={projectType}
+          setProjectType={setProjectType}
+          rateMethod={rateMethod}
+          setRateMethod={setRateMethod}
+          onChange={() => setDirty(true)}
+          defaults={{
+            projectRate: dollars(project.projectHourlyRateCents),
+            projectFees: dollars(project.projectFeesCents),
+            budgetMethod,
+            budgetHours: budgetMethod === 'hours_total' && project.budgetValue ? (project.budgetValue / 60).toString() : '',
+            budgetFee: budgetMethod === 'fee_total' ? dollars(project.budgetValue) : '',
+            budgetAlertPercent: project.budgetAlertPercent?.toString() ?? '',
+            budgetResetsMonthly: project.budgetResetsMonthly,
+          }}
+        />
+      </Row>
 
-      <div className="flex items-center gap-3">
-        <Submit />
-        <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-teal">
-          Back to project
-        </Link>
-        {state.error && <span className="text-sm text-red-600">{state.error}</span>}
-        {state.ok && <span className="text-sm text-brand-green">Saved ✓</span>}
+      {/* Anchored to the bottom of the viewport (Harvest). Fixed rather than sticky: the Shell's <main>
+          is an overflow container that never scrolls itself, so sticky wouldn't stick. The Tasks and
+          Team cards below save on their own; this saves the fields above. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-gray-200 bg-white/95 backdrop-blur lg:left-[238px]">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-8">
+          <Submit />
+          <Link
+            href={`/projects/${project.id}`}
+            className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </Link>
+          {state.error && <span className="text-sm text-red-600">{state.error}</span>}
+          {state.ok && !dirty && <span className="text-sm text-brand-green">Saved ✓</span>}
+        </div>
       </div>
     </form>
   )
 }
 
 /** Notes (Harvest's "Notes" on Edit project), rich text. Shared with the New project form. */
-export function ProjectNotesField({ initialHtml, onChange }: { initialHtml: string; onChange?: () => void }) {
+export function ProjectNotesField({
+  initialHtml,
+  onChange,
+  hideLabel,
+}: {
+  initialHtml: string
+  onChange?: () => void
+  hideLabel?: boolean
+}) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs uppercase tracking-wide text-gray-400">Notes</span>
+      {!hideLabel && <span className="text-xs uppercase tracking-wide text-gray-400">Notes</span>}
       <RichTextEditor name="notes" initialHtml={initialHtml} onChange={onChange} label="Project notes" />
       <span className="text-xs text-gray-500">
         Optional. Notes are great for anything you need to reference later, like invoice schedules, which you can see when

@@ -190,7 +190,7 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
 
 // ── Project team assignments (assign people so they can track time) ──────────
 
-/** Team edits are made on the Edit page and shown on the detail page's Team tab. */
+/** Team and task edits are made on the Edit page and shown on the detail page's tabs. */
 function revalidateProjectTeam(projectId: string) {
   revalidatePath(`/projects/${projectId}`)
   revalidatePath(`/projects/${projectId}/edit`)
@@ -305,7 +305,7 @@ export async function addTaskToProjectAction(formData: FormData): Promise<void> 
     update: { isActive: true },
     create: { accountId: actor.accountId, projectId, taskId, billable: task.defaultBillable, isActive: true },
   })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function removeTaskFromProjectAction(formData: FormData): Promise<void> {
@@ -314,7 +314,7 @@ export async function removeTaskFromProjectAction(formData: FormData): Promise<v
   const actor = await requireProjectManager(projectId)
   if (!actor) return
   await prisma.projectTaskAssignment.deleteMany({ where: { projectId, taskId, accountId: actor.accountId } })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function toggleProjectTaskBillableAction(formData: FormData): Promise<void> {
@@ -325,7 +325,7 @@ export async function toggleProjectTaskBillableAction(formData: FormData): Promi
   const a = await prisma.projectTaskAssignment.findUnique({ where: { projectId_taskId: { projectId, taskId } }, select: { billable: true } })
   if (!a) return
   await prisma.projectTaskAssignment.update({ where: { projectId_taskId: { projectId, taskId } }, data: { billable: !a.billable } })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
 
 export async function setProjectTaskRateAction(formData: FormData): Promise<void> {
@@ -337,5 +337,5 @@ export async function setProjectTaskRateAction(formData: FormData): Promise<void
     where: { projectId, taskId, accountId: actor.accountId },
     data: { hourlyRateCents: centsFrom(formData.get('rate')) },
   })
-  revalidatePath(`/projects/${projectId}`)
+  revalidateProjectTeam(projectId)
 }
