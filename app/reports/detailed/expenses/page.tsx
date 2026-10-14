@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/session'
 import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { formatCents } from '@/lib/format'
+import { safeHttpUrl } from '@/modules/shared/safeUrl'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { buildHref } from '@/modules/shared/timeframe'
 import { parseDetailed, detailedQuery, detailedTimeframe, rangeOptions, type DetailedParams } from '@/modules/reports/detailed'
@@ -166,6 +167,12 @@ function ExpenseRow({ r, showDate }: { r: DetailedExpenseRow; showDate: boolean 
         <Link href={`/team/${r.userId}`} className="hover:text-brand-teal">{r.userName}</Link>
       </td>
       <td className="px-4 py-2.5 text-right tabular-nums text-gray-900">
+        {/* Harvest: a paper clip next to the amount opens the attached receipt. */}
+        {safeHttpUrl(r.receiptFileUrl) && (
+          <a href={safeHttpUrl(r.receiptFileUrl)!} target="_blank" rel="noopener noreferrer" className="mr-1.5 text-gray-500 hover:text-brand-teal" title="View receipt">
+            📎<span className="sr-only">View receipt</span>
+          </a>
+        )}
         {formatCents(r.totalCents)}
         {!r.isBillable && <div className="text-[11px] text-gray-400">Non-billable</div>}
         {r.invoiced && <div className="text-[11px] text-gray-400">Invoiced</div>}
