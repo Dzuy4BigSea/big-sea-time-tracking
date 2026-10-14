@@ -366,17 +366,20 @@ export default async function TeamMemberPage({
 
               {/* Add a project */}
               {!person.assignedToAllProjects && projectsData.addable.length > 0 && (
-                <form action={assignProjectToPersonAction} className="flex items-end gap-2">
+                <form action={assignProjectToPersonAction} className="flex flex-wrap items-start gap-2">
                   <input type="hidden" name="id" value={person.id} />
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Add a project</span>
-                    <select name="projectId" className="min-w-72 rounded border border-gray-300 px-2 py-1.5 text-sm">
-                      {projectsData.addable.map((p) => (
-                        <option key={p.id} value={p.id}>{p.client.name} · {p.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add</button>
+                  {/* Harvest: "Find and select projects to assign" type-ahead, grouped by client, then "Assign projects". */}
+                  <div className="min-w-72 flex-1">
+                    <MultiCombobox
+                      key={projectsData.addable.length}
+                      name="projectIds"
+                      options={projectsData.addable.map((p) => ({ value: p.id, label: p.name, group: p.client.name }))}
+                      placeholder="Find and select projects to assign…"
+                      emptyText="No matching active projects"
+                      aria-label="Projects to assign"
+                    />
+                  </div>
+                  <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Assign projects</button>
                 </form>
               )}
             </div>

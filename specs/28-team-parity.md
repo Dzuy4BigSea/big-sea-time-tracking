@@ -81,7 +81,8 @@ Profile sections (left menu): **Basic info, Rates, Assigned projects, Assigned p
 - **AC-TEAM-020** Given the profile, then the left menu lists Basic info, Rates, Assigned projects, Assigned people, Permissions, Security (Notifications on your own profile only — gap).
 - **AC-TEAM-021** Given Basic info, then it has Employee ID, Roles (admin-only, tag input), Timezone (defaults to the account's), alongside name, type, capacity.
 - **AC-TEAM-022** Given Assigned projects, then Active / Archived / All pills default to Active (BugHerd #19), "Assign to all projects" + Disable exist, and a Manages column toggles PM status.
-- **AC-TEAM-023** (gap) Given Assigned projects, then adding is a type-ahead multi-select ("Find and select projects to assign…") with an "Assign projects" button, and ticking Manages for a Member asks to raise them to Manager.
+- **AC-TEAM-023** Given Assigned projects, then adding is a type-ahead multi-select ("Find and select projects to assign…", grouped by client, active projects only) with an "Assign projects" button.
+- **AC-TEAM-025** (gap) Given Assigned projects, then an "All" link under Manages marks every assignment as managed, and ticking Manages for a Member asks to raise them to Manager.
 - **AC-TEAM-024** Given Rates, then billable and cost rate histories with effective dates show; cost rates only to `view_cost_rates`; adding requires `set_rates`.
 
 ### Assigned people (BugHerd #20; see §3)
@@ -154,7 +155,8 @@ Built now (safe default only): the Team overview defaults a Project Manager with
 | Basic info: Employee ID, Roles, Timezone | PP | columns existed (`employeeId`, `roleTags`, `timezone`) but weren't editable → editable on Basic info | `components/PersonBasicForm.tsx`, `updatePersonBasicAction`, `modules/team/personBasic.ts` | P1 | **Built** (roles as comma-separated text; Harvest uses a tag picker, UNVERIFIED layout) |
 | Delete person (no time/expenses) | ADR | none | `app/team/actions.ts` | P2 | Open (needs a cascade review: many relations) |
 | Person page (week by day/project/task + timesheet) | PPg | name links to the profile; no person page | new `app/team/[id]/overview` | P2 | Open |
-| Assigned projects type-ahead multi-select; "Manages" All link; Member→Manager confirm | PP, MULTI | single select + Add; per-row toggle | `app/team/[id]/page.tsx` | P2 | Open |
+| Assigned projects type-ahead multi-select | PP, MULTI | single select + Add → "Find and select projects to assign…" multi-select grouped by client + "Assign projects" | `app/team/[id]/page.tsx`, `assignProjectToPersonAction` | P2 | **Built** |
+| "Manages this project" All link; Member→Manager confirm when ticking Manages | PP, MULTI | per-row toggle only; no profile raise | `app/team/[id]/page.tsx`, `toggleManagesProjectAction` | P2 | Open (changes access: review with phase 2) |
 | Invite flow (email invite, Resend invitation, Reset password) | ADD, PP | admin sets an initial password | `components/NewPersonForm.tsx`, Security tab | P2 | Open (needs email) |
 | Notifications tab (own profile) | PP | none | — | P3 | Open |
 | Photo / avatar | PP | initials only | — | P3 | Open |

@@ -194,15 +194,24 @@ export async function assignProjectToPersonAction(formData: FormData): Promise<v
   const actor = await teamAdmin()
   if (!actor) return
   const id = String(formData.get('id') ?? '')
-  const projectId = String(formData.get('projectId') ?? '')
-  const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
-  const user = await prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } })
-  if (!project || !user) return
-  await prisma.projectUserAssignment.upsert({
-    where: { projectId_userId: { projectId, userId: id } },
-    create: { accountId: actor.accountId, projectId, userId: id, isActive: true },
-    update: { isActive: true },
-  })
+  // One `projectId`, or Harvest's "Find and select projects to assign" multi-select (`projectIds`, comma-joined).
+  const requested = [...formData.getAll('projectId'), ...formData.getAll('projectIds')]
+    .flatMap((v) => String(v).split(','))
+    .map((v) => v.trim())
+    .filter(Boolean)
+  if (requested.length === 0) return
+  const [projects, user] = await Promise.all([
+    prisma.project.findMany({ where: { id: { in: [...new Set(requested)] }, accountId: actor.accountId }, select: { id: true } }),
+    prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } }),
+  ])
+  if (!user) return
+  for (const { id: projectId } of projects) {
+    await prisma.projectUserAssignment.upsert({
+      where: { projectId_userId: { projectId, userId: id } },
+      create: { accountId: actor.accountId, projectId, userId: id, isActive: true },
+      update: { isActive: true },
+    })
+  }
   revalidatePath(`/team/${id}`)
 }
 
