@@ -3,7 +3,8 @@ name: Migration script (manual)
 # Runs one Harvest → Track2 migration script against production, on demand only (no schedule, no
 # push trigger). Dry run unless "apply" is ticked. See MIGRATION-RUNBOOK.md (time entries + roster).
 # Needs repository secrets DATABASE_URL (Supabase session pooler, port 5432) and INTEGRATION_ENC_KEY
-# (same value as Vercel; only sync-assignments uses it, to read the stored Harvest token).
+# (same value as Vercel; sync-assignments and parity-check use it to read the stored Harvest token).
+# parity-check is read-only on both Harvest and Track2; the apply box does nothing for it.
 
 on:
   workflow_dispatch:
@@ -14,6 +15,7 @@ on:
         options:
           - rebuild-timesheets
           - sync-assignments
+          - parity-check
         default: rebuild-timesheets
       apply:
         description: Write changes (unticked = dry run)
@@ -41,7 +43,7 @@ jobs:
       - name: Check secrets
         run: |
           test -n "$DATABASE_URL" || { echo "::error::Add the DATABASE_URL repository secret"; exit 1; }
-          if [ "${{ inputs.script }}" = "sync-assignments" ]; then
+          if [ "${{ inputs.script }}" != "rebuild-timesheets" ]; then
             test -n "$INTEGRATION_ENC_KEY" || { echo "::error::Add the INTEGRATION_ENC_KEY repository secret"; exit 1; }
           fi
 

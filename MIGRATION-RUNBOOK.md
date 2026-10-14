@@ -72,7 +72,8 @@ node --env-file=.env scripts/backup-harvest-offline.mjs --incremental --since=20
 
 **No local machine? Run the scripts from GitHub.** `.github/workflows/migration-script.yml` is a
 manual-only workflow (Actions → "Migration script (manual)" → Run workflow): pick `rebuild-timesheets`
-or `sync-assignments`, leave **apply** unticked for the dry run, read the log, then run again with
+or `sync-assignments` (or `parity-check`: a read-only Harvest ↔ Track2 comparison of every entity, invoice
+totals/due/state and time per year, listing each mismatch), leave **apply** unticked for the dry run, read the log, then run again with
 **apply** ticked. It needs the repository secrets `DATABASE_URL` (Supabase session pooler, port 5432)
 and `INTEGRATION_ENC_KEY` (same as Vercel). It never runs on its own.
 
