@@ -104,14 +104,19 @@ export function LiveSelect({
   param,
   options,
   className = '',
+  resetParams,
+  ariaLabel,
 }: {
   param: string
   options: { value: string; label: string }[]
   className?: string
+  /** Other params dropped whenever the value changes (e.g. "page"). */
+  resetParams?: string[]
+  ariaLabel?: string
 }) {
-  const { current, set } = useSetParam(param)
+  const { current, set } = useSetParam(param, resetParams)
   return (
-    <select value={current} onChange={(e) => set(e.target.value)} className={className}>
+    <select value={current} onChange={(e) => set(e.target.value)} className={className} aria-label={ariaLabel}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
