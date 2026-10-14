@@ -181,6 +181,21 @@ export async function writeOffInvoice(prisma: PrismaClient, invoiceId: string) {
   return prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'written_off' } })
 }
 
+/** written_off → open (Harvest "Re-open Invoice", specs/27 AC-STAT-007). Entries stay locked. */
+export async function reopenInvoice(prisma: PrismaClient, invoiceId: string) {
+  const inv = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: { status: true, totalCents: true, paidCents: true, number: true, sentAt: true, _count: { select: { lineItems: true } } },
+  })
+  const result = applyInvoiceAction(
+    { status: inv.status as StoredStatus, totalCents: inv.totalCents, paidCents: inv.paidCents, lineItemCount: inv._count.lineItems, sentAt: inv.sentAt, number: inv.number },
+    'reopen',
+  )
+  // Guard against a concurrent change: only flip a row that is still written off.
+  const { count } = await prisma.invoice.updateMany({ where: { id: invoiceId, status: 'written_off' }, data: { status: result.status } })
+  if (count === 0) throw new InvalidTransitionError(inv.status as StoredStatus, 'reopen', 'the invoice changed — reload and try again')
+}
+
 export async function markInvoiceDraft(prisma: PrismaClient, invoiceId: string) {
   const inv = await prisma.invoice.findUniqueOrThrow({
     where: { id: invoiceId },

@@ -97,12 +97,13 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
       break
   }
 
-  // open: Sent, or Late once past due with a balance (Harvest has no separate "partial" status)
+  // open: Sent, or Late once past due (Harvest has no separate "partial" status, and shows Late
+  // even for a $0 balance — specs/27 AC-STAT-002). Same rule as displayBadge/isPastDue.
   const partial = v.paidCents > 0 && balanceCents > 0
   const dueText = `${money(balanceCents)} due`
   const paidText = partial ? ` · ${money(v.paidCents)} of ${money(v.totalCents)} paid` : ''
 
-  if (v.dueDate && balanceCents > 0) {
+  if (v.dueDate) {
     const daysUntil = calendarDaysBetween(today, v.dueDate)
     if (daysUntil < 0) {
       const daysOverdue = -daysUntil

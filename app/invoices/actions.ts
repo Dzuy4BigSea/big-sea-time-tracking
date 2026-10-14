@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { recordPayment, deletePayment } from '@/modules/invoicing/recordPayment'
 import { generateInvoice, GenerateInvoiceError } from '@/modules/invoicing/generateInvoice'
 import { transitionErrorMessage, InvalidTransitionError } from '@/modules/invoicing/invoiceState'
-import { sendInvoice, markInvoiceDraft, deleteInvoice, writeOffInvoice } from '@/modules/invoicing/invoiceLifecycle'
+import { sendInvoice, markInvoiceDraft, deleteInvoice, writeOffInvoice, reopenInvoice } from '@/modules/invoicing/invoiceLifecycle'
 import { Prisma } from '@prisma/client'
 import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xeroSync'
 import { parseYmd } from '@/lib/week'
@@ -266,6 +266,24 @@ export async function writeOffInvoiceAction(formData: FormData): Promise<void> {
   }
   if (error) failTo(`/invoices/${invoiceId}`, error)
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice written off' })
+  revalidatePath(`/invoices/${invoiceId}`)
+  revalidatePath('/invoices')
+}
+
+export async function reopenInvoiceAction(formData: FormData): Promise<void> {
+  const invoiceId = String(formData.get('invoiceId') ?? '')
+  const actor = await requireInvoiceManager()
+  if (!actor) failTo(`/invoices/${invoiceId}`, NOT_PERMITTED)
+  const { accountId, userId } = actor
+  if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
+  let error: string | null = null
+  try {
+    await reopenInvoice(prisma, invoiceId)
+  } catch (e) {
+    error = transitionErrorMessage(e, 'Could not re-open the invoice.')
+  }
+  if (error) failTo(`/invoices/${invoiceId}`, error)
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice re-opened' })
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
 }

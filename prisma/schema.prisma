@@ -889,6 +889,9 @@ model RecurringInvoiceProfile {
   // "Number of invoices to issue" (BugHerd #13): null = recur indefinitely; decremented per
   // generated invoice; at 0 the profile pauses and reads as Completed.
   remainingOccurrences Int?
+  // Day of month the schedule is anchored to (specs/27 AC-REC-102): month-based schedules issue on
+  // min(anchorDay, last day of month). null = legacy row, advances from nextIssueDate's own day.
+  anchorDay            Int?
   amountCents          Int                @default(0)
   paymentTerm          PaymentTerm        @default(net_30)
   notes                String?
