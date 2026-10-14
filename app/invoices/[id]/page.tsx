@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { displayBadge, isPastDue, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { todayIn } from '@/lib/tz'
-import { deriveStatusBanner, type BannerTone } from '@/modules/invoicing/statusBanner'
+import { deriveStatusBanner } from '@/modules/invoicing/statusBanner'
+import { InvoiceStamp } from '@/components/InvoiceStamp'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
@@ -99,16 +100,9 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
         <div className="ml-auto text-right">
           <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
           <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
+          {/* The status itself is the stamp on the invoice below (BugHerd #14, Harvest-style); this keeps the key fact. */}
+          <div role="status" className="mt-0.5 text-xs text-gray-500">{banner.detail}</div>
         </div>
-      </div>
-
-      {/* Status banner (BugHerd #14): big, color-coded, front and center */}
-      <div
-        role="status"
-        className={`mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg border-l-4 px-5 py-4 ${BANNER_STYLES[banner.tone]}`}
-      >
-        <div className="text-xl font-semibold">{banner.headline}</div>
-        <div className="text-sm opacity-90">{banner.detail}</div>
       </div>
 
       {searchParams?.error && (
@@ -215,7 +209,11 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       </div>
 
       {/* Rendered invoice document */}
-      <div className="rounded-lg border border-gray-200 bg-white p-8">
+      <div className="relative rounded-lg border border-gray-200 bg-white p-8">
+        {/* Harvest-style status stamp over the document */}
+        <div className="absolute left-1/2 top-8 -translate-x-1/2">
+          <InvoiceStamp kind={banner.kind} title={`${banner.headline} · ${banner.detail}`} />
+        </div>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             {appearance.logoFileUrl && (
@@ -351,16 +349,6 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       )}
     </div>
   )
-}
-
-/** Harvest status colors (AC-UI-003): gray Draft, blue Sent, red Late, green Paid; muted for written off / closed. */
-const BANNER_STYLES: Record<BannerTone, string> = {
-  neutral: 'border-gray-400 bg-gray-100 text-gray-800',
-  info: 'border-blue-500 bg-blue-50 text-blue-800',
-  warning: 'border-amber-500 bg-amber-50 text-amber-800',
-  danger: 'border-red-500 bg-red-50 text-red-800',
-  success: 'border-brand-green bg-green-50 text-green-800',
-  muted: 'border-gray-300 bg-gray-50 text-gray-600',
 }
 
 function MenuForm({
