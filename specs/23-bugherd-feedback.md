@@ -157,3 +157,5 @@ worked from the card text and pinned elements.
 Still waiting on Chasity: #5, #7, #12.
 
 Replies posted 2026-10-13: #20 (comment 18372332), #15 (18372333), #4 (18372334), #10 (18372336).
+
+Deployed 2026-10-14 (PR #7): #15, #25, #26 commented and moved to DONE (comments 18372689–18372691). #4/#10 go live once the Google OAuth client is configured.
