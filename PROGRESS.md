@@ -6,6 +6,8 @@ _Last updated: 2026-10-13._
 
 ## ▶ Resume here (next session)
 
+**Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
+
 ### 🌙 Unattended run 2026-10-13/14: Harvest screens 7–12, BugHerd round 2, MCP server (PR #7, **deployed 2026-10-14**)
 All on branch `claude/pensive-davinci-vmc0bo` → draft PR #7. Verified on a seeded local Postgres (698 unit + 12 integration tests, tsc, build, browser/curl checks, live MCP calls). **Deployed 2026-10-14.** The seven pending migrations (incl. the PR #5 hot-path indexes) were applied in the Supabase SQL editor with RLS enabled on the new tables, and recorded in `_prisma_migrations`: `20261014090000_google_drive_grant`, `20261014120000_api_tokens`, `20261014120000_expense_list_indexes`, `20261014120000_manager_assignments`, `20261014120000_recurring_anchor_day`, `20261014180000_mcp_oauth`.
 - **Specs:** [26 expenses](specs/26-expenses-parity.md), [27 recurring + statuses](specs/27-recurring-and-statuses-parity.md), [28 team](specs/28-team-parity.md), [22 MCP](specs/22-mcp-server.md). Built from Harvest's help center + read-only Harvest data (the web UI isn't reachable from the cloud). 26 details are marked **UNVERIFIED**; Chasity can settle them fastest by running capture items 7–12 ([spec 24](specs/24-harvest-ui-capture.md)) in a signed-in browser.

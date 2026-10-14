@@ -5,6 +5,7 @@ https://track2.bigseabridge.com (Vercel project `big-sea-time-tracking`, Supabas
 holds the full migrated Harvest history (~388k time entries, ~7.8k invoices).
 
 ## Read first
+- [OPEN-ITEMS.md](OPEN-ITEMS.md): everything still open (settings, decisions, cutover, phase 2). Check items off as they're done.
 - [PROGRESS.md](PROGRESS.md): current state, the "Resume here" section, and open work. Update it when you finish something.
 - [specs/findings.md](specs/findings.md): ground truth from the live Harvest account. It overrides older spec text.
 - `specs/NN-*.md`: one spec per domain, with Given/When/Then `AC-###` criteria. A behavior change starts as a spec edit.
