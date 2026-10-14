@@ -6,6 +6,13 @@ _Last updated: 2026-10-13._
 
 ## ▶ Resume here (next session)
 
+### 🌙 Unattended run 2026-10-13/14: Harvest screens 7–12, BugHerd round 2, MCP server (PR #7, not deployed)
+All on branch `claude/pensive-davinci-vmc0bo` → draft PR #7. Verified on a seeded local Postgres (698 unit + 12 integration tests, tsc, build, browser/curl checks, live MCP calls). **Not deployed; needs Dzuy's go-ahead and the five new migrations applied first** (all idempotent): `20261014090000_google_drive_grant`, `20261014120000_api_tokens`, `20261014120000_expense_list_indexes`, `20261014120000_manager_assignments`, `20261014120000_recurring_anchor_day`.
+- **Specs:** [26 expenses](specs/26-expenses-parity.md), [27 recurring + statuses](specs/27-recurring-and-statuses-parity.md), [28 team](specs/28-team-parity.md), [22 MCP](specs/22-mcp-server.md). Built from Harvest's help center + read-only Harvest data (the web UI isn't reachable from the cloud). 26 details are marked **UNVERIFIED**; Chasity can settle them fastest by running capture items 7–12 ([spec 24](specs/24-harvest-ui-capture.md)) in a signed-in browser.
+- **BugHerd round 2** ([spec 23](specs/23-bugherd-feedback.md)): #15, #25, #26 built; #4/#10 Drive export built (live once the Google OAuth client exists + Drive API/scope added, OPS.md §8). Move those cards to DONE after deploy.
+- **Behavior changes to know:** members now see only their own expenses (was account-wide: a leak); invoice Open tab counts drafts; recurring monthly 29th–31st no longer drift; managers with assigned people default to "My assigned people" on Team (Everyone one click away). Assigned people grant **no** extra access yet (phase 2, spec 28 §3.3).
+- **MCP server:** personal access tokens at `/settings/tokens`; endpoint `/api/mcp` with 34 Harvest-named tools; Claude Code: `claude mcp add --transport http track2 https://track2.bigseabridge.com/api/mcp --header "Authorization: Bearer track2_pat_…"`. OAuth for claude.ai connectors in progress.
+
 ### 🚦 Go-live hardening (2026-10-13)
 A CTO-level audit (data safety, security, performance, invoicing) found go-live blockers. **All code fixes, Harvest-style fixed fee and Google sign-in are merged and live in production (PR #5, 2026-10-13)**; production check after deploy: new build serving from `iad1`, DB 70ms warm, signed-out pages redirect to /login, security headers present. Verified before merge: 510 unit tests (UTC and America/New_York), tsc, next build, invoicing integration tests on a throwaway Postgres, and a browser click-through (login, double-click Start, Stop, member nav) on a seeded local DB. Not yet run against production data.
 
