@@ -126,7 +126,7 @@ export type BackupProgress = {
  */
 async function executeBackupBatch(
   actor: { accountId: string; userId: string },
-  opts: { resumeId?: string; mode?: string },
+  opts: { resumeId?: string; mode?: string; since?: string },
 ): Promise<BackupProgress> {
   const conn = await getConnectionWithSecrets(actor.accountId, 'harvest')
   const token = conn?.secrets.accessToken
@@ -150,6 +150,12 @@ async function executeBackupBatch(
         select: { status: true, mode: true, createdAt: true, meta: true },
       })
       updatedSince = resolveDeltaSince(conn.config.lastPulledAt as string | undefined, finished) ?? undefined
+      // "Changes since <date>": re-pull everything Harvest changed after a chosen day (e.g. the original
+      // import), so changes from earlier deltas that were never imported land in one newest-state snapshot.
+      if (updatedSince && opts.since && /^\d{4}-\d{2}-\d{2}$/.test(opts.since)) {
+        const chosen = new Date(`${opts.since}T00:00:00.000Z`)
+        if (!Number.isNaN(chosen.getTime()) && chosen.getTime() < Date.now()) updatedSince = chosen.toISOString()
+      }
     }
     if (mode === 'incremental' && !updatedSince) {
       return { ok: false, message: 'No previous clean pull to delta from — run a full backup first.' }
@@ -269,11 +275,11 @@ export async function createBackupSnapshotAction(formData: FormData): Promise<vo
 }
 
 /** Client-driven batch: runs one batch and returns progress so the runner can auto-continue. */
-export async function backupBatchAction(input: { snapshotId?: string; mode?: string }): Promise<BackupProgress> {
+export async function backupBatchAction(input: { snapshotId?: string; mode?: string; since?: string }): Promise<BackupProgress> {
   const actor = await requireMigrateAdmin()
   if (!actor) return { ok: false, message: 'You do not have permission to run a migration.' }
   if (isMigrationLocked()) return { ok: false, message: MIGRATION_LOCKED_MESSAGE }
-  return executeBackupBatch(actor, { resumeId: input.snapshotId, mode: input.mode })
+  return executeBackupBatch(actor, { resumeId: input.snapshotId, mode: input.mode, since: input.since })
 }
 
 /**
