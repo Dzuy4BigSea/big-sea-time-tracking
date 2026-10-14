@@ -210,3 +210,25 @@ Sources: [Invoices overview](https://support.getharvest.com/hc/en-us/articles/12
 | G18 | Project filter + sortable Status/Balance columns, per-currency totals on the invoice list | Present | Missing | P3 | Open |
 | G19 | Reminder line on invoice ("Email client a reminder once invoice is…") + per-template Reminder checkbox | Present | "Send payment reminder" menu item only | P3 | Open |
 | G20 | Delete confirm by typing DELETE | Present | Confirm dialog | P3 | Open |
+
+## Build notes (2026-10-14)
+
+- **Migration:** `prisma/migrations/20261014120000_recurring_anchor_day` adds nullable
+  `RecurringInvoiceProfile.anchorDay` (`ADD COLUMN IF NOT EXISTS`). Run `prisma migrate deploy`
+  before deploying. Existing rows keep `anchorDay = null` and advance from their stored day until
+  someone edits and saves them.
+- **Statuses:** `isPastDue` in `modules/invoicing/invoiceState.ts` is the one Late rule. The list
+  (`app/invoices/page.tsx`) and the invoice page pass the account's calendar day. The client link
+  (`app/i/[token]`) and the project Invoices tab still pass the server's `new Date()`. They now use
+  the same calendar-day comparison, but in UTC, so they can disagree with the list for a few
+  evening hours (ET). Left alone because the project page was out of scope.
+- **Filters:** `modules/invoicing/statusFilter.ts`. The invoice list's filters apply on change
+  (`LiveSelect` / `LiveSearchInput`), and the Apply button is gone.
+- **Re-open:** `reopen` action (written_off → open) in the guarded state machine,
+  `reopenInvoice` in `invoiceLifecycle.ts`, "Re-open invoice" in the invoice Actions menu,
+  audit-logged.
+- **Recurring:** `/recurring/new` and `/recurring/[id]/edit` (`components/RecurringTemplateForm.tsx`)
+  replace the inline "New recurring profile" form. "Create recurring" on an invoice now opens the new
+  template's edit page, starting one month after today.
+- **Not verified in a browser:** no throwaway database was available in this session. Click through
+  on a preview deploy.
