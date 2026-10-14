@@ -50,7 +50,7 @@ export function emailChip(events: TraceEventLike[]): SummaryChip {
   const outcome = latest(events, (e) => EMAIL_OUTCOMES.has(e.stage))
   if (outcome?.stage === 'email.delivered') return { ...base, value: 'Delivered', tone: 'ok', at: outcome.occurredAt }
   if (outcome) return { ...base, value: outcome.stage === 'email.dropped' ? 'Bounced (dropped)' : 'Bounced', tone: 'error', at: outcome.occurredAt }
-  const sendFailed = latest(events, (e) => (e.stage === 'email.failed' || e.stage === 'email.send_failed') || (e.stage.startsWith('email.') && e.level === 'error'))
+  const sendFailed = latest(events, (e) => (e.stage === 'email.rejected' || e.stage === 'email.failed' || e.stage === 'email.send_failed') || (e.stage.startsWith('email.') && e.level === 'error'))
   if (sendFailed) return { ...base, value: 'Send failed', tone: 'error', at: sendFailed.occurredAt }
   const sent = latest(events, (e) => e.stage === 'invoice.sent' || e.stage === 'email.accepted' || e.stage === 'email.sent')
   if (sent) return { ...base, value: 'Not yet delivered', tone: 'warn', at: sent.occurredAt }

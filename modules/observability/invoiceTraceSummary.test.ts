@@ -35,6 +35,9 @@ describe('emailChip', () => {
   it('send error with no outcome → Send failed', () => {
     expect(emailChip([ev('invoice.sent', 0), ev('email.accepted', 1, { level: 'error' })]).value).toBe('Send failed')
   })
+  it('a skipped send (email.rejected at warn, e.g. no recipient) still shows Send failed', () => {
+    expect(emailChip([ev('invoice.sent', 0), ev('email.rejected', 1, { level: 'warn' })]).value).toBe('Send failed')
+  })
 })
 
 describe('openedChip', () => {
