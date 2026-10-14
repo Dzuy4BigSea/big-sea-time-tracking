@@ -30,7 +30,12 @@ import {
   assignProjectToPersonAction,
   unassignProjectFromPersonAction,
   toggleManagesProjectAction,
+  assignPeopleToManagerAction,
+  removeAssignedPersonAction,
 } from '@/app/team/actions'
+import { MultiCombobox } from '@/components/MultiCombobox'
+import { assignableToManager, canHoldAssignedPeople } from '@/modules/team/teamOverview'
+import { timezoneOptions } from '@/modules/team/personBasic'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,6 +89,7 @@ export default async function TeamMemberPage({
       select: {
         id: true, firstName: true, lastName: true, email: true, type: true,
         capacityHoursPerWeek: true, homeEntityId: true, isActive: true, assignedToAllProjects: true,
+        employeeId: true, roleTags: true, timezone: true,
         permissionProfile: true, permissionOverrides: true,
         homeEntity: { select: { code: true, name: true } },
       },
@@ -164,6 +170,43 @@ export default async function TeamMemberPage({
         })()
       : null
 
+  // Harvest "Assigned people": who this manager oversees, and which managers oversee this person.
+  const canAssignPeople = can(actor, 'edit_account_settings')
+  const holdsAssigned = canHoldAssignedPeople(person.permissionProfile)
+  const assignedData =
+    tab === 'people'
+      ? await Promise.all([
+          prisma.managerAssignment.findMany({
+            where: { accountId, managerId: person.id },
+            select: { user: { select: { id: true, firstName: true, lastName: true, isActive: true, type: true } } },
+          }),
+          prisma.managerAssignment.findMany({
+            where: { accountId, userId: person.id },
+            select: { manager: { select: { id: true, firstName: true, lastName: true } } },
+          }),
+          canAssignPeople && holdsAssigned
+            ? prisma.user.findMany({
+                where: { accountId, isActive: true, archivedAt: null },
+                select: { id: true, firstName: true, lastName: true, isActive: true, type: true },
+                orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+              })
+            : Promise.resolve([]),
+        ]).then(([mine, managers, everyone]) => {
+          const toLite = (u: { id: string; firstName: string; lastName: string; isActive: boolean; type: 'employee' | 'contractor' }) => ({
+            id: u.id, name: `${u.firstName} ${u.lastName}`.trim(), isActive: u.isActive, type: u.type,
+          })
+          const assigned = mine.map((m) => toLite(m.user)).sort((a, b) => a.name.localeCompare(b.name))
+          const assignedSet = new Set(assigned.map((a) => a.id))
+          return {
+            assigned,
+            managers: managers.map((m) => ({ id: m.manager.id, name: `${m.manager.firstName} ${m.manager.lastName}`.trim() })),
+            options: assignableToManager(everyone.map(toLite), person.id, assignedSet).map((p) => ({
+              value: p.id, label: p.name, group: p.type === 'contractor' ? 'Contractors' : 'Employees',
+            })),
+          }
+        })
+      : null
+
   return (
     <div>
       <Link href="/team" className="text-sm text-gray-500 hover:text-brand-teal">← Back to Team</Link>
@@ -207,8 +250,11 @@ export default async function TeamMemberPage({
                 id: person.id, firstName: person.firstName, lastName: person.lastName, email: person.email,
                 type: person.type, capacityHoursPerWeek: person.capacityHoursPerWeek ? Number(person.capacityHoursPerWeek) : null,
                 homeEntityId: person.homeEntityId,
+                employeeId: person.employeeId, roleTags: person.roleTags, timezone: person.timezone,
               }}
               entities={entityOpts}
+              timezones={timezoneOptions()}
+              accountTimezone={clock.timezone}
             />
           )}
 
@@ -320,18 +366,86 @@ export default async function TeamMemberPage({
 
               {/* Add a project */}
               {!person.assignedToAllProjects && projectsData.addable.length > 0 && (
-                <form action={assignProjectToPersonAction} className="flex items-end gap-2">
+                <form action={assignProjectToPersonAction} className="flex flex-wrap items-start gap-2">
                   <input type="hidden" name="id" value={person.id} />
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Add a project</span>
-                    <select name="projectId" className="min-w-72 rounded border border-gray-300 px-2 py-1.5 text-sm">
-                      {projectsData.addable.map((p) => (
-                        <option key={p.id} value={p.id}>{p.client.name} · {p.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button className="rounded bg-brand-green px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">Add</button>
+                  {/* Harvest: "Find and select projects to assign" type-ahead, grouped by client, then "Assign projects". */}
+                  <div className="min-w-72 flex-1">
+                    <MultiCombobox
+                      key={projectsData.addable.length}
+                      name="projectIds"
+                      options={projectsData.addable.map((p) => ({ value: p.id, label: p.name, group: p.client.name }))}
+                      placeholder="Find and select projects to assign…"
+                      emptyText="No matching active projects"
+                      aria-label="Projects to assign"
+                    />
+                  </div>
+                  <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Assign projects</button>
                 </form>
+              )}
+            </div>
+          )}
+
+          {tab === 'people' && assignedData && (
+            <div className="mb-6 rounded-lg border border-gray-200 bg-white p-5">
+              <h2 className="mb-1 text-sm font-semibold text-gray-800">Assigned people</h2>
+              {holdsAssigned ? (
+                <p className="mb-3 text-xs text-gray-500">
+                  People {person.firstName} manages. In Harvest a manager approves, reports on and sees their assigned people on the Team overview.
+                  In Track2 the Team overview already defaults to them; approvals, reports and time editing follow in phase 2 (specs/28).
+                </p>
+              ) : (
+                <p className="mb-3 text-xs text-gray-500">
+                  Only people with Manager access (Project Manager) can have assigned people. Administrators, Executive Managers and People Admins already see everyone.
+                </p>
+              )}
+
+              {canAssignPeople && holdsAssigned && (
+                <form action={assignPeopleToManagerAction} className="mb-4 flex flex-wrap items-start gap-2">
+                  <input type="hidden" name="id" value={person.id} />
+                  <div className="min-w-72 flex-1">
+                    <MultiCombobox
+                      key={assignedData.assigned.map((a) => a.id).join(',')}
+                      name="userIds"
+                      options={assignedData.options}
+                      placeholder="Find and select people to assign…"
+                      emptyText="No one left to assign"
+                      aria-label="People to assign"
+                    />
+                  </div>
+                  <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Assign people</button>
+                </form>
+              )}
+
+              {assignedData.assigned.length === 0 ? (
+                holdsAssigned && <p className="text-sm text-gray-400">No assigned people yet.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 rounded border border-gray-100">
+                  {assignedData.assigned.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span>
+                        <Link href={`/team/${p.id}`} className="text-gray-800 hover:text-brand-teal">{p.name}</Link>
+                        {p.type === 'contractor' && <span className="ml-2 text-xs text-gray-400">Contractor</span>}
+                        {!p.isActive && <span className="ml-2 text-xs text-gray-400">(archived)</span>}
+                      </span>
+                      {canAssignPeople && (
+                        <form action={removeAssignedPersonAction}>
+                          <input type="hidden" name="id" value={person.id} />
+                          <input type="hidden" name="userId" value={p.id} />
+                          <button aria-label={`Remove ${p.name}`} title="Remove" className="rounded px-2 py-0.5 text-gray-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                        </form>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!canAssignPeople && holdsAssigned && <p className="mt-3 text-xs text-gray-400">Only administrators can change assigned people.</p>}
+
+              {assignedData.managers.length > 0 && (
+                <p className="mt-4 border-t border-gray-100 pt-3 text-xs text-gray-500">
+                  Assigned to {assignedData.managers.map((m, i) => (
+                    <span key={m.id}>{i > 0 && ', '}<Link href={`/team/${m.id}?tab=people`} className="text-gray-700 hover:text-brand-teal">{m.name}</Link></span>
+                  ))}
+                </p>
               )}
             </div>
           )}

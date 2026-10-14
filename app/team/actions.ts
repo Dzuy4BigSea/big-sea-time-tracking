@@ -19,6 +19,8 @@ import {
 } from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
 import { writeAudit } from '@/lib/audit'
+import { archiveError, canHoldAssignedPeople, cleanAssignIds } from '@/modules/team/teamOverview'
+import { parseEmployeeId, parseRoleTags, parseTimezone } from '@/modules/team/personBasic'
 
 export type NewPersonState = { error?: string; ok?: boolean }
 export type EditPersonState = { error?: string; ok?: boolean }
@@ -104,7 +106,13 @@ export async function updatePersonBasicAction(_prev: EditPersonState, formData: 
   const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!user) return { error: 'Person not found.' }
   const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
-  await prisma.user.updateMany({ where: { id, accountId }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId } })
+  // Employee ID / Roles / Timezone (Harvest Basic info, specs/28 AC-TEAM-021). Only touched when the form sends them.
+  const extra = {
+    ...(formData.has('employeeId') ? { employeeId: parseEmployeeId(String(formData.get('employeeId') ?? '')) } : {}),
+    ...(formData.has('roles') ? { roleTags: parseRoleTags(String(formData.get('roles') ?? '')) } : {}),
+    ...(formData.has('timezone') ? { timezone: parseTimezone(String(formData.get('timezone') ?? '')) } : {}),
+  }
+  await prisma.user.updateMany({ where: { id, accountId }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId, ...extra } })
   revalidatePath(`/team/${id}`)
   revalidatePath('/team')
   return { ok: true }
@@ -186,15 +194,24 @@ export async function assignProjectToPersonAction(formData: FormData): Promise<v
   const actor = await teamAdmin()
   if (!actor) return
   const id = String(formData.get('id') ?? '')
-  const projectId = String(formData.get('projectId') ?? '')
-  const project = await prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } })
-  const user = await prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } })
-  if (!project || !user) return
-  await prisma.projectUserAssignment.upsert({
-    where: { projectId_userId: { projectId, userId: id } },
-    create: { accountId: actor.accountId, projectId, userId: id, isActive: true },
-    update: { isActive: true },
-  })
+  // One `projectId`, or Harvest's "Find and select projects to assign" multi-select (`projectIds`, comma-joined).
+  const requested = [...formData.getAll('projectId'), ...formData.getAll('projectIds')]
+    .flatMap((v) => String(v).split(','))
+    .map((v) => v.trim())
+    .filter(Boolean)
+  if (requested.length === 0) return
+  const [projects, user] = await Promise.all([
+    prisma.project.findMany({ where: { id: { in: [...new Set(requested)] }, accountId: actor.accountId }, select: { id: true } }),
+    prisma.user.findFirst({ where: { id, accountId: actor.accountId }, select: { id: true } }),
+  ])
+  if (!user) return
+  for (const { id: projectId } of projects) {
+    await prisma.projectUserAssignment.upsert({
+      where: { projectId_userId: { projectId, userId: id } },
+      create: { accountId: actor.accountId, projectId, userId: id, isActive: true },
+      update: { isActive: true },
+    })
+  }
   revalidatePath(`/team/${id}`)
 }
 
@@ -359,4 +376,109 @@ export async function updatePersonAction(_prev: EditPersonState, formData: FormD
 
   revalidatePath('/team')
   return { ok: true }
+}
+
+// ---- Assigned people (Harvest "Making people assignments for Managers", specs/28) -----------------
+// Administrators only, as in Harvest. Storing an assignment does not grant access yet (specs/28 §AP).
+
+async function peopleAssigner() {
+  const actor = await requireUser()
+  if (!can({ permissionProfile: actor.permissionProfile as PermissionProfile, permissionOverrides: actor.permissionOverrides }, 'edit_account_settings')) return null
+  return actor
+}
+
+export async function assignPeopleToManagerAction(formData: FormData): Promise<void> {
+  const actor = await peopleAssigner()
+  if (!actor) return
+  const managerId = String(formData.get('id') ?? '')
+  const manager = await prisma.user.findFirst({ where: { id: managerId, accountId: actor.accountId }, select: { id: true, permissionProfile: true } })
+  if (!manager || !canHoldAssignedPeople(manager.permissionProfile)) return
+  const raw = formData.getAll('userIds').map(String)
+  const candidates = raw.flatMap((x) => x.split(',')).map((x) => x.trim()).filter(Boolean)
+  if (candidates.length === 0) return
+  const valid = await prisma.user.findMany({
+    where: { accountId: actor.accountId, isActive: true, id: { in: candidates } },
+    select: { id: true },
+  })
+  const ids = cleanAssignIds(raw, managerId, new Set(valid.map((v) => v.id)))
+  if (ids.length === 0) return
+  await prisma.managerAssignment.createMany({
+    data: ids.map((userId) => ({ accountId: actor.accountId, managerId, userId })),
+    skipDuplicates: true,
+  })
+  await writeAudit({
+    accountId: actor.accountId,
+    actorUserId: actor.userId,
+    entityType: 'user',
+    entityId: managerId,
+    action: 'update',
+    summary: `Assigned ${ids.length} ${ids.length === 1 ? 'person' : 'people'} to this manager`,
+    detail: { userIds: ids },
+  })
+  revalidatePath(`/team/${managerId}`)
+  revalidatePath('/team')
+}
+
+export async function removeAssignedPersonAction(formData: FormData): Promise<void> {
+  const actor = await peopleAssigner()
+  if (!actor) return
+  const managerId = String(formData.get('id') ?? '')
+  const userId = String(formData.get('userId') ?? '')
+  const { count } = await prisma.managerAssignment.deleteMany({ where: { accountId: actor.accountId, managerId, userId } })
+  if (count > 0) {
+    await writeAudit({
+      accountId: actor.accountId,
+      actorUserId: actor.userId,
+      entityType: 'user',
+      entityId: managerId,
+      action: 'update',
+      summary: 'Removed an assigned person from this manager',
+      detail: { userId },
+    })
+  }
+  revalidatePath(`/team/${managerId}`)
+  revalidatePath('/team')
+}
+
+// ---- Team overview row actions: Pin / Archive / Restore (specs/28) -------------------------------
+
+/** Pin or unpin a teammate on your own Team overview. Pins are per viewer. */
+export async function togglePinAction(formData: FormData): Promise<void> {
+  const { userId, accountId } = await requireUser()
+  const targetId = String(formData.get('userId') ?? '')
+  const target = await prisma.user.findFirst({ where: { id: targetId, accountId }, select: { id: true } })
+  if (!target) return
+  const { count } = await prisma.teamPin.deleteMany({ where: { accountId, userId, pinnedUserId: targetId } })
+  if (count === 0) {
+    await prisma.teamPin.createMany({ data: [{ accountId, userId, pinnedUserId: targetId }], skipDuplicates: true })
+  }
+  revalidatePath('/team')
+}
+
+/** Archive (deactivate) or restore a person. Archived people can't sign in; their data stays. */
+export async function setPersonArchivedAction(formData: FormData): Promise<void> {
+  const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const actor = { permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }
+  if (!can(actor, 'manage_people')) return
+  const id = String(formData.get('userId') ?? '')
+  const archive = String(formData.get('archive') ?? '') === '1'
+  const [user, account] = await Promise.all([
+    prisma.user.findFirst({ where: { id, accountId }, select: { id: true, permissionProfile: true, permissionOverrides: true, firstName: true, lastName: true } }),
+    prisma.account.findUnique({ where: { id: accountId }, select: { accountOwnerUserId: true } }),
+  ])
+  if (!user) return
+  if (archive && archiveError({ actorId: selfId, targetId: id, accountOwnerId: account?.accountOwnerUserId ?? null })) return
+  const target = { permissionProfile: user.permissionProfile, permissionOverrides: user.permissionOverrides as PermissionOverrides | null }
+  if (checkSecurityChange(actor, target, id === selfId)) return
+  await prisma.user.updateMany({ where: { id, accountId }, data: { isActive: !archive } })
+  await writeAudit({
+    accountId,
+    actorUserId: selfId,
+    entityType: 'user',
+    entityId: id,
+    action: 'update',
+    summary: `${archive ? 'Archived' : 'Restored'} ${user.firstName} ${user.lastName}`.trim(),
+  })
+  revalidatePath('/team')
+  revalidatePath(`/team/${id}`)
 }

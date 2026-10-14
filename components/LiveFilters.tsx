@@ -108,20 +108,36 @@ export function LiveSelect({
   ariaLabel,
 }: {
   param: string
-  options: { value: string; label: string }[]
+  /** Options with a `group` render under an <optgroup> of that name (consecutive runs), others ungrouped. */
+  options: { value: string; label: string; group?: string }[]
   className?: string
   /** Other params dropped whenever the value changes (e.g. "page"). */
   resetParams?: string[]
   ariaLabel?: string
 }) {
   const { current, set } = useSetParam(param, resetParams)
+  const runs: { group?: string; options: { value: string; label: string }[] }[] = []
+  for (const o of options) {
+    const last = runs[runs.length - 1]
+    if (last && last.group === o.group) last.options.push(o)
+    else runs.push({ group: o.group, options: [o] })
+  }
+  const opt = (o: { value: string; label: string }) => (
+    <option key={o.value} value={o.value}>
+      {o.label}
+    </option>
+  )
   return (
     <select value={current} onChange={(e) => set(e.target.value)} className={className} aria-label={ariaLabel}>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
+      {runs.map((r, i) =>
+        r.group ? (
+          <optgroup key={`${r.group}-${i}`} label={r.group}>
+            {r.options.map(opt)}
+          </optgroup>
+        ) : (
+          r.options.map(opt)
+        ),
+      )}
     </select>
   )
 }
