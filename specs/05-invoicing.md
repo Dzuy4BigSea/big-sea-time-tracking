@@ -87,6 +87,31 @@ Illegal transitions (e.g. `draft → paid`) are rejected with a clear error.
 
 Resend · Copy invoice link · Edit invoice · Mark as draft · Duplicate · **Create recurring** (→ [10](10-recurring-retainers.md)) · Write off · Delete · Record payment · Copy to Xero (integration). Each sent invoice also carries **reminder settings** ("email once 1 day late, then every 7 days after") and an **invoice history / audit trail**.
 
+## Invoice page layout (Harvest parity, from Big Sea's live Harvest)
+
+- Title "Invoice {number}" + status pill (+ "View on Xero ↗" when copied to Xero). Right: **Preview** (the client view `/i/{token}`, sent invoices only), **PDF** and **Print** (the print view; the browser's dialog saves a PDF).
+- "Latest activity: {summary}. {actor} on MM/DD/YYYY at h:mma  View history" (account timezone).
+- "🔗 This invoice is linked to the project {name}" (every project a line is linked to).
+- Action row: green **Send invoice** (draft) or **Send reminder** (open — sent or late); **Copy invoice link** (copies `/i/{token}`, shows "Copied!"; not on drafts); **Edit invoice** (draft/open); **Actions ▾**: Resend invoice, Mark as draft, Copy to Xero, Duplicate, Create recurring, Set up reminder email, —, Write off invoice / Re-open invoice, Delete. Right side: "Balance: $1,500.00 (6 days late)" (late part red; "(due in N days)" / "(due today)" otherwise) and **Record payment** (open invoices).
+- "Set up reminder email" opens Invoices → Configure → Messages (the reminder wording). Harvest's per-invoice reminder schedule ("email once 1 day late, then every 7 days") is **not built** — there is no schedule model or cron yet.
+- The invoice document carries the status stamp (specs/27). "Total hours" on the invoice is not built (no field).
+
+## Editing an invoice (`/invoices/{id}/edit`, Harvest layout)
+
+One form, one save (**Update invoice** / Cancel in a sticky footer):
+- Left: **Invoice ID**, PO Number, Issue Date, **Due Date** (Upon receipt / Net 15 / Net 30 / Net 45 / Net 60 / Custom → a date). Due date = issue date + term (stored only once there is an issue date; send fills both in). Right: Invoice For (client, read-only), Tax % (+ name, and a second tax), Discount %, Currency.
+- Full-width Subject. Line items: ✕ remove | Item Type (Invoices → Configure → Item types) | Description (+ "Linked project" select of the client's projects) | Quantity | Unit Price | Amount (computed). **+ Add item**, **Reorder rows** (▲/▼). Per-line Tax checkbox appears once a tax is set. Subtotal / Amount Due update live with the same integer-cent math; the server recomputes authoritatively.
+- Notes "(optional, displayed on invoice)" with "Formatting tips: \*bold\* \_italics\_" — rendered on the invoice, client view and print view (`modules/invoicing/notesFormat.ts`; markers only at word boundaries, never raw HTML).
+- **Accept online payments for this invoice** with Credit Card / ACH (`Invoice.acceptOnlinePayments`, `allowCardPayments`, `allowAchPayments`). These narrow the company's Stripe connection methods; they never add a method the connection doesn't offer. Off (or nothing left) → no Pay button and the checkout action refuses.
+
+Rules (`modules/invoicing/editInvoice.ts`, `app/invoices/[id]/edit/actions.ts`):
+- Editable when **draft or open** (sent/late, including partly paid). Paid, written-off and closed invoices are read-only.
+- Line math: quantity rounded half-up to 2 decimals; amount = round(qty × unit price) half-up, integer cents (INV-1). Totals via `recomputeInvoiceTotals`, which refuses a total below what has been paid and re-derives open ↔ paid — the only status change an edit can cause (INV-7).
+- Lines linked to tracked time/expenses may be edited (description, qty, price). **Removing** such a line unlinks its time entries/expenses (`invoiceLineItemId = null`, `lockState = 'open'`) in the same transaction, so they are uninvoiced again (INV-4). Fixed-fee lines keep `linkedProjectId` (fixedFee.ts counts linked lines). New lines are `free_form`.
+- **Invoice ID**: unique per account (DB unique + friendly error); never a number another invoice holds, or one a deleted or renumbered invoice used (audit `retiredNumber`, INV-6). An assigned number can't be cleared; an unnumbered draft may stay unnumbered. A numeric ID above `Account.invoiceNumberSeq` moves the sequence there, so the next invoice follows it (Harvest: "As long as the invoice ID you use is the largest ID in the account, the next invoice will follow the new sequence").
+- Currency can't change once payments are recorded or while billed time/expenses are on the invoice.
+- `manage_invoices` via `can()`, account-scoped (INV-5), one audit row ("Invoice updated (…)") plus one for an ID change.
+
 ## Sending
 
 - Send by email (records `sentAt`) or copy a public link (`/i/{publicToken}`).
@@ -131,3 +156,10 @@ Resend · Copy invoice link · Edit invoice · Mark as draft · Duplicate · **C
 - **AC-INV-016** — *Given* a public token URL, *when* opened without auth, *then* a read-only invoice renders and `lastViewedAt` is stamped; an invalid token 404s.
 - **AC-INV-017** — *Given* concurrent "generate invoice" requests pulling overlapping entries, *when* both run, *then* each entry lands on at most one invoice (transactional reservation).
 - **AC-INV-018** — *Given* an invoice in a client's currency (EUR), *when* generation runs, *then* only EUR-project entries are pulled; USD entries are excluded.
+- **AC-INV-019** — *Given* an open invoice with 3 lines, *when* one line's qty is edited, one line is added and one is removed in the editor and saved, *then* the stored lines match the editor in order, every amount = round(qty × price) half-up, and the totals are recomputed.
+- **AC-INV-020** — *Given* a line that bills 4 time entries, *when* it is removed from the invoice, *then* those entries have `invoiceLineItemId = null`, `lockState = 'open'` and are uninvoiced again, in the same transaction as the edit.
+- **AC-INV-021** — *Given* an open invoice with $500 paid, *when* an edit would make the total $400, *then* the save is refused and nothing changes.
+- **AC-INV-022** — *Given* invoice 1005 with sequence at 1010, *when* its ID is changed to 392700, *then* it saves and the next invoice sent gets 392701; *when* changed to an ID another invoice (or a deleted invoice) used, *then* the save is refused with a clear message.
+- **AC-INV-023** — *Given* an invoice with "Accept online payments" off (or only ACH while the connection offers only card), *when* its client link is opened, *then* no Pay button shows and the checkout action does nothing.
+- **AC-INV-024** — *Given* a sent invoice, *when* "Copy invoice link" is clicked, *then* the `/i/{token}` URL is on the clipboard and the button reads "Copied!"; drafts have no such button.
+- **AC-INV-025** — *Given* an open invoice 6 days past due with $1,500 due, *when* its page renders, *then* the action row reads "Balance: $1,500.00 (6 days late)" with the late part in red.

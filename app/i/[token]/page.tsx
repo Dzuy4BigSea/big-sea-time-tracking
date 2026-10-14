@@ -8,7 +8,9 @@ import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } f
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { getInvoiceLabels } from '@/lib/invoiceLabels'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
+import { InvoiceNotesText } from '@/components/InvoiceNotes'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
+import { effectiveOnlineMethods } from '@/modules/invoicing/onlinePayments'
 import { PrintButton } from '@/components/PrintButtons'
 
 export const dynamic = 'force-dynamic'
@@ -59,10 +61,11 @@ export default async function PublicInvoicePage({
     invoice.status === 'open' && balanceDue > 0
       ? await prisma.integrationConnection.findFirst({
           where: { accountId: invoice.accountId, provider: 'stripe', status: 'connected', OR: [{ entityId: effectiveEntityId }, { entityId: null }] },
-          select: { id: true },
+          select: { id: true, config: true },
         })
       : null
-  const canPayOnline = !!stripeConn
+  // The invoice's own "Accept online payments" choice narrows the connection's methods (specs/05).
+  const canPayOnline = !!stripeConn && !!effectiveOnlineMethods((stripeConn.config as Record<string, unknown> | null) ?? {}, invoice)
   const justPaid = searchParams.paid === '1'
 
   const badge = displayBadge(
@@ -185,7 +188,7 @@ export default async function PublicInvoicePage({
         {invoice.notes && (
           <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500">
             <div className="mb-1 uppercase tracking-wide">{L.notes}</div>
-            <div className="whitespace-pre-line">{invoice.notes}</div>
+            <div className="whitespace-pre-line"><InvoiceNotesText text={invoice.notes} /></div>
           </div>
         )}
 

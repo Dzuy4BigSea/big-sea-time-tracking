@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
 import { entityIdForInvoice } from '@/lib/entities'
 import { createCheckoutSession } from '@/modules/integrations/stripeClient'
+import { effectiveOnlineMethods } from '@/modules/invoicing/onlinePayments'
 import { resolveAppUrl } from '@/lib/appUrl'
 
 // Success/cancel URLs come from configuration (APP_URL / AUTH_URL / NEXTAUTH_URL), never from the
@@ -17,7 +18,7 @@ export async function startStripeCheckoutAction(formData: FormData): Promise<voi
   if (!token) return
   const invoice = await prisma.invoice.findUnique({
     where: { publicToken: token },
-    select: { id: true, accountId: true, number: true, status: true, currency: true, totalCents: true, paidCents: true, account: { select: { name: true } } },
+    select: { id: true, accountId: true, number: true, status: true, currency: true, totalCents: true, paidCents: true, acceptOnlinePayments: true, allowCardPayments: true, allowAchPayments: true, account: { select: { name: true } } },
   })
   if (!invoice || invoice.status !== 'open') return
 
@@ -26,6 +27,9 @@ export async function startStripeCheckoutAction(formData: FormData): Promise<voi
   const conn = await getConnectionWithSecrets(invoice.accountId, 'stripe', entityId)
   const secretKey = conn?.secrets.secretKey
   if (!conn || conn.status !== 'connected' || !secretKey) return
+  // Per-invoice "Accept online payments" (Credit Card / ACH) narrows the connection's methods.
+  const methods = effectiveOnlineMethods(conn.config, invoice)
+  if (!methods) return
 
   const balance = invoice.totalCents - invoice.paidCents
   if (balance <= 0) return
@@ -40,7 +44,7 @@ export async function startStripeCheckoutAction(formData: FormData): Promise<voi
       successUrl: `${base}/i/${token}?paid=1`,
       cancelUrl: `${base}/i/${token}`,
       metadata: { invoiceId: invoice.id, accountId: invoice.accountId, entityId: entityId ?? '' },
-      methods: { card: !!conn.config.creditCardEnabled, ach: !!conn.config.achEnabled },
+      methods,
     })
     url = session.url
   } catch (e) {

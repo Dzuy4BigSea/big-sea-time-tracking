@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calendarDaysBetween, deriveStatusBanner, type StatusBannerInput } from './statusBanner'
+import { balanceNote, calendarDaysBetween, deriveStatusBanner, type StatusBannerInput } from './statusBanner'
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
 const TODAY = new Date('2026-07-20T15:30:00.000Z')
@@ -122,5 +122,21 @@ describe('deriveStatusBanner', () => {
 
   it('open with no sent date and no due date: no "Sent <date>" in the detail', () => {
     expect(deriveStatusBanner(inv({ sentAt: null, dueDate: null }), TODAY).detail).toBe('$1,200.00 due')
+  })
+})
+
+describe('balanceNote (action-row "Balance: … (N days late)")', () => {
+  it('late: red "(N days late)"', () => {
+    expect(balanceNote(deriveStatusBanner(inv({ dueDate: d('2026-07-14') }), TODAY))).toEqual({ text: '(6 days late)', late: true })
+    expect(balanceNote(deriveStatusBanner(inv({ dueDate: d('2026-07-19') }), TODAY))).toEqual({ text: '(1 day late)', late: true })
+  })
+  it('sent: "(due in N days)" / "(due today)"', () => {
+    expect(balanceNote(deriveStatusBanner(inv(), TODAY))).toEqual({ text: '(due in 10 days)', late: false })
+    expect(balanceNote(deriveStatusBanner(inv({ dueDate: d('2026-07-20') }), TODAY))).toEqual({ text: '(due today)', late: false })
+  })
+  it('no note for drafts, paid, or an open invoice without a due date', () => {
+    expect(balanceNote(deriveStatusBanner(inv({ status: 'draft', sentAt: null }), TODAY))).toBeNull()
+    expect(balanceNote(deriveStatusBanner(inv({ status: 'paid', paidCents: 120000 }), TODAY))).toBeNull()
+    expect(balanceNote(deriveStatusBanner(inv({ dueDate: null }), TODAY))).toBeNull()
   })
 })
