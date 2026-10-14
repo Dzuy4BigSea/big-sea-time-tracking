@@ -63,3 +63,22 @@ export async function requireCapability(capability: Capability): Promise<Current
   if (!userCan(u, capability)) notFound()
   return u
 }
+
+/**
+ * Token auth (specs/22): the CurrentUser for a personal API token's owner, with the same fresh DB
+ * checks as getCurrentUser (still active, still in the token's account, current profile + overrides),
+ * so every permission check behaves exactly as it does for that person in the UI. Null when refused.
+ */
+export async function currentUserForToken(token: { userId: string; accountId: string }): Promise<CurrentUser | null> {
+  const row = await prisma.user.findUnique({
+    where: { id: token.userId },
+    select: { accountId: true, isActive: true, permissionProfile: true, permissionOverrides: true },
+  })
+  if (!row || !row.isActive || row.accountId !== token.accountId) return null
+  return {
+    userId: token.userId,
+    accountId: row.accountId,
+    permissionProfile: row.permissionProfile,
+    permissionOverrides: (row.permissionOverrides as PermissionOverrides | null) ?? null,
+  }
+}

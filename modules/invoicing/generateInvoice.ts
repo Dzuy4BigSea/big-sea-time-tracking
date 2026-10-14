@@ -80,7 +80,20 @@ export interface GenerateInvoiceInput {
    * fixed-fee lines only for its ACTIVE fixed-fee projects. Projects not on the client are ignored.
    */
   projectIds?: string[]
+  /** Import tracked time and fixed-fee lines (default true). The API's `time` block; specs/22. */
+  includeTime?: boolean
+  /** Import billable expenses (default true). The API's `expenses` block. */
+  includeExpenses?: boolean
+  /** Inclusive spentDate window for time (date-only, UTC midnight). Omitted = all uninvoiced. */
+  timeFrom?: Date
+  timeTo?: Date
+  /** Inclusive spentDate window for expenses. Omitted = all uninvoiced. */
+  expenseFrom?: Date
+  expenseTo?: Date
 }
+
+const dateWindow = (from?: Date, to?: Date) =>
+  from || to ? { spentDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}
 
 export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoiceInput) {
   const grouping = input.grouping ?? 'by_task'
@@ -94,8 +107,12 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
   if (projectIds && projectIds.length === 0) return null
   const projectScope = projectIds ? { id: { in: projectIds } } : {}
 
-  const rows = await prisma.timeEntry.findMany({
+  const includeTime = input.includeTime ?? true
+  const includeExpenses = input.includeExpenses ?? true
+
+  const rows = !includeTime ? [] : await prisma.timeEntry.findMany({
     where: {
+      ...dateWindow(input.timeFrom, input.timeTo),
       accountId: input.accountId,
       isBillable: true,
       isRunning: false,
@@ -120,8 +137,9 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
   })
 
   // Uninvoiced billable expenses for this client (mirrors the time pool predicate).
-  const expenseRows = await prisma.expense.findMany({
+  const expenseRows = !includeExpenses ? [] : await prisma.expense.findMany({
     where: {
+      ...dateWindow(input.expenseFrom, input.expenseTo),
       accountId: input.accountId,
       isBillable: true,
       invoiceLineItemId: null,
@@ -141,7 +159,7 @@ export async function generateInvoice(prisma: PrismaClient, input: GenerateInvoi
   })
 
   // Fixed-fee projects in scope → one line each for the remaining uninvoiced fee.
-  const ffBefore = await fixedFeeStatus(prisma, input.accountId, {
+  const ffBefore = !includeTime ? [] : await fixedFeeStatus(prisma, input.accountId, {
     clientId: input.clientId,
     ...(projectIds ? { projectIds } : { activeOnly: true }),
   })
