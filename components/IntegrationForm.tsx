@@ -62,6 +62,11 @@ export function IntegrationForm({
             <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
               Connected{view.externalOrgName ? ` · ${view.externalOrgName}` : ''}
             </span>
+          ) : view.status === 'error' ? (
+            // Set by the sync when the provider refuses our tokens (e.g. Xero invalid_grant): re-enter them.
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700" title={String(view.config.lastError ?? '')}>
+              Reconnect needed
+            </span>
           ) : (
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Not connected</span>
           )}

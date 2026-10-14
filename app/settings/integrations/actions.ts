@@ -9,7 +9,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { encryptSecret, isEncryptionConfigured } from '@/lib/crypto'
 import { providerDef, type ProviderKey } from '@/lib/integration-registry'
-import { getConnectionWithSecrets, logSync } from '@/lib/integrations'
+import { getConnectionWithSecrets, logSync, xeroTokenLockKey } from '@/lib/integrations'
 import { listAsanaProjects, listAsanaUsers } from '@/modules/integrations/asanaClient'
 import { planProjectImport, planUserImport, splitName } from '@/modules/integrations/asanaImport'
 
@@ -42,9 +42,10 @@ export async function saveIntegrationAction(_prev: IntegrationState, formData: F
 
   // Secrets: encrypt newly-entered values; keep the stored value when the field is left blank.
   const secretsEnc: Record<string, string> = { ...existingSecrets }
+  const entered: Record<string, string> = {}
   for (const f of def.secrets) {
     const raw = String(formData.get(`secret_${f.key}`) ?? '').trim()
-    if (raw) secretsEnc[f.key] = encryptSecret(raw)
+    if (raw) entered[f.key] = secretsEnc[f.key] = encryptSecret(raw)
   }
 
   // Non-secret config.
@@ -63,7 +64,28 @@ export async function saveIntegrationAction(_prev: IntegrationState, formData: F
   const secretsJson = secretsEnc as Prisma.InputJsonValue
   const configJson = config as Prisma.InputJsonValue
   // Manual upsert: a nullable member of a compound unique can't be targeted by upsert/findUnique.
-  if (existing) {
+  if (existing && provider === 'xero') {
+    // The sync may rotate the refresh token at any moment: take the same lock, re-read the stored
+    // secrets and only overwrite the ones typed in now, so a just-rotated token is never reverted.
+    // A newly pasted access token has an unknown expiry (a 401 then triggers the refresh).
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${xeroTokenLockKey(existing.id)}))) l`
+      const cur = await tx.integrationConnection.findUnique({ where: { id: existing.id }, select: { secretsEnc: true } })
+      const merged = { ...((cur?.secretsEnc as Record<string, string> | null) ?? {}), ...entered }
+      await tx.integrationConnection.update({
+        where: { id: existing.id },
+        data: {
+          secretsEnc: merged as Prisma.InputJsonValue,
+          config: configJson,
+          status,
+          externalOrgName,
+          externalOrgId: String(config.tenantId ?? '') || null,
+          connectedByUserId: actor.userId,
+          ...(entered.accessToken ? { expiresAt: null } : {}),
+        },
+      })
+    })
+  } else if (existing) {
     await prisma.integrationConnection.update({
       where: { id: existing.id },
       data: { secretsEnc: secretsJson, config: configJson, status, externalOrgName, connectedByUserId: actor.userId },

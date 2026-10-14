@@ -172,6 +172,13 @@ One-directional **Track2 → Xero** copy of invoices and payments (Xero is the s
 - **AC-XERO-004** — *Given* `paymentAccountCode` is set, *when* a payment is recorded in Track2 (manual **or** Stripe), *then* a Xero Payment is created against the Xero invoice + that account and `xeroPaymentId` is stored; *given* "do not copy payments", *then* no Xero payment is created.
 - **AC-XERO-005** — *Given* `populateTrackingByClient`, *when* an invoice is copied, *then* its Xero tracking category is set from the client.
 - **AC-XERO-006** — *Given* a copy fails (Xero API error/token expired), *when* attempted, *then* an `IntegrationSyncLog` row with `ok=false` is written, the Track2 invoice/payment is unaffected, and the failure is retryable (no partial/duplicate Xero records).
+- **AC-XERO-007** — *Given* an invoice without `xeroInvoiceId`, *when* copied, *then* Xero is first searched by InvoiceNumber and a match is linked; a create carries an `Idempotency-Key`; after a timeout/5xx the number is looked up again before any retry — Xero never holds two copies.
+- **AC-XERO-008** — *Given* the copy succeeds, *when* Xero's `Total`/`CurrencyCode` differs from Track2's, *then* an `xero.invoice_total_mismatch` error event is recorded (the Xero id is still stored); lines that would not add up are never sent.
+- **AC-XERO-009** — *Given* an invoice imported from Harvest or sent before the connection's cutover (`syncFromDate`, else connection date), *when* synced, *then* it is only linked by number, never created; imported payments are never copied.
+- **AC-XERO-010** — *Given* payments without `xeroPaymentId`, *when* synced, *then* each is created once (Reference carries `T2:<paymentId>`, found again after a lost response), partial payments in date order; an overpayment copies only Xero's amount due and flags the excess.
+- **AC-XERO-011** — *Given* the access token expires within 2 minutes or Xero answers 401, *when* syncing, *then* it is refreshed once under a per-connection lock and the rotated refresh token is saved atomically; `invalid_grant` (or a tenant no longer connected) sets the connection to `error` ("Reconnect needed") and stops calling Xero.
+- **AC-XERO-012** — *Given* 429, *then* Retry-After is honoured (≤ 3 retries); 5xx/timeouts are retried only when safe; 4xx never; each call times out after 15 s.
+- **AC-XERO-013** — `syncPendingXero(accountId, { dryRun })` lists/syncs sent invoices and payments missing a Xero id since the cutover and returns a summary (see OPS.md §13).
 
 ---
 

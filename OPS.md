@@ -556,3 +556,129 @@ style targets. Then send a test invoice to a Gmail address, "Show original": SPF
   SendGrid → Suppressions → remove it, then Resend). `email.spam_report` → call the client; SendGrid suppresses
   them until removed.
 - `email.delivered` but no `email.opened`/`invoice.viewed` → it is in their spam/quarantine folder or unread.
+
+## 13. Xero sync
+
+Track2 copies **sent invoices** and **recorded payments** (manual and Stripe) to the Xero organisation of
+the invoice's company (Big Sea or Cordelia Labs, specs/16). It is one-way: Track2 → Xero. Code:
+`modules/integrations/xeroSyncCore.ts` (rules, unit-tested), `xeroSync.ts` (DB wiring),
+`xeroClient.ts` (HTTP, retries), `xeroAuth.ts` (tokens).
+
+### Go-live rule (read before connecting)
+Harvest already copied every Harvest invoice and payment to Xero. Track2 must not create them again:
+- Only invoices **sent on or after the cutover** are created in Xero. The cutover is the connection's
+  **"Copy invoices sent on/after"** date (`syncFromDate`); if it is blank, the date the connection was saved.
+  **Set it to the cutover day** (the day Track2 becomes the system of record).
+- Invoices and payments imported from Harvest (anything in `MigrationIdMap`) are **never created** in Xero.
+  An imported invoice is only *linked* when Xero already has an ACCREC invoice with the same number, for example
+  when a client pays an old Harvest invoice in Track2 after cutover: the payment goes onto Harvest's copy.
+- Before creating anything, Track2 looks Xero up by **InvoiceNumber**. A match is linked, not duplicated.
+  Xero also refuses duplicate invoice numbers.
+
+### Setup (once per company: Big Sea, then Cordelia Labs)
+1. **Xero app**: create it at developer.xero.com → *My Apps* → **New app**. Choose one of these:
+   - **Web app (standard OAuth 2.0)**: free. Redirect URI `http://localhost:8080/callback` (used only to get
+     the first tokens, see step 2). Scopes: `offline_access accounting.transactions accounting.contacts`.
+     If the app only offers Xero's newer granular scopes, choose read and write for invoices, payments and
+     contacts. Without `offline_access` there is no refresh token, so the sync stops after 30 minutes.
+   - **Custom connection**: a paid Xero add-on, one organisation per connection. The token comes from
+     the client id and secret alone. Same `accounting.*` scopes. Leave the token fields in Track2 blank.
+2. **First tokens (web app only)**: run Xero's `xoauth` CLI (github.com/XeroAPI/xoauth) with the app's
+   client id and secret and the scopes above, sign in, and pick the organisation. It prints `access_token`,
+   `refresh_token` and the tenant id (or call `GET https://api.xero.com/connections` with the access token:
+   `tenantId`). Authorize **each organisation separately**, so each company has its own refresh token.
+   Two connections sharing one refresh token would invalidate each other on rotation.
+3. **Track2 → Settings → Integrations → (company) → Xero**:
+   | Field | Value |
+   |---|---|
+   | Access token / Refresh token | from step 2 (blank for a custom connection) |
+   | OAuth client secret / client ID | from the Xero app (or Vercel env `XERO_CLIENT_SECRET` / `XERO_CLIENT_ID`) |
+   | Xero tenant ID | the organisation's `tenantId` |
+   | Default revenue account code | e.g. `400.2` (Fee Income). Required: Xero refuses approved invoices without one |
+   | Sales tax account code | the liability account for sales tax (e.g. `820`). Blank = revenue account |
+   | Payment account code | the account payments land in, e.g. the **Stripe** clearing account. It must be a bank account or have *Enable payments to this account* ticked. Blank = do not copy payments |
+   | Copy invoices sent on/after | the cutover date `YYYY-MM-DD` |
+   Saving resets the "needs reconnect" flag.
+4. **Currencies**: every currency Track2 invoices in must be enabled in Xero (*Settings → Currencies*);
+   otherwise Xero rejects the invoice with a validation error.
+5. **Tax**: Track2's tax and discount are sent as their own lines with `LineAmountTypes = NoTax`, so
+   Xero adds no tax of its own and **Xero's total equals Track2's total to the cent**. Tax appears on the
+   *Sales tax account* line, not as a Xero tax rate. If the accountant wants Xero tax rates, that needs a
+   TaxType mapping (not built).
+
+### What gets sent
+- Contact: the stored `Client.xeroContactId`, otherwise an exact (case-insensitive) name match, then a
+  contact email match, and only then a new contact. The stored id is reused only for the client's own company.
+- Invoice: `ACCREC`, `Status = AUTHORISED`, InvoiceNumber = the Track2 number, Date = issue date, DueDate
+  (falls back to the issue date), CurrencyCode, Reference = `PO …` or `Track2 <number>`, lines on the
+  revenue account, and the discount and tax lines. A linked invoice is fetched and compared. It is updated
+  only while Xero has no payments or credits on it, and is never created twice.
+- Payment: Account = payment account code, Amount, Date = paid-on date, Reference = note + `T2:<paymentId>`.
+  The marker lets a retry find a payment whose response was lost. If the invoice is not in Xero yet, it is
+  created first. **Overpayment**: Xero takes only the amount still due. The excess is flagged (warn event +
+  failed sync-log row) and must be entered in Xero by hand as an overpayment or refund.
+- Each write carries an `Idempotency-Key` (record id + body hash). Calls time out after 15 s. A 429 waits for
+  `Retry-After` (at most 3 retries, 60 s cap). 5xx errors and timeouts on safe calls are retried with backoff,
+  and 4xx errors are never retried. An uncertain invoice create (timeout or 5xx) is followed by an InvoiceNumber
+  lookup before it is retried.
+- Token: refreshed 2 minutes before expiry or after a 401, under a Postgres advisory lock. The rotated
+  refresh token is saved in the same transaction. A Xero refusal (`invalid_grant`, revoked app, tenant no
+  longer connected) sets the connection to **Reconnect needed** (status `error`) and stops calling Xero.
+
+### When it runs
+- **Invoice sent** and **Resend**: invoice (20 s budget). **Payment recorded**: invoice if missing, then
+  payments (20 s). **Stripe webhook**: same, after the payment is recorded (8 s budget, best-effort: the
+  webhook still returns 200).
+- **Invoice → Actions → Copy to Xero**: the manual retry. It links or updates the invoice and copies every
+  payment not yet in Xero, and writes the outcome to the activity log.
+- **`syncPendingXero(accountId, { dryRun?, limit = 25, budgetMs? })`** in `modules/integrations/xeroSync.ts`
+  is the sweep for a cron or admin button. It covers open and paid invoices with no Xero id, and payments with
+  no Xero id, from after the cutover and not from Harvest. It returns a summary of counts and per-item results.
+  Run it with `dryRun: true` first. Xero allows 60 calls per minute per organisation, so keep `limit` modest
+  and re-run while `hasMore` is true. It stops early on an auth failure or a long rate limit (`stoppedEarly`).
+
+### Trace stages (`InvoiceEvent`, source `xero`)
+| Stage | Level | Meaning / action |
+|---|---|---|
+| `xero.invoice_sync_started` | info | A sync of this invoice began (tenant, pending payments in detail). |
+| `xero.invoice_synced` | info (warn if Xero status isn't AUTHORISED/PAID) | Created, linked, updated or unchanged. `externalId` = Xero InvoiceID; detail has `xeroTotalCents` vs `track2TotalCents`. |
+| `xero.invoice_total_mismatch` | error | Xero's total or currency differs from Track2's. The Xero id is still stored, so there is no duplicate. `preflight: true` means nothing was sent because the mapped lines didn't add up. **Fix in Xero (or the invoice) by hand.** |
+| `xero.payment_synced` | info (warn on overpayment) | `paymentId` set, `externalId` = Xero PaymentID; detail has amount, overpayment and how (created or linked). |
+| `xero.token_refreshed` | info | Access token refreshed (or a concurrent refresh reused). |
+| `xero.auth_failed` | error | **Reconnect needed**: re-enter tokens in Settings → Integrations, then retry. |
+| `xero.rate_limited` | warn | 429, with `retryAfterSec`. With "giving up", the item stays pending for the next retry. |
+| `xero.validation_error` | error | Xero's `ValidationErrors` messages (bad account code, currency not enabled, archived contact…). Fix the setting, then retry. |
+| `xero.error` | error (warn = uncertain create, looking up) | Other HTTP status, timeout or network error, with the redacted response. |
+| `xero.skipped` | info | Not connected, the company has no Xero org, draft, payments off, Harvest or pre-cutover invoice. |
+Every failure also writes an `IntegrationSyncLog` row (`provider = 'xero'`, `ok = false`, `entityId` =
+invoice, payment or client id). Tokens are never written to either table.
+
+### Retry
+1. Fix the cause (the trace message says what): reconnect, account code, currency, contact.
+2. On the invoice, use **Actions → Copy to Xero**. For a backlog, run `syncPendingXero(accountId, { dryRun: true })`,
+   review it, then run it without `dryRun`.
+Retries are safe. A linked invoice is compared and not re-created, and a payment that is already in Xero is
+found by its `T2:` marker.
+
+### Reconcile (monthly, or after an incident)
+```sql
+-- Track2 invoices since cutover that should be in Xero but aren't
+SELECT number, "sentAt", "totalCents" FROM "Invoice"
+WHERE "accountId" = 'acc_demo' AND status IN ('open','paid') AND "xeroInvoiceId" IS NULL AND "sentAt" >= '<cutover>';
+-- Payments since cutover not in Xero
+SELECT p.id, i.number, p."amountCents", p."paidOn" FROM "Payment" p JOIN "Invoice" i ON i.id = p."invoiceId"
+WHERE p."accountId" = 'acc_demo' AND p."xeroPaymentId" IS NULL AND p."createdAt" >= '<cutover>';
+-- Count and total of what Track2 sent, to compare with Xero → Sales → Invoices (same date range, per org)
+SELECT i."entityId", count(*), sum(i."totalCents")/100.0 AS total FROM "Invoice" i
+WHERE i."accountId" = 'acc_demo' AND i."xeroInvoiceId" IS NOT NULL AND i."sentAt" >= '<cutover>' GROUP BY 1;
+-- Open problems
+SELECT "occurredAt", stage, message, "invoiceId" FROM "InvoiceEvent"
+WHERE source = 'xero' AND level = 'error' AND "occurredAt" > now() - interval '30 days' ORDER BY 1 DESC;
+```
+In Xero, compare *Sales → Invoices* (count and total, same date range, per organisation) and the payment
+account's reconciliation screen with the queries above. A Xero invoice that Track2 doesn't know about,
+dated after the cutover, came from somewhere else: never from a Track2 retry, because retries look up by
+number first.
+
+**Not handled automatically:** deleting a payment in Track2 does not delete it in Xero. Void or delete it
+in Xero by hand. A Xero invoice that is VOIDED or DELETED is not re-created, and the trace says so.

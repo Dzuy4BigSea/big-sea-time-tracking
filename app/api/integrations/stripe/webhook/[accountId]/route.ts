@@ -52,8 +52,10 @@ function ports(): StripeWebhookPorts {
       // Email the client a receipt (best-effort).
       const receiptSummary = await sendReceipt(accountId, invoiceId, amountCents, method, new Date()).catch(() => null)
       if (receiptSummary) await writeAudit({ accountId, actorUserId: null, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: receiptSummary }).catch(() => {})
-      // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort).
-      await copyPaymentToXero(accountId, invoiceId).catch(() => {})
+      // Mirror the payment into Xero when connected (Stripe → app → Xero; best-effort). The payment is
+      // already recorded: a short budget keeps the ack fast; anything left (or failed) is traced, logged
+      // and picked up by syncPendingXero / "Copy to Xero". Never turns the webhook into a 500.
+      await copyPaymentToXero(accountId, invoiceId, { budgetMs: 8_000 }).catch(() => {})
     },
     formatMoney: (cents, currency) => formatCents(cents, currency),
   }

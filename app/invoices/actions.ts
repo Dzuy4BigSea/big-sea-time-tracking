@@ -9,7 +9,8 @@ import { generateInvoice, GenerateInvoiceError } from '@/modules/invoicing/gener
 import { transitionErrorMessage, InvalidTransitionError } from '@/modules/invoicing/invoiceState'
 import { sendInvoice, markInvoiceDraft, deleteInvoice, writeOffInvoice, reopenInvoice } from '@/modules/invoicing/invoiceLifecycle'
 import { Prisma } from '@prisma/client'
-import { copyInvoiceToXero, copyPaymentToXero } from '@/modules/integrations/xeroSync'
+import { copyInvoiceToXero, copyPaymentToXero, syncInvoiceToXero } from '@/modules/integrations/xeroSync'
+import type { XeroInvoiceOutcome } from '@/modules/integrations/xeroSyncCore'
 import { parseYmd } from '@/lib/week'
 import { requireUser, type CurrentUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
@@ -27,6 +28,30 @@ const METHODS: PaymentMethod[] = ['cash', 'check', 'bank_transfer', 'card', 'oth
 async function ownsInvoice(invoiceId: string, accountId: string): Promise<boolean> {
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { accountId: true } })
   return !!inv && inv.accountId === accountId
+}
+
+// Xero calls made inside a user action stop starting new attempts after this (the rest is retried later).
+const XERO_BUDGET_MS = 20_000
+
+/** One activity-log line for a Xero sync outcome (null when there is nothing worth logging). */
+function xeroAuditSummary(o: XeroInvoiceOutcome, manual = false): string | null {
+  const paid = o.payments.filter((p) => p.result === 'synced' || p.result === 'linked').length
+  const payFailed = o.payments.filter((p) => p.result === 'failed').length
+  const payPart = paid || payFailed ? `; payments copied: ${paid}${payFailed ? `, failed: ${payFailed}` : ''}` : ''
+  switch (o.result) {
+    case 'synced':
+      return `Copied to Xero${payPart}`
+    case 'linked':
+      return `Linked to the existing Xero invoice${payPart}`
+    case 'updated':
+      return `Updated in Xero${payPart}`
+    case 'unchanged':
+      return manual || paid || payFailed ? `Already in Xero${payPart}` : null
+    case 'failed':
+      return `Xero copy failed — ${(o.message ?? 'see the invoice trace').slice(0, 200)}${payPart}`
+    case 'skipped':
+      return manual ? `Not copied to Xero — ${o.message ?? 'skipped'}` : null
+  }
 }
 
 // Client-facing links in invoice emails come from configured APP_URL, never request headers.
@@ -88,7 +113,8 @@ export async function recordPaymentAction(_prev: PaymentState, formData: FormDat
   await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: `Payment recorded — ${formatCents(amountCents)} (${safeMethod.replace('_', ' ')})` })
   const receiptSummary = await sendReceipt(accountId, invoiceId, amountCents, safeMethod, paidOn).catch(() => null)
   if (receiptSummary) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: receiptSummary })
-  await copyPaymentToXero(accountId, invoiceId).catch(() => {}) // best-effort accounting sync
+  // Best-effort accounting sync: a Xero failure is traced + logged and retried by syncPendingXero.
+  await copyPaymentToXero(accountId, invoiceId, { budgetMs: XERO_BUDGET_MS }).catch(() => {})
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   return { ok: true }
@@ -175,8 +201,10 @@ export async function sendInvoiceAction(formData: FormData): Promise<void> {
   const email = await emailInvoiceToClient({ accountId, invoiceId, actorUserId: userId, kind: 'invoice', baseUrl: baseUrl() }).catch(
     (e) => ({ ok: false, problem: `Email failed — ${(e as Error).message}` }) as const,
   )
-  const xeroId = await copyInvoiceToXero(accountId, invoiceId).catch(() => null) // auto-copy to Xero on send (best-effort)
-  if (xeroId) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Copied to Xero' })
+  // Auto-copy to Xero on send (best-effort; failures are traced, logged and retried by syncPendingXero).
+  const xero = await syncInvoiceToXero(accountId, invoiceId, { budgetMs: XERO_BUDGET_MS }).catch(() => null)
+  const xeroSummary = xero ? xeroAuditSummary(xero) : null
+  if (xeroSummary) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: xeroSummary })
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
   if (email.problem) failTo(`/invoices/${invoiceId}`, `Invoice marked as sent, but the client was not emailed: ${email.problem}. Fix it, then use "Resend invoice".`)
@@ -243,8 +271,15 @@ export async function copyToXeroAction(formData: FormData): Promise<void> {
   if (!actor) failTo(`/invoices/${invoiceId}`, NOT_PERMITTED)
   const { accountId, userId } = actor
   if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
-  const xeroId = await copyInvoiceToXero(accountId, invoiceId).catch(() => null)
-  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: xeroId ? 'Copied to Xero' : 'Xero copy failed (not connected?)' })
+  // Retry path: (re)copies the invoice — linking, never duplicating — and any payments not in Xero yet.
+  const xero = await syncInvoiceToXero(accountId, invoiceId, { includePayments: true, budgetMs: XERO_BUDGET_MS }).catch((e) => ({
+    invoiceId,
+    result: 'failed' as const,
+    xeroInvoiceId: null,
+    message: (e as Error)?.message,
+    payments: [],
+  }))
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: xeroAuditSummary(xero, true) ?? 'Xero: nothing to copy' })
   revalidatePath(`/invoices/${invoiceId}`)
 }
 
@@ -265,7 +300,7 @@ export async function resendInvoiceAction(formData: FormData): Promise<void> {
   if (!email.duplicate) {
     await recordInvoiceEvent({ accountId, invoiceId, stage: 'invoice.resent', source: 'app', level: email.ok ? 'info' : 'warn', message: email.ok ? 'Invoice resent' : `Invoice resend: ${email.problem}`, detail: { actorUserId: userId }, occurredAt: at })
     await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
-    await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
+    await copyInvoiceToXero(accountId, invoiceId, { budgetMs: XERO_BUDGET_MS }).catch(() => {})
   }
   revalidatePath(`/invoices/${invoiceId}`)
   if (email.problem) failTo(`/invoices/${invoiceId}`, `The client was not emailed: ${email.problem}.`)
