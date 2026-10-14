@@ -143,7 +143,9 @@ async function alertAdmins(accountId: string, due: CheckResult[], appUrl: string
   let delivered = 0
   for (const a of admins) {
     if (!a.email) continue
-    const r = await sendEmail(accountId, { to: a.email, subject, html })
+    // Plain-text part is required for deliverability (modules/email): derive it from the HTML.
+    const text = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|li|h[1-6]|tr)>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim()
+    const r = await sendEmail(accountId, { to: a.email, subject, html, text })
     if (r.ok) delivered++
   }
   // Record the alert even if email isn't configured, so we don't retry every run; the message says why.

@@ -14,13 +14,10 @@ import { parseYmd } from '@/lib/week'
 import { requireUser, type CurrentUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { writeAudit } from '@/lib/audit'
-import { formatCents, formatDate } from '@/lib/format'
+import { formatCents } from '@/lib/format'
 import { resolveAppUrl } from '@/lib/appUrl'
-import { sendEmail } from '@/modules/email/send'
-import { renderInvoiceSentEmail, DEFAULT_EMAIL_THEME } from '@/modules/email/templates'
-import { sendReceipt, sendReminder } from '@/modules/email/invoiceEmails'
-import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
-import { resolveEmailTheme } from '@/modules/entities/resolveEntity'
+import { sendReceipt, sendReminder, emailInvoiceToClient } from '@/modules/email/invoiceEmails'
+import { recordInvoiceEvent, traced } from '@/modules/observability/invoiceTrace'
 
 export type PaymentState = { error?: string; ok?: boolean }
 
@@ -35,60 +32,6 @@ async function ownsInvoice(invoiceId: string, accountId: string): Promise<boolea
 // Client-facing links in invoice emails come from configured APP_URL, never request headers.
 function baseUrl(): string {
   return resolveAppUrl()
-}
-
-/**
- * Email a sent invoice to the client's invoice recipient via SendGrid (specs/15/16). Records the
- * outcome to the activity log and returns a user-facing problem string (null when emailed) so the
- * caller can surface a failure instead of silently succeeding. From-address is the
- * invoice entity's sender (Cordelia vs Big Sea), resolved inside sendEmail.
- */
-async function emailInvoice(accountId: string, invoiceId: string, actorUserId: string): Promise<string | null> {
-  const inv = await prisma.invoice.findFirst({
-    where: { id: invoiceId, accountId },
-    include: {
-      client: { include: { contacts: true } },
-      account: { select: { name: true } },
-      entity: { select: { name: true, emailBrandColor: true, emailAccentColor: true, brandColor: true, accentColor: true } },
-    },
-  })
-  if (!inv || !inv.publicToken) return 'invoice has no public link'
-  const recipient =
-    inv.client.contacts.find((c) => c.isInvoiceRecipient && c.email)?.email ??
-    inv.client.contacts.find((c) => c.email)?.email ??
-    null
-  if (!recipient) {
-    await writeAudit({ accountId, actorUserId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Not emailed — no invoice-recipient contact on file' })
-    return 'no invoice-recipient contact with an email address on file'
-  }
-  const link = `${baseUrl()}/i/${inv.publicToken}`
-  const due = inv.totalCents - inv.paidCents
-  const fromName = inv.entity?.name ?? inv.account.name
-  const tpl = await getMessageTemplate(accountId, 'invoice', inv.entityId)
-  const theme = resolveEmailTheme(inv.entity, DEFAULT_EMAIL_THEME)
-  const vars = { client: inv.client.name, number: inv.number ?? '', from: fromName, amount: formatCents(due, inv.currency), due: formatDate(inv.dueDate) }
-  const { subject, html } = renderInvoiceSentEmail({
-    fromName,
-    clientName: inv.client.name,
-    invoiceNumber: inv.number ?? '',
-    amountDue: formatCents(due, inv.currency),
-    issueDate: formatDate(inv.issueDate),
-    dueDate: formatDate(inv.dueDate),
-    payUrl: due > 0 ? link : null,
-    invoiceUrl: link,
-    msg: { subject: fillTemplate(tpl.subject, vars), intro: fillTemplate(tpl.body, vars) },
-    theme,
-  })
-  const r = await sendEmail(accountId, { to: recipient, subject, html, entityId: inv.entityId })
-  await writeAudit({
-    accountId,
-    actorUserId,
-    entityType: 'invoice',
-    entityId: invoiceId,
-    action: 'update',
-    summary: r.ok ? `Emailed to ${recipient}` : r.skipped ? `Email not sent — ${r.message}` : `Email failed — ${r.message}`,
-  })
-  return r.ok ? null : (r.message ?? 'email failed')
 }
 
 /**
@@ -212,9 +155,12 @@ export async function sendInvoiceAction(formData: FormData): Promise<void> {
   const { accountId, userId } = actor
   if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
   const wasSent = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { sentAt: true } })
+  const kind = wasSent?.sentAt ? 'resent' : 'sent'
   let error: string | null = null
   try {
-    await sendInvoice(prisma, invoiceId)
+    // draft → open is claimed atomically (updateMany where status = draft), so a double-clicked
+    // Send fails here for the second request and never reaches the email below.
+    await traced({ accountId, invoiceId, stage: `invoice.${kind}`, source: 'app', detail: { actorUserId: userId } }, () => sendInvoice(prisma, invoiceId))
   } catch (e) {
     // Never swallow: a number collision or a failed guard must reach the user (INV-6/INV-7).
     error = isUniqueViolation(e)
@@ -223,15 +169,17 @@ export async function sendInvoiceAction(formData: FormData): Promise<void> {
     await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: `Send failed — ${error}` }).catch(() => {})
   }
   if (error) failTo(`/invoices/${invoiceId}`, error)
-  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: wasSent?.sentAt ? 'Invoice resent' : 'Invoice sent' })
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: kind === 'resent' ? 'Invoice resent' : 'Invoice sent' })
   // The invoice stays sent (its number is never rolled back, INV-6); a failed email is surfaced so
   // the user can fix the contact / SendGrid and use "Resend invoice".
-  const emailProblem = await emailInvoice(accountId, invoiceId, userId).catch((e) => `Email failed — ${(e as Error).message}`)
+  const email = await emailInvoiceToClient({ accountId, invoiceId, actorUserId: userId, kind: 'invoice', baseUrl: baseUrl() }).catch(
+    (e) => ({ ok: false, problem: `Email failed — ${(e as Error).message}` }) as const,
+  )
   const xeroId = await copyInvoiceToXero(accountId, invoiceId).catch(() => null) // auto-copy to Xero on send (best-effort)
   if (xeroId) await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: 'Copied to Xero' })
   revalidatePath(`/invoices/${invoiceId}`)
   revalidatePath('/invoices')
-  if (emailProblem) failTo(`/invoices/${invoiceId}`, `Invoice marked as sent, but the client was not emailed: ${emailProblem}. Fix it, then use "Resend invoice".`)
+  if (email.problem) failTo(`/invoices/${invoiceId}`, `Invoice marked as sent, but the client was not emailed: ${email.problem}. Fix it, then use "Resend invoice".`)
 }
 
 export async function markDraftAction(formData: FormData): Promise<void> {
@@ -300,7 +248,7 @@ export async function copyToXeroAction(formData: FormData): Promise<void> {
   revalidatePath(`/invoices/${invoiceId}`)
 }
 
-/** Re-mark a sent invoice as sent (re-share). No state change; records activity + re-syncs Xero. */
+/** Re-email a sent invoice to the client (no state change); records activity + re-syncs Xero. */
 export async function resendInvoiceAction(formData: FormData): Promise<void> {
   const invoiceId = String(formData.get('invoiceId') ?? '')
   const actor = await requireInvoiceManager()
@@ -309,23 +257,37 @@ export async function resendInvoiceAction(formData: FormData): Promise<void> {
   if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { status: true } })
   if (!inv || (inv.status !== 'open' && inv.status !== 'paid')) return
-  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
-  const emailProblem = await emailInvoice(accountId, invoiceId, userId).catch((e) => `Email failed — ${(e as Error).message}`)
-  await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
+  // Double-click safe: emailInvoiceToClient refuses a second identical email within a minute.
+  const at = new Date() // the resend event sorts before the email events it caused
+  const email = await emailInvoiceToClient({ accountId, invoiceId, actorUserId: userId, kind: 'resend', baseUrl: baseUrl() }).catch(
+    (e) => ({ ok: false, duplicate: false, problem: `Email failed — ${(e as Error).message}` }) as const,
+  )
+  if (!email.duplicate) {
+    await recordInvoiceEvent({ accountId, invoiceId, stage: 'invoice.resent', source: 'app', level: email.ok ? 'info' : 'warn', message: email.ok ? 'Invoice resent' : `Invoice resend: ${email.problem}`, detail: { actorUserId: userId }, occurredAt: at })
+    await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'state_change', summary: 'Invoice resent' })
+    await copyInvoiceToXero(accountId, invoiceId).catch(() => {})
+  }
   revalidatePath(`/invoices/${invoiceId}`)
-  if (emailProblem) failTo(`/invoices/${invoiceId}`, `The client was not emailed: ${emailProblem}.`)
+  if (email.problem) failTo(`/invoices/${invoiceId}`, `The client was not emailed: ${email.problem}.`)
 }
 
-/** Manually send an overdue-payment reminder to the client (spec 15 E3). */
+/** Manually send a payment reminder to the client (spec 15 E3). */
 export async function sendReminderAction(formData: FormData): Promise<void> {
-  const actor = await requireInvoiceManager()
-  if (!actor) return
-  const { accountId, userId } = actor
   const invoiceId = String(formData.get('invoiceId') ?? '')
+  const actor = await requireInvoiceManager()
+  if (!actor) failTo(`/invoices/${invoiceId}`, NOT_PERMITTED)
+  const { accountId, userId } = actor
   if (!invoiceId || !(await ownsInvoice(invoiceId, accountId))) return
-  const summary = await sendReminder(accountId, invoiceId, baseUrl()).catch(() => 'Reminder failed')
-  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary })
+  const at = new Date()
+  const r = await sendReminder(accountId, invoiceId, baseUrl(), new Date(), userId).catch(
+    (e) => ({ ok: false, duplicate: false, summary: 'Reminder failed', problem: `Email failed — ${(e as Error).message}` }),
+  )
+  if (!r.duplicate) {
+    await recordInvoiceEvent({ accountId, invoiceId, stage: 'invoice.reminder_sent', source: 'app', level: r.ok ? 'info' : 'warn', message: r.summary, detail: { actorUserId: userId }, occurredAt: at })
+  }
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'update', summary: r.summary })
   revalidatePath(`/invoices/${invoiceId}`)
+  if (r.problem) failTo(`/invoices/${invoiceId}`, `Reminder not sent: ${r.problem}.`)
 }
 
 /** Duplicate an invoice as a new draft (copies header + line items; new number/token, unpaid). */
