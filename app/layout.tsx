@@ -20,8 +20,9 @@ export const metadata: Metadata = {
   description: 'Track2 — time tracking + invoicing',
 }
 
-// Routes that render bare (no sidebar / no session chrome) — the public invoice view + print views.
-const BARE_PREFIXES = ['/i/', '/print/']
+// Routes that render bare (no sidebar / no session chrome) — the public invoice view + print views,
+// and the OAuth consent screen MCP clients (claude.ai connectors) open in a popup.
+const BARE_PREFIXES = ['/i/', '/print/', '/oauth/']
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = headers().get('x-pathname') ?? ''

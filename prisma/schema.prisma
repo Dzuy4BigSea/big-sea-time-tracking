@@ -288,6 +288,8 @@ model Account {
   managerAssignments       ManagerAssignment[]
   teamPins                 TeamPin[]
   apiTokens                ApiToken[]
+  oauthCodes               OAuthAuthorizationCode[]
+  oauthGrants              OAuthGrant[]
 }
 
 // A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
@@ -383,22 +385,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ownedAccount       Account?                @relation("AccountOwner")
+  ownedAccount       Account?                 @relation("AccountOwner")
   billableRates      PersonBillableRate[]
   costRates          PersonCostRate[]
   timeEntries        TimeEntry[]
   timesheets         Timesheet[]
-  approvedTimesheets Timesheet[]             @relation("TimesheetApprover")
+  approvedTimesheets Timesheet[]              @relation("TimesheetApprover")
   projectAssignments ProjectUserAssignment[]
   expenses           Expense[]
-  auditLogs          AuditLog[]              @relation("AuditActor")
+  auditLogs          AuditLog[]               @relation("AuditActor")
   savedReports       SavedReport[]
   googleDriveGrant   GoogleDriveGrant?
-  managedPeople      ManagerAssignment[]     @relation("ManagerAssignmentManager")
-  managers           ManagerAssignment[]     @relation("ManagerAssignmentPerson")
-  teamPins           TeamPin[]               @relation("TeamPinOwner")
-  pinnedBy           TeamPin[]               @relation("TeamPinTarget")
+  managedPeople      ManagerAssignment[]      @relation("ManagerAssignmentManager")
+  managers           ManagerAssignment[]      @relation("ManagerAssignmentPerson")
+  teamPins           TeamPin[]                @relation("TeamPinOwner")
+  pinnedBy           TeamPin[]                @relation("TeamPinTarget")
   apiTokens          ApiToken[]
+  oauthCodes         OAuthAuthorizationCode[]
+  oauthGrants        OAuthGrant[]
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -1225,4 +1229,87 @@ model ApiToken {
 
   @@index([accountId])
   @@index([userId])
+}
+
+// ── MCP OAuth 2.1 (specs/22 §OAuth) ─────────────────────────────────────────────────────────────
+// A client registered itself through Dynamic Client Registration (RFC 7591), unauthenticated, so it
+// is global (not account-scoped) and grants nothing on its own. Everything a client can reach goes
+// through an OAuthGrant, which is bound to one user + account and re-checked on every request.
+model OAuthClient {
+  id                      String   @id @default(cuid())
+  /// Public identifier handed to the client (random, unguessable).
+  clientId                String   @unique
+  /// SHA-256 of the client secret, only for confidential clients (client_secret_post/basic).
+  clientSecretHash        String?
+  clientName              String
+  redirectUris            String[]
+  /// none | client_secret_post | client_secret_basic
+  tokenEndpointAuthMethod String   @default("none")
+  createdAt               DateTime @default(now())
+
+  codes  OAuthAuthorizationCode[]
+  grants OAuthGrant[]
+}
+
+/// One-time authorization code (10 minutes), stored hashed, bound to client, redirect URI, user,
+/// PKCE challenge (S256) and resource. `usedAt` is set atomically on exchange; `grantId` remembers
+/// what it produced so a replayed code can revoke that grant.
+model OAuthAuthorizationCode {
+  id            String      @id @default(cuid())
+  codeHash      String      @unique
+  clientId      String
+  client        OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  codeChallenge String
+  resource      String
+  scope         String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  grantId       String?
+  createdAt     DateTime    @default(now())
+
+  @@index([userId])
+  @@index([clientId])
+}
+
+/// A user's consent to one client ("connected app"): the token family. Revoking it revokes every
+/// access/refresh token issued under it.
+model OAuthGrant {
+  id         String       @id @default(cuid())
+  accountId  String
+  account    Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String
+  client     OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  resource   String
+  scope      String?
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  tokens     OAuthToken[]
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+/// Access (`track2_oat_…`, 1 hour) and refresh (`track2_ort_…`, 30 days, rotating) tokens, hashed.
+/// A refresh token presented after `rotatedAt` is a replay → the whole grant is revoked.
+model OAuthToken {
+  id        String     @id @default(cuid())
+  grantId   String
+  grant     OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  /// access | refresh
+  kind      String
+  tokenHash String     @unique
+  expiresAt DateTime
+  rotatedAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([grantId])
 }

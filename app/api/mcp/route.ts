@@ -1,16 +1,22 @@
 import { NextResponse } from 'next/server'
-import { authenticateBearer } from '@/lib/apiAuth'
+import { authenticateBearer, rawBearer } from '@/lib/apiAuth'
+import { resolveAppUrl } from '@/lib/appUrl'
 import { writeAudit } from '@/lib/audit'
 import { makeContext } from '@/lib/mcp/context'
 import { MCP_TOOLS } from '@/lib/mcp/registry'
 import { handleRpc, parseErrorResponse, RPC } from '@/modules/mcp/jsonrpc'
 import { createTokenLimiter, MCP_WINDOW_MS } from '@/modules/mcp/rateLimit'
-import { auditActionFor, auditDetail, auditSummary, MCP_AUDIT_ENTITY } from '@/modules/mcp/audit'
+import { auditActionFor, auditDetail, auditSummary, MCP_AUDIT_ENTITY, MCP_OAUTH_AUDIT_ENTITY } from '@/modules/mcp/audit'
+import { corsHeaders, wwwAuthenticate } from '@/modules/oauth/metadata'
 
 /**
  * Track2 remote MCP server (specs/22): Streamable HTTP transport, stateless JSON responses.
  *
- *   POST /api/mcp   Authorization: Bearer track2_pat_…   body: JSON-RPC request / notification / batch
+ *   POST /api/mcp   Authorization: Bearer track2_pat_… | track2_oat_…   body: JSON-RPC request / notification / batch
+ *
+ * Two credentials: personal access tokens (scripts, Claude Code) and OAuth 2.1 access tokens (claude.ai
+ * custom connectors, specs/22 §OAuth). A 401 carries `WWW-Authenticate: Bearer resource_metadata=…`
+ * so MCP clients can discover the authorization server (RFC 9728).
  *
  * Every request re-authenticates the token and re-reads the user (active, profile, overrides), so tools
  * see exactly the permissions the person has in the web app. Not behind the NextAuth middleware: the
@@ -23,14 +29,18 @@ export const maxDuration = 60
 
 const limiter = createTokenLimiter()
 
-// Header values must be ASCII (ByteString): no typographic quotes, arrows or ellipses here.
-const WWW_AUTHENTICATE =
-  'Bearer realm="Track2", error="invalid_token", error_description="Use a personal access token from Track2 /settings/tokens (Authorization: Bearer track2_pat_...)"'
+// No cookies are used here (Bearer only), so any origin may call it from a browser-based MCP client.
+const CORS = corsHeaders('GET, POST, DELETE')
 
-function unauthorized() {
+function unauthorized(tokenPresented: boolean) {
   return NextResponse.json(
-    { jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized: missing, invalid or revoked Track2 personal access token.' } },
-    { status: 401, headers: { 'WWW-Authenticate': WWW_AUTHENTICATE, 'Cache-Control': 'no-store' } },
+    {
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32001, message: 'Unauthorized: sign in with OAuth (claude.ai connector) or send a Track2 personal access token (Authorization: Bearer track2_pat_...).' },
+    },
+    // Header values must be ASCII (ByteString): see modules/oauth/metadata.ts.
+    { status: 401, headers: { 'WWW-Authenticate': wwwAuthenticate(resolveAppUrl(), { tokenPresented }), 'Cache-Control': 'no-store', ...CORS } },
   )
 }
 
@@ -43,15 +53,15 @@ export async function POST(req: Request) {
     console.error('[mcp] auth lookup failed', e)
     return NextResponse.json(
       { jsonrpc: '2.0', id: null, error: { code: RPC.INTERNAL_ERROR, message: 'Track2 is temporarily unavailable. Retry in a few seconds.' } },
-      { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } },
+      { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store', ...CORS } },
     )
   }
-  if (!auth) return unauthorized()
+  if (!auth) return unauthorized(!!rawBearer(req.headers.get('authorization')))
 
-  if (!limiter.take(auth.tokenId)) {
+  if (!limiter.take(`${auth.kind}:${auth.tokenId}`)) {
     return NextResponse.json(
       { jsonrpc: '2.0', id: null, error: { code: -32029, message: 'Rate limit exceeded for this token. Slow down and retry in a minute.' } },
-      { status: 429, headers: { 'Retry-After': String(Math.ceil(MCP_WINDOW_MS / 1000)), 'Cache-Control': 'no-store' } },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(MCP_WINDOW_MS / 1000)), 'Cache-Control': 'no-store', ...CORS } },
     )
   }
 
@@ -59,16 +69,17 @@ export async function POST(req: Request) {
   try {
     body = JSON.parse(await req.text())
   } catch {
-    return NextResponse.json(parseErrorResponse(), { status: 400 })
+    return NextResponse.json(parseErrorResponse(), { status: 400, headers: CORS })
   }
 
   const ctx = makeContext(auth.user, auth.tokenId)
+  const auditEntity = auth.kind === 'oauth' ? MCP_OAUTH_AUDIT_ENTITY : MCP_AUDIT_ENTITY
   const result = await handleRpc(body, ctx, MCP_TOOLS, {
     async onWrite(tool, args, outcome, c) {
       await writeAudit({
         accountId: c.user.accountId,
         actorUserId: c.user.userId,
-        entityType: MCP_AUDIT_ENTITY,
+        entityType: auditEntity,
         entityId: c.tokenId,
         action: auditActionFor(tool.name),
         summary: auditSummary(tool.name, outcome),
@@ -81,19 +92,24 @@ export async function POST(req: Request) {
   })
 
   // Only notifications / responses were sent: nothing to answer (Streamable HTTP → 202).
-  if (result === null) return new Response(null, { status: 202 })
-  return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+  if (result === null) return new Response(null, { status: 202, headers: CORS })
+  return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store', ...CORS } })
 }
 
 /** No server-initiated SSE stream: the spec lets a server answer GET with 405. */
 export async function GET() {
   return NextResponse.json(
     { jsonrpc: '2.0', id: null, error: { code: RPC.METHOD_NOT_FOUND, message: 'Track2 MCP uses POST (Streamable HTTP, JSON responses); no SSE stream.' } },
-    { status: 405, headers: { Allow: 'POST' } },
+    { status: 405, headers: { Allow: 'POST', ...CORS } },
   )
 }
 
 /** Stateless server: there are no sessions to terminate. */
 export async function DELETE() {
-  return new Response(null, { status: 405, headers: { Allow: 'POST' } })
+  return new Response(null, { status: 405, headers: { Allow: 'POST', ...CORS } })
+}
+
+/** CORS preflight for browser-based MCP clients (Bearer tokens only, never cookies). */
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS })
 }
