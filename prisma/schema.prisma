@@ -287,6 +287,7 @@ model Account {
   savedReports             SavedReport[]
   managerAssignments       ManagerAssignment[]
   teamPins                 TeamPin[]
+  apiTokens                ApiToken[]
 }
 
 // A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
@@ -397,6 +398,7 @@ model User {
   managers           ManagerAssignment[]     @relation("ManagerAssignmentPerson")
   teamPins           TeamPin[]               @relation("TeamPinOwner")
   pinnedBy           TeamPin[]               @relation("TeamPinTarget")
+  apiTokens          ApiToken[]
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -1199,4 +1201,28 @@ model TeamPin {
 
   @@unique([userId, pinnedUserId])
   @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Personal access tokens (specs/22 — MCP server / API auth)
+// ---------------------------------------------------------------------------
+
+/// A personal API token (`track2_pat_…`). Acts as its user: every request re-reads the user's
+/// isActive / profile / overrides, so permissions match the UI. Only the SHA-256 of the token is
+/// stored; `prefix` (first 8 chars of the secret part) is kept for display.
+model ApiToken {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String    @unique
+  prefix     String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([accountId])
+  @@index([userId])
 }
