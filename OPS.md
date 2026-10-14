@@ -315,3 +315,69 @@ have RLS on with no policies: `ApiToken`, `GoogleDriveGrant`, `ManagerAssignment
 keys) can't read them. If token creation or the claude.ai connector ever fails with a permission error,
 undo with `ALTER TABLE "<name>" DISABLE ROW LEVEL SECURITY;` for each table above. A read-only backup
 role needs `BYPASSRLS` (or use `postgres`) to dump these tables.
+
+## 10. Email deliverability (invoice, reminder and receipt mail via SendGrid)
+
+Client mail goes out through the account's SendGrid connection (Settings → Integrations → SendGrid; the
+API key is stored encrypted there, not in Vercel). From-address: the business entity's sender
+(Settings → Companies) → the SendGrid connection's "Default from address" → for name and reply-to only,
+the default **Sender address** in Invoices → Configure. Every step lands on the invoice trace
+(`InvoiceEvent`): `invoice.sent|resent|reminder_sent` → `email.send_requested` → `email.accepted`
+(externalId = SendGrid `X-Message-Id`) or `email.rejected` (HTTP status + provider error) → provider
+events from the webhook (`email.processed|delivered|deferred|bounced|dropped|spam_report|unsubscribed|opened|clicked`)
+→ `invoice.viewed` when the client opens `/i/<token>` (bots, prefetches, HEAD and our own signed-in
+users excluded; at most one row per 30 min).
+
+Double sends: "Send invoice" is guarded by the draft → open claim; "Resend invoice" and "Send reminder"
+refuse a second identical email within 60 s unless the first was rejected (per-invoice advisory lock +
+trace check, `modules/email/sendGuard.ts`). A SendGrid timeout (15 s) is ambiguous; the trace says so
+and Resend stays allowed.
+
+### 10a. To configure (Dzuy)
+
+| Where | What |
+|---|---|
+| Vercel → Environment Variables (Production) | `APP_URL=https://track2.bigseabridge.com`. Invoice links are built from it; in production a missing/localhost/http APP_URL now **refuses** the send (traced as `email.rejected`) rather than mailing a dead link. |
+| same | `SENDGRID_WEBHOOK_PUBLIC_KEY` = the key from the step below (base64, as SendGrid shows it). Without it `/api/email/events` answers 503 and records nothing. Redeploy after setting. |
+| SendGrid → Settings → Mail Settings → Event Webhook | Create a webhook: **POST URL** `https://track2.bigseabridge.com/api/email/events`; events: Processed, Delivered, Deferred, Bounced, Dropped, Spam reports, Unsubscribes (+ Group unsubscribes), Opened, Clicked; **Signature verification: ON** → copy the verification key into `SENDGRID_WEBHOOK_PUBLIC_KEY`. Use "Test your integration" afterwards: SendGrid's test events have no `invoiceId`, so the route answers 200 with `ignored: N` (that is success). OAuth on the webhook: leave off. |
+| SendGrid → Settings → Tracking | **Click tracking: OFF** (the app also disables it per message, but turn it off globally so receipts/invites never get links rewritten through `sendgrid.net`). **Subscription tracking: OFF** (it adds an unsubscribe footer; invoices are transactional). Open tracking: ON is fine. Google Analytics tracking: OFF. |
+| SendGrid → Settings → Sender Authentication | **Authenticate each from-domain** (Domain Authentication, "automated security" ON, custom return path e.g. `em` → SendGrid generates `emXXXX.<domain>` CNAME + `s1._domainkey` / `s2._domainkey` CNAMEs). Domains: **bigsea.co** (Big Sea sender, e.g. `billing@bigsea.co`) and **cordelialabs.com** if Cordelia's company sender uses that domain. Single Sender Verification alone is not enough (no DKIM alignment → DMARC fails at Gmail/Yahoo/Microsoft). Link Branding: not needed while click tracking is off. |
+| DNS for each from-domain | Add the 3 CNAMEs SendGrid shows (em… / s1._domainkey / s2._domainkey) and press **Verify**. SPF: with automated security the `em…` CNAME carries SPF for the return path, so the root SPF does **not** need `include:sendgrid.net` (adding it is harmless; keep the root record under 10 DNS lookups and a single `v=spf1` record). DMARC: if `_dmarc.<domain>` is missing, add `v=DMARC1; p=none; rua=mailto:dmarc@<domain>; adkim=r; aspf=r`; after 2–4 weeks of clean reports move to `p=quarantine`. |
+| Invoices → Configure → Sender addresses / Settings → Companies | Each company's sender email must be on an authenticated domain; set a monitored reply-to (e.g. `billing@bigsea.co`) so client replies reach a person. |
+
+### 10b. DNS checks (could not run from the agent box: no outbound DNS)
+
+Run from any laptop and paste the answers into this section:
+```bash
+for d in bigsea.co cordelialabs.com; do
+  echo "== $d"; dig +short TXT $d | grep -i spf; dig +short TXT _dmarc.$d
+  dig +short CNAME s1._domainkey.$d; dig +short CNAME s2._domainkey.$d
+done
+dig +short CNAME em<NNNN>.bigsea.co   # the em… host SendGrid listed
+```
+Expect: one `v=spf1 … ~all|-all` record; a `v=DMARC1` record; `s1/s2._domainkey` → `s1.domainkey.uXXXX.wl.sendgrid.net`
+style targets. Then send a test invoice to a Gmail address, "Show original": SPF, DKIM and DMARC must all say
+**PASS** with `d=bigsea.co` (not `d=sendgrid.net`).
+
+### 10c. What the code does for deliverability (and why)
+- multipart: a plain-text part is always sent with the HTML; no image-only bodies; subject lines are plain
+  ("Invoice 1042 from Big Sea"), CR/LF stripped.
+- Links: only the APP_URL invoice link (`/i/<token>`); no shorteners; click tracking off per message
+  (`tracking_settings.click_tracking.enable=false`) so links aren't rewritten through `sendgrid.net`,
+  which mismatches the from-domain and looks like phishing in a payment email.
+- No `List-Unsubscribe` header and subscription tracking off: invoices, reminders and receipts are
+  transactional; an unsubscribe would let a client opt out of their own invoices and SendGrid would then
+  suppress future invoices to them. The Gmail/Yahoo one-click-unsubscribe rule targets bulk mail.
+- Recipients: every client contact flagged "invoices" with an email (de-duplicated), else the first contact
+  with an email. No PDF attachment (the email links to the online invoice, which has Print/PDF);
+  attachments raise spam scores and can't be revoked.
+- `custom_args { invoiceId, accountId, traceKind }` + categories `track2`, `invoice-<kind>` on every send.
+
+### 10d. Reading the trace when a client says "I never got it"
+`SELECT "occurredAt", stage, level, message, "externalId", "httpStatus" FROM "InvoiceEvent" WHERE "invoiceId" = '<id>' ORDER BY "occurredAt";`
+- no `email.accepted` → we never handed it to SendGrid (see `email.rejected` message: not connected, no recipient, 4xx).
+- `email.accepted` but no `email.delivered`/`email.bounced` → webhook not configured, or search SendGrid Activity by the message id (`externalId`).
+- `email.bounced` / `email.dropped` → fix the contact address (a dropped address is on SendGrid's suppression list:
+  SendGrid → Suppressions → remove it, then Resend). `email.spam_report` → call the client; SendGrid suppresses
+  them until removed.
+- `email.delivered` but no `email.opened`/`invoice.viewed` → it is in their spam/quarantine folder or unread.

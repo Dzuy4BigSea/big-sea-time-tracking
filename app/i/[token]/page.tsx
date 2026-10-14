@@ -12,6 +12,7 @@ import { InvoiceNotesText } from '@/components/InvoiceNotes'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
 import { effectiveOnlineMethods } from '@/modules/invoicing/onlinePayments'
 import { PrintButton } from '@/components/PrintButtons'
+import { recordInvoiceView } from '@/modules/invoicing/recordInvoiceView'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,8 +46,9 @@ export default async function PublicInvoicePage({
   // Only sent invoices are shareable. Drafts have no publicToken, so this also covers them.
   if (!invoice || invoice.status === 'draft') notFound()
 
-  // Record that the client opened the invoice (AC-INV-016). Fire-and-forget; never block the view.
-  void prisma.invoice.update({ where: { id: invoice.id }, data: { lastViewedAt: new Date() } }).catch(() => {})
+  // Record that the client opened the invoice (AC-INV-016) + trace invoice.viewed. Skips bots,
+  // prefetchers, HEAD requests and our own signed-in users ("Preview"). Never throws.
+  await recordInvoiceView(invoice)
 
   const effLabelEntityId = invoice.entityId ?? invoice.client.entityId ?? null
   const appearance = applyEntityBranding(await getInvoiceAppearance(invoice.accountId), invoice.entity)
