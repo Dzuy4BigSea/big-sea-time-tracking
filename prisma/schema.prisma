@@ -705,6 +705,12 @@ model Invoice {
   lastViewedAt DateTime?
   publicToken  String?   @unique
 
+  // Harvest "Accept online payments for this invoice" (specs/05 §Editing). Narrows the Stripe
+  // connection's methods for this invoice only (modules/invoicing/onlinePayments.ts).
+  acceptOnlinePayments Boolean @default(true)
+  allowCardPayments    Boolean @default(true)
+  allowAchPayments     Boolean @default(true)
+
   // Integration mapping ids (specs/14)
   xeroInvoiceId         String? @unique
   stripePaymentIntentId String? @unique

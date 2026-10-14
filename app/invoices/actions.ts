@@ -361,10 +361,14 @@ export async function duplicateInvoiceAction(formData: FormData): Promise<void> 
       tax2Percent: src.tax2Percent,
       taxCents: src.taxCents,
       totalCents: src.totalCents,
+      acceptOnlinePayments: src.acceptOnlinePayments,
+      allowCardPayments: src.allowCardPayments,
+      allowAchPayments: src.allowAchPayments,
       lineItems: {
         create: src.lineItems.map((li) => ({
           accountId,
           kind: li.kind,
+          itemTypeId: li.itemTypeId,
           description: li.description,
           quantity: li.quantity as unknown as Prisma.Decimal,
           unitPriceCents: li.unitPriceCents,
@@ -394,7 +398,7 @@ export async function deleteInvoiceAction(formData: FormData): Promise<void> {
     error = transitionErrorMessage(e, 'Could not delete the invoice.')
   }
   if (error) failTo(`/invoices/${invoiceId}`, error)
-  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'delete', summary: before?.number ? `Invoice ${before.number} deleted` : 'Draft deleted' })
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'invoice', entityId: invoiceId, action: 'delete', summary: before?.number ? `Invoice ${before.number} deleted` : 'Draft deleted', detail: before?.number ? { retiredNumber: before.number } : undefined })
   revalidatePath('/invoices')
   redirect('/invoices')
 }

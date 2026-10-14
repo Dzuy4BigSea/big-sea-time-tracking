@@ -6,6 +6,7 @@ import { PAYMENT_TERM_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { getInvoiceLabels } from '@/lib/invoiceLabels'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
+import { InvoiceNotesText } from '@/components/InvoiceNotes'
 import { AutoPrint } from '@/components/PrintButtons'
 
 export const dynamic = 'force-dynamic'
@@ -81,7 +82,7 @@ export default async function PrintInvoicePage({ params }: { params: { id: strin
       </div>
 
       {invoice.notes && (
-        <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">{L.notes}</div><div className="whitespace-pre-line">{invoice.notes}</div></div>
+        <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">{L.notes}</div><div className="whitespace-pre-line"><InvoiceNotesText text={invoice.notes} /></div></div>
       )}
       {invoice.terms && (
         <div className="mt-4 text-xs text-gray-500"><div className="mb-1 uppercase tracking-wide">Terms</div><div className="whitespace-pre-line">{invoice.terms}</div></div>
