@@ -315,3 +315,112 @@ have RLS on with no policies: `ApiToken`, `GoogleDriveGrant`, `ManagerAssignment
 keys) can't read them. If token creation or the claude.ai connector ever fails with a permission error,
 undo with `ALTER TABLE "<name>" DISABLE ROW LEVEL SECURITY;` for each table above. A read-only backup
 role needs `BYPASSRLS` (or use `postgres`) to dump these tables.
+
+## 10. Billing chain: trace, checks, tests
+
+The chain is: send invoice → email (SendGrid) → client opens → Stripe payment → payment recorded → Xero.
+Every step writes one `InvoiceEvent` row (`modules/observability/invoiceTrace.ts`, `recordInvoiceEvent`):
+stage, source (`app`, `email`, `client`, `stripe`, `xero`, `cron`), level (`info`/`warn`/`error`), message,
+provider ids, HTTP status, duration and a redacted `detail` JSON. A failed trace write never blocks the
+business action; provider webhook retries are de-duplicated on `(source, externalEventId)`.
+
+### Trace stages
+
+| Stage | Source | Written when |
+|---|---|---|
+| `invoice.sent` | app | Invoice sent (or re-sent / reminder) from Track2 |
+| `email.accepted` | email | SendGrid accepted the message (202); `externalId` = SendGrid message id |
+| `email.delivered` | email | SendGrid event webhook: the recipient's server accepted it |
+| `email.bounced` / `email.dropped` | email | Hard bounce, or SendGrid refused to send (suppression list, invalid address). Level error |
+| `email.spam_report` | email | The recipient marked it as spam. Level error |
+| `email.opened` | email | Open pixel fired (unreliable: Apple Mail prefetches, many clients block images) |
+| `invoice.viewed` | client | The client opened the public invoice link `/i/<token>` |
+| `payment.checkout_started` | client / stripe | Client clicked Pay; a Stripe Checkout Session was created |
+| `payment.webhook_received` | stripe | A Stripe webhook arrived and its signature verified |
+| `payment.recorded` / `payment.failed` | stripe | Payment written to Track2 / payment failed at Stripe |
+| `payment.refunded` / `payment.disputed` | stripe | Refund or dispute on a paid invoice |
+| `xero.invoice_synced` / `xero.payment_synced` | xero | Invoice / payment copied to Xero; `externalId` = Xero id |
+| `xero.error` | xero | Xero rejected a copy (validation, expired token, rate limit). Level error |
+| `health.<provider>` | cron / app | One row per health check result (see below); `externalId` = check key |
+| `health.alert` | cron | An alert email went to the admins for a failing check (dedupe marker) |
+
+The email, Stripe and Xero stages are written by their own modules; the exact list may grow.
+Unknown stages still show up in the trail and the log, they just don't feed the summary chips.
+
+### Reading the trail
+
+Invoice page → **Delivery & payment trail** (needs `manage_invoices`). Chips at the top summarise:
+**Email** (Delivered / Bounced / Spam report / Not yet delivered / Send failed), **Opened by client**
+(first open), **Paid via Stripe** (Paid / Failed / Checkout started / Refunded / Disputed), **Xero**
+(Synced / Error / Not synced); the latest relevant event wins (`modules/observability/invoiceTraceSummary.ts`).
+Below, events are newest first in the account timezone: grey = info, amber = warn, red = error. Click an
+external id to copy it; *Details* shows the redacted payload. Invoices sent before tracing existed have
+no trail.
+
+**Settings → Activity log** (`/settings/activity-log`, `edit_account_settings` or `manage_invoices`):
+every event for the account. Opens on **Problems** (warn + error, last 30 days); **All events** plus
+filters for level, source, stage prefix (`email.`, `payment.`, `xero.`, `health.`), date range (account
+timezone) and invoice number. 50 per page (keyset on `occurredAt, id`), level counts aggregated in the DB,
+each row links to its invoice, **Export CSV** downloads the filtered rows (up to 20,000).
+
+### Health checks
+
+`modules/observability/healthChecks.ts` (pure, fetch injected) + `healthRunner.ts` (loads credentials,
+records results, alerts). Read-only GETs, 10 s timeout each, per connection (per business entity):
+
+| Check | Calls | Error when |
+|---|---|---|
+| `sendgrid.api_key` | `GET /v3/scopes` | 401/403, or no `mail.send` scope |
+| `sendgrid.event_webhook` | `GET /v3/user/webhooks/event/settings` | disabled, or URL isn't `APP_URL/api/email/events` (warn: delivered/bounce/dropped/spam_report or open not ticked) |
+| `sendgrid.domain` | `GET /v3/whitelabel/domains` | a from-domain in use (connection default + entity senders) isn't authenticated/valid |
+| `stripe.account` | `GET /v1/account` | key rejected, `charges_enabled` false (warn: test key on production) |
+| `stripe.webhook` | `GET /v1/webhook_endpoints` | no enabled endpoint at `APP_URL/api/integrations/stripe/webhook/<accountId>` or `APP_URL/api/stripe/…`, or `checkout.session.completed` missing (warn: other required events missing) |
+| `xero.connection` | `GET https://api.xero.com/connections` | token rejected (expired → reconnect), or the configured tenant isn't connected |
+| `xero.organisation` | `GET /api.xro/2.0/Organisation` | 401/403/no organisation/not ACTIVE |
+| `internal.errors_24h` | DB | ≥10 error events in 24h (warn at ≥1) |
+| `internal.undelivered` | DB | an `email.accepted` >72h old (warn >24h, last 14 days) with no delivered/bounced/dropped since |
+| `internal.xero_payments` | DB | a `payment.recorded` >1h old (last 14 days) with no `xero.payment_synced` and no `Payment.xeroPaymentId`, when a Xero connection copies payments |
+
+A key that may send mail but not read settings gets a 403 on the webhook/domain checks: either grant
+it read access to Mail Settings and Sender Authentication, or treat those two as "verify by hand".
+The Xero check does not refresh tokens (a refresh rotates the stored refresh token, so it is not
+read-only); an expired access token shows as an error with a reconnect hint.
+
+**When they run:** daily inside the existing `/api/cron/timers` job (09:00 UTC; its JSON has a `health`
+field), on demand at `GET /api/cron/integrations-health` with `Authorization: Bearer $CRON_SECRET`
+(200 if no errors, 503 otherwise, so an uptime monitor can poll it), and from **Run checks now** on the
+Activity log page (admins; results inline, no email). No new `vercel.json` entry (Hobby cron limits).
+
+**Alerts:** an `error` result emails every active administrator via the SendGrid connection, at most once
+per 24h per check and connection (dedupe on the latest `health.alert` event with the same check key).
+If SendGrid itself is broken the alert can't be emailed; the `health.alert` row says so (level warn), and
+the cron route's 503 is the backstop.
+
+### Investigating a failure: where is the problem?
+
+1. Open the invoice's trail (or filter the Activity log by invoice number) and find the **last green step**.
+2. **Our end** (stage missing entirely, or an `app`-source error): no `invoice.sent` → the send action failed
+   before email (check Vercel function logs for the request); `email.accepted` missing after `invoice.sent`
+   → our call to SendGrid failed (the error event has the HTTP status). A Stripe payment visible in Stripe
+   but no `payment.webhook_received` → the webhook never reached us: run the checks (`stripe.webhook`),
+   then Stripe Dashboard → Developers → Webhooks → the endpoint's delivery attempts.
+3. **Email provider**: `email.accepted` but no outcome after 24h → SendGrid Activity feed for the message id
+   (copy it from the trail); `sendgrid.event_webhook` check. `email.bounced`/`dropped` → the detail has the
+   reason (bad address, suppression list); fix the client contact, remove the suppression in SendGrid,
+   resend. `email.spam_report` → contact the client another way; check domain authentication.
+4. **Payment processor**: `payment.failed` detail has Stripe's decline / failure code; the `externalId` is the
+   PaymentIntent or Checkout Session, searchable in the Stripe Dashboard. Refunds/disputes are handled in Stripe.
+5. **Xero**: `xero.error` detail has Xero's validation message (unknown account code, contact archived,
+   period locked, token expired). Fix in Xero or Settings → Integrations, then use **Copy to Xero** on the
+   invoice. `internal.xero_payments` lists payments that never made it.
+
+### Tests
+
+```bash
+npm run test:billing   # invoicing, payments, Stripe, Xero, email, observability, money, appUrl unit tests (DB-free)
+npm test               # everything; includes all of the above
+```
+`test:billing` is a vitest file filter (`invoic payment stripe xero email observability money appUrl`),
+so new test files in those areas are picked up automatically. Run it before any change to the billing
+chain. `ops/workflows/ci.yml` already runs `npm test` (which includes these) on every PR and push to
+`main`, but CI is parked (§2); re-enabling it is Dzuy's call.

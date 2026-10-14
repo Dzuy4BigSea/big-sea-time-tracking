@@ -17,6 +17,7 @@
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:billing": "vitest run invoic payment stripe xero email observability money appUrl",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "prisma": {

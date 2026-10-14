@@ -32,6 +32,8 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { ConfirmSubmit } from '@/components/ConfirmSubmit'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { listAudit } from '@/lib/audit'
+import { summarizeInvoiceTrace } from '@/modules/observability/invoiceTraceSummary'
+import { TraceEventList, TraceSummaryChips } from '@/components/TraceEventList'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,6 +57,16 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
   const BRAND = appearance.brandColor
   const fromName = invoice.entity?.name ?? invoice.account.name
   const activity = await listAudit(accountId, 'invoice', invoice.id)
+  // Delivery & payment trail (OPS.md "Billing chain"): newest first, index (accountId, invoiceId, occurredAt).
+  const traceEvents = canManage
+    ? await prisma.invoiceEvent.findMany({
+        where: { accountId, invoiceId: invoice.id },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: 200,
+        select: { id: true, occurredAt: true, stage: true, source: true, level: true, message: true, externalId: true, httpStatus: true, durationMs: true, detail: true },
+      })
+    : []
+  const traceChips = summarizeInvoiceTrace(traceEvents)
   const latest = activity[0]
 
   // The account's calendar day, so the badge and banner flip to Late on the same day (AC-STAT-001).
@@ -360,6 +372,21 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
           </ul>
         )}
       </div>
+
+      {/* Delivery & payment trail: every traced step of send → email → open → Stripe → Xero */}
+      {canManage && (
+        <div id="trail" className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">Delivery &amp; payment trail</h2>
+          <TraceSummaryChips chips={traceChips} timezone={invoice.account.timezone} />
+          {traceEvents.length ? (
+            <TraceEventList rows={traceEvents} timezone={invoice.account.timezone} />
+          ) : (
+            <p className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+              No delivery or payment events recorded for this invoice yet. Invoices sent before tracing was switched on have no trail.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Activity / history (spec 17) */}
       {activity.length > 0 && (
