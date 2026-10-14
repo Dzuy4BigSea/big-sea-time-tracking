@@ -23,8 +23,9 @@ export const maxDuration = 60
 
 const limiter = createTokenLimiter()
 
+// Header values must be ASCII (ByteString): no typographic quotes, arrows or ellipses here.
 const WWW_AUTHENTICATE =
-  'Bearer realm="Track2", error="invalid_token", error_description="Use a personal access token from Track2 › Settings › Personal access tokens (Authorization: Bearer track2_pat_…)"'
+  'Bearer realm="Track2", error="invalid_token", error_description="Use a personal access token from Track2 /settings/tokens (Authorization: Bearer track2_pat_...)"'
 
 function unauthorized() {
   return NextResponse.json(
@@ -34,7 +35,17 @@ function unauthorized() {
 }
 
 export async function POST(req: Request) {
-  const auth = await authenticateBearer(req.headers.get('authorization'))
+  let auth: Awaited<ReturnType<typeof authenticateBearer>>
+  try {
+    auth = await authenticateBearer(req.headers.get('authorization'))
+  } catch (e) {
+    // Database unreachable / waking up (specs/21): tell the client to retry rather than a bare 500.
+    console.error('[mcp] auth lookup failed', e)
+    return NextResponse.json(
+      { jsonrpc: '2.0', id: null, error: { code: RPC.INTERNAL_ERROR, message: 'Track2 is temporarily unavailable. Retry in a few seconds.' } },
+      { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } },
+    )
+  }
   if (!auth) return unauthorized()
 
   if (!limiter.take(auth.tokenId)) {

@@ -222,3 +222,19 @@ time). `drive.file` only reaches files the app creates. Store the refresh token 
 `lib/crypto.ts` (`INTEGRATION_ENC_KEY`), in a small new table (e.g. `UserGoogleCredential`: userId,
 accountId, encrypted refresh token, granted scopes, timestamps), revocable by the user. Exports then mint
 short-lived access tokens server-side and upload the file.
+
+## 9. MCP server and personal access tokens (specs/22)
+- **Endpoint:** `POST https://track2.bigseabridge.com/api/mcp` (Streamable HTTP, stateless JSON-RPC; `GET` → 405).
+  Not behind the login middleware (the matcher skips `/api/*`); auth is `Authorization: Bearer track2_pat_…`.
+- **Deploy:** run `prisma migrate deploy` so `20261014120000_api_tokens` creates `ApiToken` (idempotent, additive).
+  No new env vars.
+- **Tokens:** each person creates/revokes their own at **/settings/tokens** (sidebar → your name → *API tokens*).
+  Only the SHA-256 is stored; a token acts as its owner and every request re-reads `isActive`, profile and
+  overrides, so deactivating a person or revoking the token cuts access on the next call.
+- **Emergency revoke-all:** `UPDATE "ApiToken" SET "revokedAt" = now() WHERE "revokedAt" IS NULL;`
+  (one person: add `AND "userId" = '<id>'`).
+- **Audit:** every write tool call writes an `AuditLog` row with `entityType = 'api_token'`, `entityId` = token id,
+  actor = the user, `after.tool` / `after.args`. Domain rows (time entries, invoices) are written as usual.
+- **Limits:** 120 requests/minute per token per server instance (429 + `Retry-After`). A DB that is waking up
+  answers 503 + `Retry-After: 5`.
+- **Smoke test:** `curl -s -X POST …/api/mcp -H "Authorization: Bearer $T" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
