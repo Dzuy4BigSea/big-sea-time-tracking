@@ -27,9 +27,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function PersonBasicForm({
   person,
   entities = [],
+  timezones = [],
+  accountTimezone,
 }: {
-  person: { id: string; firstName: string; lastName: string; email: string; type: string; capacityHoursPerWeek: number | null; homeEntityId: string | null }
+  person: {
+    id: string
+    firstName: string
+    lastName: string
+    email: string
+    type: string
+    capacityHoursPerWeek: number | null
+    homeEntityId: string | null
+    employeeId?: string | null
+    roleTags?: string[]
+    timezone?: string | null
+  }
   entities?: EntityOption[]
+  /** IANA zones for the Timezone picker; the field is hidden when empty. */
+  timezones?: string[]
+  accountTimezone?: string
 }) {
   const [state, formAction] = useFormState<EditPersonState, FormData>(updatePersonBasicAction, {})
   return (
@@ -56,6 +72,24 @@ export function PersonBasicForm({
         </Field>
         <EntitySelect entities={entities} name="homeEntityId" defaultValue={person.homeEntityId} label="Home company" />
       </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Employee ID">
+          <input name="employeeId" defaultValue={person.employeeId ?? ''} className={`${input} w-32`} />
+        </Field>
+        {timezones.length > 0 && (
+          <Field label="Timezone">
+            <select name="timezone" defaultValue={person.timezone ?? ''} className={`${input} max-w-xs`}>
+              <option value="">Account default{accountTimezone ? ` (${accountTimezone})` : ''}</option>
+              {timezones.map((tz) => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </div>
+      <Field label="Roles (comma-separated)">
+        <input name="roles" defaultValue={(person.roleTags ?? []).join(', ')} placeholder="e.g. Design, Development" className={`${input} w-full`} />
+      </Field>
       <div className="flex items-center gap-3">
         <Save />
         {state.error && <span className="text-sm text-red-600">{state.error}</span>}

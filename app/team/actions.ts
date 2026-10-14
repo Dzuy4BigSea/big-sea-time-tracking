@@ -20,6 +20,7 @@ import {
 import { validEntityId } from '@/lib/entities'
 import { writeAudit } from '@/lib/audit'
 import { archiveError, canHoldAssignedPeople, cleanAssignIds } from '@/modules/team/teamOverview'
+import { parseEmployeeId, parseRoleTags, parseTimezone } from '@/modules/team/personBasic'
 
 export type NewPersonState = { error?: string; ok?: boolean }
 export type EditPersonState = { error?: string; ok?: boolean }
@@ -105,7 +106,13 @@ export async function updatePersonBasicAction(_prev: EditPersonState, formData: 
   const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!user) return { error: 'Person not found.' }
   const homeEntityId = await validEntityId(accountId, String(formData.get('homeEntityId') ?? ''))
-  await prisma.user.updateMany({ where: { id, accountId }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId } })
+  // Employee ID / Roles / Timezone (Harvest Basic info, specs/28 AC-TEAM-021). Only touched when the form sends them.
+  const extra = {
+    ...(formData.has('employeeId') ? { employeeId: parseEmployeeId(String(formData.get('employeeId') ?? '')) } : {}),
+    ...(formData.has('roles') ? { roleTags: parseRoleTags(String(formData.get('roles') ?? '')) } : {}),
+    ...(formData.has('timezone') ? { timezone: parseTimezone(String(formData.get('timezone') ?? '')) } : {}),
+  }
+  await prisma.user.updateMany({ where: { id, accountId }, data: { firstName, lastName, type, capacityHoursPerWeek, homeEntityId, ...extra } })
   revalidatePath(`/team/${id}`)
   revalidatePath('/team')
   return { ok: true }

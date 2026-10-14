@@ -35,6 +35,7 @@ import {
 } from '@/app/team/actions'
 import { MultiCombobox } from '@/components/MultiCombobox'
 import { assignableToManager, canHoldAssignedPeople } from '@/modules/team/teamOverview'
+import { timezoneOptions } from '@/modules/team/personBasic'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,6 +89,7 @@ export default async function TeamMemberPage({
       select: {
         id: true, firstName: true, lastName: true, email: true, type: true,
         capacityHoursPerWeek: true, homeEntityId: true, isActive: true, assignedToAllProjects: true,
+        employeeId: true, roleTags: true, timezone: true,
         permissionProfile: true, permissionOverrides: true,
         homeEntity: { select: { code: true, name: true } },
       },
@@ -248,8 +250,11 @@ export default async function TeamMemberPage({
                 id: person.id, firstName: person.firstName, lastName: person.lastName, email: person.email,
                 type: person.type, capacityHoursPerWeek: person.capacityHoursPerWeek ? Number(person.capacityHoursPerWeek) : null,
                 homeEntityId: person.homeEntityId,
+                employeeId: person.employeeId, roleTags: person.roleTags, timezone: person.timezone,
               }}
               entities={entityOpts}
+              timezones={timezoneOptions()}
+              accountTimezone={clock.timezone}
             />
           )}
 
