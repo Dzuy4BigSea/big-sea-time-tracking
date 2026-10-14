@@ -10,7 +10,7 @@
  * after its assignments commit, so a re-run skips completed projects. Rate-limited for Harvest's
  * 100-req / 15s cap; fresh DB connection every N projects so no connection goes stale on a long run.
  *
- * Requires env: DATABASE_URL, INTEGRATION_ENC_KEY (same as Vercel). Optional: ACCOUNT_ID.
+ * Requires env: DATABASE_URL, and INTEGRATION_ENC_KEY (same as Vercel) or HARVEST_TOKEN. Optional: ACCOUNT_ID.
  * Upserts OVERWRITE Track2 assignment rates / PM flags with Harvest's, so (go-live guard) it is a DRY RUN
  * unless --apply is passed, and MIGRATION_LOCKED=1 refuses --apply.
  * Usage: INTEGRATION_ENC_KEY=... node --env-file=.env scripts/sync-assignments.mjs [--apply]
@@ -20,7 +20,10 @@ import { createDecipheriv, createHash } from 'node:crypto'
 import { assertNotLocked } from './lib/guards.mjs'
 
 const ENC_KEY = process.env.INTEGRATION_ENC_KEY
-if (!ENC_KEY || ENC_KEY.length < 16) { console.error('Set INTEGRATION_ENC_KEY.'); process.exit(1) }
+// HARVEST_TOKEN (a Harvest personal access token) can stand in for the stored, encrypted one, e.g. when
+// INTEGRATION_ENC_KEY is a Vercel "Sensitive" variable that can't be copied out.
+const HARVEST_TOKEN = process.env.HARVEST_TOKEN?.trim() || null
+if (!HARVEST_TOKEN && (!ENC_KEY || ENC_KEY.length < 16)) { console.error('Set INTEGRATION_ENC_KEY (or HARVEST_TOKEN).'); process.exit(1) }
 const DRY = !process.argv.includes('--apply') // --dry kept as a no-op alias for the old flag
 if (!DRY) assertNotLocked('sync-assignments --apply')
 const HARVEST_API = 'https://api.harvestapp.com/v2'
@@ -63,7 +66,7 @@ async function pullAll(token, acct, path, key) {
 let p = new PrismaClient()
 const conn = await p.integrationConnection.findFirst({ where: { provider: 'harvest', status: 'connected' } })
 if (!conn) { console.error('No connected Harvest integration.'); await p.$disconnect(); process.exit(1) }
-const token = decrypt(conn.secretsEnc.accessToken)
+const token = HARVEST_TOKEN ?? decrypt(conn.secretsEnc.accessToken)
 const acct = String(conn.config.harvestAccountId)
 const accountId = process.env.ACCOUNT_ID || conn.accountId
 

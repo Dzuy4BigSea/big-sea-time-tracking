@@ -27,13 +27,15 @@ export function BackupRunner({ connected, hasCompleteBackup, running, locked = f
   const [error, setError] = useState<string | null>(null)
   // A ref the running loop checks each iteration so "Pause" can stop it cleanly.
   const stopRef = useRef(false)
+  // Optional start day for Incremental (blank = since the last clean pull).
+  const [since, setSince] = useState('')
 
   const drive = useCallback(
-    async (first: { snapshotId?: string; mode?: string }) => {
+    async (first: { snapshotId?: string; mode?: string; since?: string }) => {
       setActive(true)
       setError(null)
       stopRef.current = false
-      let next: { snapshotId?: string; mode?: string } = first
+      let next: { snapshotId?: string; mode?: string; since?: string } = first
       // Loop one batch at a time until the backup is no longer "running" (or the user pauses).
       // Each batch is a fresh server round-trip, so this survives the serverless per-request cap.
       // eslint-disable-next-line no-constant-condition
@@ -98,12 +100,23 @@ export function BackupRunner({ connected, hasCompleteBackup, running, locked = f
             </button>
             <button
               disabled={!connected || !hasCompleteBackup || locked}
-              onClick={() => drive({ mode: 'incremental' })}
+              onClick={() => drive({ mode: 'incremental', since: since || undefined })}
               title={locked ? 'Migration is locked (MIGRATION_LOCKED=1)' : !hasCompleteBackup ? 'Run a full backup first' : ''}
               className="rounded border border-brand-green px-4 py-1.5 text-sm font-medium text-brand-green hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Incremental (delta since last)
+              {since ? `Incremental (changes since ${since})` : 'Incremental (delta since last)'}
             </button>
+            <label className="flex items-center gap-1.5 text-xs text-gray-500" title="Leave blank for changes since the last pull. Pick an earlier day to re-pull everything Harvest changed since then (e.g. the original import date) in one snapshot.">
+              from
+              <input
+                type="date"
+                value={since}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setSince(e.target.value)}
+                disabled={!connected || !hasCompleteBackup || locked}
+                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700"
+              />
+            </label>
           </>
         )}
 
