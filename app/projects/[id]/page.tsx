@@ -10,6 +10,8 @@ import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { defaultPeriodFor, resolveTimeframe, timeframeQuery, endExclusive, buildHref, type Timeframe, type WeekStart } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayIn } from '@/lib/tz'
 import { fixedFeeStatus } from '@/modules/invoicing/fixedFee'
 import {
   PROJECT_TYPE_LABEL, projectDateRange, budgetSummary, billableRatesMissing, initials, rollup, isBillableTask, preTaxCents,
@@ -537,7 +539,7 @@ async function InvoicesTab({
   const end = endExclusive(tf) // createdAt is a timestamp, so compare against the day after `till`
   const range = { ...(tf.from ? { gte: tf.from } : {}), ...(end ? { lt: end } : {}) }
   const bounded = Boolean(tf.from || tf.till)
-  const [invoices, modules] = await Promise.all([
+  const [invoices, modules, clock] = await Promise.all([
     prisma.invoice.findMany({
       where: {
         accountId,
@@ -552,7 +554,10 @@ async function InvoicesTab({
       take: 100,
     }),
     getModules(accountId),
+    getAccountClock(accountId),
   ])
+  // Late badge uses the account's calendar day (specs/27 AC-STAT-001), not the server's UTC day.
+  const today = todayIn(clock.timezone, now)
   // "Paid on" = the latest payment date of a paid invoice (one grouped query for the listed invoices).
   const paidIds = invoices.filter((i) => i.status === 'paid').map((i) => i.id)
   const paidOn = paidIds.length
@@ -586,7 +591,7 @@ async function InvoicesTab({
           </thead>
           <tbody>
             {invoices.map((i) => {
-              const badge = displayBadge({ status: i.status as StoredStatus, sentAt: i.sentAt, dueDate: i.dueDate, totalCents: i.totalCents, paidCents: i.paidCents }, now)
+              const badge = displayBadge({ status: i.status as StoredStatus, sentAt: i.sentAt, dueDate: i.dueDate, totalCents: i.totalCents, paidCents: i.paidCents }, today)
               return (
                 <tr key={i.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>{BADGE_LABEL[badge]}</span></td>
