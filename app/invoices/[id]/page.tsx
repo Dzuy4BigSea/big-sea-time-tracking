@@ -1,14 +1,18 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { displayBadge, isPastDue, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { todayIn } from '@/lib/tz'
-import { deriveStatusBanner, type BannerTone } from '@/modules/invoicing/statusBanner'
-import { formatCents, formatDate } from '@/lib/format'
+import { deriveStatusBanner, balanceNote } from '@/modules/invoicing/statusBanner'
+import { InvoiceStamp } from '@/components/InvoiceStamp'
+import { formatCents, formatDate, formatDateTimeAt } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { ymd } from '@/lib/week'
 import { RecordPaymentForm } from '@/components/RecordPaymentForm'
 import { InvoiceLineItems } from '@/components/InvoiceLineItems'
+import { InvoiceNotesText } from '@/components/InvoiceNotes'
+import { CopyInvoiceLinkButton } from '@/components/CopyInvoiceLinkButton'
+import { DropdownMenu } from '@/components/DropdownMenu'
 import {
   sendInvoiceAction,
   markDraftAction,
@@ -79,6 +83,19 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
     },
     today,
   )
+  const note = balanceNote(banner)
+
+  // "This invoice is linked to the project …" (Harvest) — the projects its lines are linked to.
+  const linkedProjectIds = [...new Set(invoice.lineItems.map((li) => li.linkedProjectId).filter((x): x is string => !!x))]
+  const linkedProjects = linkedProjectIds.length
+    ? await prisma.project.findMany({ where: { accountId, id: { in: linkedProjectIds } }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+    : []
+
+  const isOpen = invoice.status === 'open'
+  const hasPublicLink = !!invoice.publicToken && invoice.status !== 'draft'
+  const editable = invoice.status === 'draft' || isOpen
+  const btn = 'rounded border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50'
+  const primary = 'rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90'
 
   return (
     <div>
@@ -86,7 +103,8 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
         ← Back to Invoices
       </Link>
 
-      <div className="mb-4 mt-2 flex items-center gap-3">
+      {/* Title row (Harvest): "Invoice 392631" + status pill + "View on Xero"; Preview / PDF / Print on the right */}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">Invoice {invoice.number ?? <span className="text-gray-400">(draft)</span>}</h1>
         <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>
           {BADGE_LABEL[badge]}
@@ -96,126 +114,143 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
             {invoice.entity.code}
           </span>
         )}
-        <div className="ml-auto text-right">
-          <div className="text-xs uppercase tracking-wide text-gray-400">Balance</div>
-          <div className="text-xl font-semibold">{formatCents(due, cur)}</div>
+        {invoice.xeroInvoiceId && (
+          <a
+            href={`https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(invoice.xeroInvoiceId)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-600 hover:border-brand-teal hover:text-brand-teal"
+          >
+            View on Xero ↗
+          </a>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {hasPublicLink && (
+            <a href={`/i/${invoice.publicToken}`} target="_blank" rel="noopener noreferrer" className={btn} title="See the invoice as your client does">
+              Preview
+            </a>
+          )}
+          <a href={`/print/${invoice.id}`} target="_blank" rel="noopener noreferrer" className={btn} title="Opens the print view — choose “Save as PDF”">
+            PDF
+          </a>
+          <a href={`/print/${invoice.id}`} target="_blank" rel="noopener noreferrer" className={btn}>
+            Print
+          </a>
         </div>
       </div>
 
-      {/* Status banner (BugHerd #14): big, color-coded, front and center */}
-      <div
-        role="status"
-        className={`mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg border-l-4 px-5 py-4 ${BANNER_STYLES[banner.tone]}`}
-      >
-        <div className="text-xl font-semibold">{banner.headline}</div>
-        <div className="text-sm opacity-90">{banner.detail}</div>
-      </div>
+      {latest && (
+        <p className="mt-2 text-sm text-gray-500">
+          Latest activity: <span className="text-gray-700">{latest.summary}.</span>
+          {latest.actorName ? ` ${latest.actorName}` : ''} on {formatDateTimeAt(latest.createdAt, invoice.account.timezone)}
+          {' '}
+          <a href="#history" className="ml-1 text-brand-teal hover:underline">View history</a>
+        </p>
+      )}
+
+      {linkedProjects.length > 0 && (
+        <p className="mt-1 flex flex-wrap items-center gap-1 text-sm text-gray-500">
+          <span aria-hidden="true">🔗</span>
+          This invoice is linked to the project{linkedProjects.length > 1 ? 's' : ''}{' '}
+          {linkedProjects.map((p, i) => (
+            <span key={p.id}>
+              <Link href={`/projects/${p.id}`} className="text-brand-teal hover:underline">{p.name}</Link>
+              {i < linkedProjects.length - 2 ? ', ' : i === linkedProjects.length - 2 ? ' and ' : ''}
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
       {searchParams?.error && (
-        <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div role="alert" className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {searchParams.error}
         </div>
       )}
 
-      {latest && (
-        <p className="mb-4 text-sm text-gray-500">
-          Latest activity: <span className="text-gray-700">{latest.summary}</span>
-          {latest.actorName ? ` · ${latest.actorName}` : ''} · {formatDate(latest.createdAt)}
-          {activity.length > 1 && (
-            <>
-              {' · '}
-              <a href="#history" className="text-brand-teal hover:underline">View history</a>
-            </>
-          )}
-        </p>
-      )}
-
-      {/* Action bar */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {invoice.status === 'draft' ? (
+      {/* Action row (Harvest): primary send/reminder, Copy invoice link, Edit, Actions ▾ … Balance + Record payment */}
+      <div className="mb-4 mt-4 flex flex-wrap items-center gap-2">
+        {invoice.status === 'draft' && (
           <form action={sendInvoiceAction}>
             <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Send invoice</button>
+            <button className={primary}>Send invoice</button>
           </form>
-        ) : (
-          <form action={resendInvoiceAction}>
+        )}
+        {isOpen && (
+          <form action={sendReminderAction}>
             <input type="hidden" name="invoiceId" value={invoice.id} />
-            <button className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90">Resend invoice</button>
+            <button className={primary}>Send reminder</button>
           </form>
         )}
 
-        {invoice.status !== 'paid' && invoice.status !== 'written_off' && invoice.status !== 'closed' && (
-          <a
-            href={`/invoices/${invoice.id}/edit`}
-            className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
+        {hasPublicLink && <CopyInvoiceLinkButton path={`/i/${invoice.publicToken}`} className={btn} />}
+
+        {editable && (
+          <a href={`/invoices/${invoice.id}/edit`} className={btn}>
             Edit invoice
           </a>
         )}
 
-        <a
-          href={`/print/${invoice.id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        <DropdownMenu
+          label={
+            <>
+              Actions <span className="text-xs">▾</span>
+            </>
+          }
+          summaryClassName={`flex cursor-pointer list-none items-center gap-1 ${btn}`}
+          menuClassName="absolute left-0 z-20 mt-1 w-56 overflow-hidden rounded-md border border-gray-200 bg-white py-1 text-left shadow-lg"
         >
-          Print / PDF ↗
-        </a>
+          {(isOpen || invoice.status === 'paid') && <MenuForm action={resendInvoiceAction} invoiceId={invoice.id} label="Resend invoice" />}
+          {isOpen && <MenuForm action={markDraftAction} invoiceId={invoice.id} label="Mark as draft" />}
+          {(isOpen || invoice.status === 'paid') && <MenuForm action={copyToXeroAction} invoiceId={invoice.id} label="Copy to Xero" />}
+          <MenuForm action={duplicateInvoiceAction} invoiceId={invoice.id} label="Duplicate" />
+          {invoice.lineItems.length > 0 && <MenuForm action={createRecurringFromInvoiceAction} invoiceId={invoice.id} label="Create recurring" />}
+          {/* No per-invoice reminder schedule exists yet; this opens the account's reminder email wording. */}
+          {isOpen && (
+            <Link href="/invoices/configure?section=messages" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              Set up reminder email
+            </Link>
+          )}
+          {(isOpen || invoice.status === 'written_off' || invoice.status === 'draft') && <div className="my-1 border-t border-gray-100" />}
+          {isOpen && <MenuForm action={writeOffInvoiceAction} invoiceId={invoice.id} label="Write off invoice" danger />}
+          {invoice.status === 'written_off' && <MenuForm action={reopenInvoiceAction} invoiceId={invoice.id} label="Re-open invoice" />}
+          {invoice.status === 'draft' && <MenuForm action={deleteInvoiceAction} invoiceId={invoice.id} label="Delete" danger />}
+          {isOpen && (
+            <form action={deleteInvoiceAction}>
+              <input type="hidden" name="invoiceId" value={invoice.id} />
+              <ConfirmSubmit
+                message={`Delete invoice ${invoice.number ?? ''}? This releases its billed time/expenses back to the uninvoiced pool.`}
+                className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+              >
+                Delete
+              </ConfirmSubmit>
+            </form>
+          )}
+        </DropdownMenu>
 
-        {invoice.publicToken && invoice.status !== 'draft' && (
-          <a
-            href={`/i/${invoice.publicToken}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            View client link ↗
-          </a>
-        )}
-
-        {/* Actions ▾ dropdown (spec 17) — a JS-free <details> menu */}
-        <details className="relative">
-          <summary className="flex cursor-pointer list-none items-center gap-1 rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            Actions <span className="text-xs">▾</span>
-          </summary>
-          <div className="absolute left-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
-            {invoice.status === 'open' && isPastDue(invoice.dueDate, today) && (
-              <MenuForm action={sendReminderAction} invoiceId={invoice.id} label="Send payment reminder" />
-            )}
-            {invoice.status === 'open' && <MenuForm action={markDraftAction} invoiceId={invoice.id} label="Mark as draft" />}
-            {(invoice.status === 'open' || invoice.status === 'paid') && (
-              <MenuForm action={copyToXeroAction} invoiceId={invoice.id} label="Copy to Xero" />
-            )}
-            <MenuForm action={duplicateInvoiceAction} invoiceId={invoice.id} label="Duplicate" />
-            {invoice.lineItems.length > 0 && (
-              <MenuForm action={createRecurringFromInvoiceAction} invoiceId={invoice.id} label="Create recurring" />
-            )}
-            {invoice.status === 'open' && (
-              <MenuForm action={writeOffInvoiceAction} invoiceId={invoice.id} label="Write off invoice" danger />
-            )}
-            {invoice.status === 'written_off' && (
-              <MenuForm action={reopenInvoiceAction} invoiceId={invoice.id} label="Re-open invoice" />
-            )}
-            {invoice.status === 'draft' && (
-              <MenuForm action={deleteInvoiceAction} invoiceId={invoice.id} label="Delete draft" danger />
-            )}
-            {invoice.status === 'open' && (
-              <form action={deleteInvoiceAction}>
-                <input type="hidden" name="invoiceId" value={invoice.id} />
-                <ConfirmSubmit
-                  message={`Delete invoice ${invoice.number ?? ''}? This releases its billed time/expenses back to the uninvoiced pool.`}
-                  className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                >
-                  Delete invoice
-                </ConfirmSubmit>
-              </form>
-            )}
+        <div className="ml-auto flex items-center gap-3">
+          {/* The status itself is the stamp on the invoice below (BugHerd #14); the stamp's tooltip keeps the full detail. */}
+          <div role="status" className="text-sm text-gray-700">
+            Balance: <span className="font-semibold">{formatCents(due, cur)}</span>
+            {note && <span className={`ml-1 ${note.late ? 'font-medium text-red-600' : 'text-gray-500'}`}>{note.text}</span>}
           </div>
-        </details>
+          {isOpen && (
+            <details className="relative" data-record-payment="">
+              <summary className={`list-none cursor-pointer ${btn}`}>Record payment</summary>
+              <div className="absolute right-0 z-20 mt-1 w-[30rem] max-w-[calc(100vw-2rem)] shadow-lg">
+                <RecordPaymentForm invoiceId={invoice.id} defaultDate={ymd(new Date())} dueLabel={formatCents(due, cur)} />
+              </div>
+            </details>
+          )}
+        </div>
       </div>
 
       {/* Rendered invoice document */}
-      <div className="rounded-lg border border-gray-200 bg-white p-8">
+      <div className="relative rounded-lg border border-gray-200 bg-white p-8">
+        {/* Harvest-style status stamp over the document */}
+        <div className="absolute left-1/2 top-8 -translate-x-1/2">
+          <InvoiceStamp kind={banner.kind} title={`${banner.headline} · ${banner.detail}`} />
+        </div>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             {appearance.logoFileUrl && (
@@ -291,7 +326,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
         {invoice.notes && (
           <div className="mt-8 border-t border-gray-200 pt-4 text-xs text-gray-500">
             <div className="mb-1 uppercase tracking-wide">Notes</div>
-            <div className="whitespace-pre-line">{invoice.notes}</div>
+            <div className="whitespace-pre-line"><InvoiceNotesText text={invoice.notes} /></div>
           </div>
         )}
       </div>
@@ -299,11 +334,6 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       {/* Payments */}
       <div className="mt-6">
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Payments</h2>
-        {invoice.status === 'open' && (
-          <div className="mb-3">
-            <RecordPaymentForm invoiceId={invoice.id} defaultDate={ymd(new Date())} dueLabel={formatCents(due, cur)} />
-          </div>
-        )}
         {invoice.payments.length === 0 ? (
           <p className="text-sm text-gray-400">No payments recorded.</p>
         ) : (
@@ -351,16 +381,6 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       )}
     </div>
   )
-}
-
-/** Harvest status colors (AC-UI-003): gray Draft, blue Sent, red Late, green Paid; muted for written off / closed. */
-const BANNER_STYLES: Record<BannerTone, string> = {
-  neutral: 'border-gray-400 bg-gray-100 text-gray-800',
-  info: 'border-blue-500 bg-blue-50 text-blue-800',
-  warning: 'border-amber-500 bg-amber-50 text-amber-800',
-  danger: 'border-red-500 bg-red-50 text-red-800',
-  success: 'border-brand-green bg-green-50 text-green-800',
-  muted: 'border-gray-300 bg-gray-50 text-gray-600',
 }
 
 function MenuForm({

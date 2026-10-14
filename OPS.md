@@ -306,3 +306,12 @@ short-lived access tokens server-side and upload the file.
 - **Audit:** consent → `entityType = 'oauth_client'`; tool writes and disconnects → `'oauth_grant'` (entityId = grant id).
 - **Housekeeping (optional, monthly):** `DELETE FROM "OAuthAuthorizationCode" WHERE "createdAt" < now() - interval '1 day';`
   and `DELETE FROM "OAuthClient" c WHERE "createdAt" < now() - interval '7 days' AND NOT EXISTS (SELECT 1 FROM "OAuthGrant" g WHERE g."clientId" = c.id);`
+
+## 9b. Row Level Security on the PR #7 tables (applied 2026-10-14)
+The PR #7 migrations were applied in the Supabase SQL editor with **Run and enable RLS**, so these tables
+have RLS on with no policies: `ApiToken`, `GoogleDriveGrant`, `ManagerAssignment`, `TeamPin`,
+`OAuthClient`, `OAuthAuthorizationCode`, `OAuthGrant`, `OAuthToken`. Track2 connects as the table owner
+(`postgres`), which bypasses RLS, so the app is unaffected; Supabase's public API (anon/authenticated
+keys) can't read them. If token creation or the claude.ai connector ever fails with a permission error,
+undo with `ALTER TABLE "<name>" DISABLE ROW LEVEL SECURITY;` for each table above. A read-only backup
+role needs `BYPASSRLS` (or use `postgres`) to dump these tables.
