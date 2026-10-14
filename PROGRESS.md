@@ -111,7 +111,51 @@ Goal: match Harvest's UI and behavior. Per-item status is in [specs/23](specs/23
 - The BugHerd API (`www.bugherd.com`, `BUGHERD_API_KEY`) is reachable from cloud sessions as of 2026-10-12. Python's default user agent gets a Cloudflare 403, so use curl or set a User-Agent. track2.bigseabridge.com and *.vercel.app may still be blocked; add them under Allowed domains to let Claude check pages itself.
 - There's no prod DB access, so anything touching data (migrations, scripts, renames) is done by hand in Supabase or locally.
 
-### ⏳ In progress: Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
+### ▶ Harvest → Track2 sync: where it stands (2026-10-14, end of day)
+Everything now runs **without a local machine**: in-app steps on Settings → Migrate, scripts via GitHub →
+Actions → **"Migration script (manual)"** → Run workflow (choose script; leave **apply** unticked = dry run).
+Claude can trigger that workflow and read its logs from a cloud session.
+
+**Done today**
+- PRs merged: #9 billing chain + invoice trace, #10 "Discard unfinished backup" + manual migration workflow,
+  #11 read-only `parity-check`, `HARVEST_TOKEN` fallback, **Incremental from a chosen date**.
+- The 10/13 full backup that stalled was marked `error` (it hid the Incremental button).
+- **Database password was reset.** Vercel `DATABASE_URL` = Supabase **Transaction pooler, IPv4/shared pooler**
+  (`postgres.<ref>@aws-…pooler.supabase.com:6543`) + `?pgbouncer=true&connection_limit=5&pool_timeout=20`.
+  The new password is in Dzuy's password manager. Do **not** use the "Direct"/"Dedicated pooler"
+  (`db.<ref>.supabase.co`) string: it's IPv6-only and took the app down for a few minutes.
+- GitHub secret `DATABASE_URL` = **Session pooler** string (port 5432). Verified: the dry run connected.
+- Incremental **from 2026-08-06** (21,554 rows) → Preview (0 errors) → **Apply import** done: 4 clients, 20 projects
+  (15 + 5 under the new clients), 1 person (Amber Stansfield), 91 new + 128 updated invoices. This pulls in the
+  people/projects from the 9/30 and 10/07 deltas that were never imported (the importer only applies the newest snapshot).
+
+**`rebuild-timesheets` dry run (before today's import), production**
+- 2013–2025: Track2 matches Harvest exactly (entries and hours).
+- 2026: Harvest 26,939 entries / 26,046.7 h vs Track2 21,367 / 20,526.1 h → +5,572 entries / +5,520.6 h to bring in.
+- 468 entries were unmappable (19 projects + Amber missing) → fixed by the import above; re-check.
+- **Go-live guard:** 1,121 entries sit on **one test draft invoice** (no number, created in Track2 2026-08-08,
+  561.5 h, not from Harvest). Guard counts them as invoiced + edited, so `--apply` refuses.
+
+**Next steps (in order)**
+1. **Delete that test draft** in the app: Invoices → Drafts → the Aug 8 draft with no number (561.5 h) →
+   Actions → Delete (releases the 1,121 entries). Not done yet as of this note.
+2. Re-run the dry run (workflow: `rebuild-timesheets`, apply unticked). Expect: skipped ≈ 0, "on Track2 invoices" = 0.
+   "edited in Track2" will still show ~1,121 (releasing the draft bumps their updatedAt).
+3. Those are unkeyed bulk-import rows that the rebuild replaces with exact Harvest copies, so the write needs
+   `--force-after-go-live`. **Dzuy must approve this explicitly**; adding the flag to the workflow was blocked by
+   Claude's permission check pending that approval. Then run with apply.
+4. Verify: Track2 home "Time summary" must equal Harvest for closed periods: **last month (Sept) 2,603.80 h**,
+   **last week (Oct 5–11) 575.98 h** (Harvest reports, pulled 2026-10-14; weeks start Monday, America/New_York
+   on both). "Today/this week/this month" lag Harvest until the next pull.
+5. Add GitHub secret `HARVEST_TOKEN` (Harvest → Developers → personal access token), delete the bad
+   `INTEGRATION_ENC_KEY` GitHub secret (it holds the literal text, not the key; the real key is a Vercel *Sensitive*
+   var and can't be copied), then run `parity-check` (read-only, full Harvest ↔ Track2 report) and
+   `sync-assignments` (dry run → apply).
+6. Note: the 2026-10-14 pull had exactly 21,000 time entries; per_page is 2000 (10.5 pages), so not a cap, but
+   confirm via step 4/parity-check.
+7. Future syncs: Incremental → Preview → Apply in the app (time upserts by `harvestId` once step 3 has run).
+
+### (history) Harvest → Track2 update sync (started 2026-09-29; code done 2026-10-07)
 Catching up Harvest changes since the Aug 6–7 import. **All the code is built; what's left is running it against production** (needs the prod `DATABASE_URL`, so it can't be done from a cloud Claude session).
 - **2026-09-30:** the in-app Incremental button is unlocked (it deltas from the last finished full backup; an estimates-only 403 counts as clean, [modules/migration/deltaSince.ts](modules/migration/deltaSince.ts)).
 - **2026-10-07:** time entries are now keyed by `TimeEntry.harvestId` (unique per account; migration `20261007120000_time_entry_harvest_id` applied). [scripts/rebuild-timesheets.mjs](scripts/rebuild-timesheets.mjs) composes the full snapshot + every delta (newest `updated_at` wins), replaces each year with keyed rows in one transaction, never touches Track2-native entries, and writes the `time_harvest_ids` marker when done. After that, the importer's time stage upserts by `harvestId` instead of skipping.

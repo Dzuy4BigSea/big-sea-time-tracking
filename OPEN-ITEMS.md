@@ -10,8 +10,8 @@ apply to new deployments.
 - [x] `APP_URL=https://track2.bigseabridge.com` (Production). Done 2026-10-14.
 - [ ] **`CRON_SECRET`**: Environment Variables → Add New → any long random string → **Production only**.
   Turns on recurring invoices and the 12-hour timer auto-stop (Vercel sends it to the crons in `vercel.json`).
-- [ ] **Connection pool**: edit `DATABASE_URL`, change `connection_limit=1` to
-  `connection_limit=5&pool_timeout=20` (don't add a second `connection_limit`).
+- [x] **Connection pool**: `DATABASE_URL` now ends `?pgbouncer=true&connection_limit=5&pool_timeout=20`
+  (Transaction pooler, IPv4 shared pooler). Done 2026-10-14 with the database password reset.
 - [ ] **Fluid Compute**: Settings → Functions → Fluid Compute → on.
 - [ ] **Keep production secrets out of previews**: set `DATABASE_URL`, `DIRECT_URL` (if present),
   `AUTH_SECRET`, `INTEGRATION_ENC_KEY`, `CRON_SECRET` to **Production only**. Then add a Preview-only
@@ -63,6 +63,13 @@ Without these the code works, but parts of the trail stay empty. Steps in OPS.md
 - [ ] After the above: Settings → Activity log → **Run checks now**; every row should be green.
 - [ ] Production smoke test: send a $1 invoice to yourself, open it, pay by card, and check the
   invoice's "Delivery & payment trail" shows Delivered · Opened · Paid · Xero synced.
+
+## 2c. Harvest sync in progress (see PROGRESS.md "Harvest → Track2 sync: where it stands")
+- [ ] Delete the Aug 8 test draft invoice (561.5 h, no number).
+- [ ] Time-entry rebuild: dry run → approve `--force-after-go-live` → apply (GitHub Actions workflow).
+- [ ] Check Time summary vs Harvest: Sept 2,603.80 h, week of Oct 5–11 575.98 h.
+- [ ] GitHub secrets: add `HARVEST_TOKEN`, delete the bad `INTEGRATION_ENC_KEY`; then `parity-check` and `sync-assignments`.
+- [ ] Revoke the `HARVEST_TOKEN` personal access token after cutover.
 
 ## 3. Decisions (Dzuy, after the cost review)
 - [ ] **Vercel plan**: Hobby is for non-commercial use; Pro allows commercial use and hourly crons.
