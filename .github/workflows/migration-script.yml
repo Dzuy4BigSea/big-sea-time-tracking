@@ -1,0 +1,62 @@
+name: Migration script (manual)
+
+# Runs one Harvest → Track2 migration script against production, on demand only (no schedule, no
+# push trigger). Dry run unless "apply" is ticked. See MIGRATION-RUNBOOK.md (time entries + roster).
+# Needs repository secrets DATABASE_URL (Supabase session pooler, port 5432) and INTEGRATION_ENC_KEY
+# (same value as Vercel; only sync-assignments uses it, to read the stored Harvest token).
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Script to run
+        type: choice
+        options:
+          - rebuild-timesheets
+          - sync-assignments
+        default: rebuild-timesheets
+      apply:
+        description: Write changes (unticked = dry run)
+        type: boolean
+        default: false
+
+# One migration run at a time; never cancel a run that may be mid-write.
+concurrency:
+  group: migration-script
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      INTEGRATION_ENC_KEY: ${{ secrets.INTEGRATION_ENC_KEY }}
+      ACCOUNT_ID: acc_demo
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check secrets
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::Add the DATABASE_URL repository secret"; exit 1; }
+          if [ "${{ inputs.script }}" = "sync-assignments" ]; then
+            test -n "$INTEGRATION_ENC_KEY" || { echo "::error::Add the INTEGRATION_ENC_KEY repository secret"; exit 1; }
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Run ${{ inputs.script }} (${{ inputs.apply && 'APPLY' || 'dry run' }})
+        run: node scripts/${{ inputs.script }}.mjs ${{ inputs.apply && '--apply' || '' }}

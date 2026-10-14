@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { backupBatchAction, type BackupProgress } from '@/app/settings/migrate/actions'
+import { backupBatchAction, discardBackupAction, type BackupProgress } from '@/app/settings/migrate/actions'
 
 type Props = {
   connected: boolean
@@ -115,6 +115,22 @@ export function BackupRunner({ connected, hasCompleteBackup, running, locked = f
             className="rounded bg-brand-green px-4 py-1.5 text-sm font-medium text-white hover:opacity-90"
           >
             Resume &amp; finish
+          </button>
+        )}
+        {!active && status === 'running' && progress?.snapshotId && (
+          <button
+            onClick={async () => {
+              if (!confirm('Discard this unfinished backup? It stays downloadable, is never imported, and Incremental becomes available again.')) return
+              const r = await discardBackupAction({ snapshotId: progress.snapshotId! })
+              if (!r.ok) setError(r.message ?? 'Could not discard the backup.')
+              else {
+                setProgress(null)
+                router.refresh()
+              }
+            }}
+            className="rounded border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+          >
+            Discard unfinished backup
           </button>
         )}
 
