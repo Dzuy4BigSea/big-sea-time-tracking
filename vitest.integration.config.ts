@@ -11,6 +11,8 @@ export default defineConfig({
     include: ['**/*.integration.test.ts'],
     exclude: ['**/node_modules/**', '.claude/**'],
     setupFiles: ['./test/load-env.ts'],
+    // All files share one live database (and account-wide counters like invoiceNumberSeq): run them one at a time.
+    fileParallelism: false,
     testTimeout: 30000,
     hookTimeout: 30000,
   },

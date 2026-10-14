@@ -140,7 +140,7 @@ describe('validateInvoiceNumberChange (INV-6)', () => {
     expect(validateInvoiceNumberChange({ ...base, requested: '1006', takenByOther: true }).ok).toBe(false)
     expect(validateInvoiceNumberChange({ ...base, requested: '1004', retired: true })).toEqual({
       ok: false,
-      error: "Invoice ID 1004 was used by a deleted invoice and can't be reused.",
+      error: "Invoice ID 1004 was used before (by a deleted or renumbered invoice) and can't be reused.",
     })
   })
   it('rejects odd characters and overlong IDs', () => {

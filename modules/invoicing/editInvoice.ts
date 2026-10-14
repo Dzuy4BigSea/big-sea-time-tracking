@@ -228,7 +228,7 @@ export function validateInvoiceNumberChange(i: NumberChangeInput): Result<Number
   if (requested.length > 50) return { ok: false, error: 'Invoice ID must be 50 characters or fewer.' }
   if (!INVOICE_ID.test(requested)) return { ok: false, error: 'Invoice ID may only use letters, numbers, and . _ - /' }
   if (i.takenByOther) return { ok: false, error: `Invoice ID ${requested} is already used by another invoice.` }
-  if (i.retired) return { ok: false, error: `Invoice ID ${requested} was used by a deleted invoice and can't be reused.` }
+  if (i.retired) return { ok: false, error: `Invoice ID ${requested} was used before (by a deleted or renumbered invoice) and can't be reused.` }
   let bumpSeqTo: number | null = null
   if (/^\d+$/.test(requested)) {
     const n = Number(requested)
