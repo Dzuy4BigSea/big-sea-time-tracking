@@ -277,6 +277,22 @@ export async function backupBatchAction(input: { snapshotId?: string; mode?: str
 }
 
 /**
+ * Give up on a backup left "running" (e.g. a full pull that stalls under the serverless time limit).
+ * Marks it `error` so it no longer blocks the Incremental button, is never imported and is never a
+ * delta base; its parts stay downloadable. Nothing in Track2's data changes.
+ */
+export async function discardBackupAction(input: { snapshotId: string }): Promise<{ ok: boolean; message?: string }> {
+  const actor = await requireMigrateAdmin()
+  if (!actor) return { ok: false, message: 'You do not have permission to run a migration.' }
+  const { count } = await prisma.migrationSnapshot.updateMany({
+    where: { id: input.snapshotId, accountId: actor.accountId, status: 'running' },
+    data: { status: 'error', errorMessage: 'Discarded while unfinished (use Incremental for updates)' },
+  })
+  revalidatePath('/settings/migrate')
+  return count ? { ok: true } : { ok: false, message: 'That backup is no longer running.' }
+}
+
+/**
  * Client-driven ETL batch (snapshot → Track2). `dryRun:true` previews without writing; `dryRun:false`
  * applies idempotent upserts. Resumable via the returned cursor, driven to completion by ImportRunner.
  */
