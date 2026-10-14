@@ -7,6 +7,10 @@ import { createMemoryLimiter } from '@/modules/shared/loginThrottle'
 
 export const MCP_MAX_REQUESTS = 120
 export const MCP_WINDOW_MS = 60_000
+/** Max JSON-RPC messages in one batch POST, each charged against the token budget. */
+export const MCP_MAX_BATCH = 10
+/** Max request body size for /api/mcp. */
+export const MCP_MAX_BODY_BYTES = 256 * 1024
 
 export function createTokenLimiter(opts: { max?: number; windowMs?: number; now?: () => number } = {}) {
   const limiter = createMemoryLimiter({ max: opts.max ?? MCP_MAX_REQUESTS, windowMs: opts.windowMs ?? MCP_WINDOW_MS, now: opts.now })

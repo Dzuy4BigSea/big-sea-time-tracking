@@ -5,7 +5,7 @@ import { writeAudit } from '@/lib/audit'
 import { makeContext } from '@/lib/mcp/context'
 import { MCP_TOOLS } from '@/lib/mcp/registry'
 import { handleRpc, parseErrorResponse, RPC } from '@/modules/mcp/jsonrpc'
-import { createTokenLimiter, MCP_WINDOW_MS } from '@/modules/mcp/rateLimit'
+import { createTokenLimiter, MCP_MAX_BATCH, MCP_MAX_BODY_BYTES, MCP_WINDOW_MS } from '@/modules/mcp/rateLimit'
 import { auditActionFor, auditDetail, auditSummary, MCP_AUDIT_ENTITY, MCP_OAUTH_AUDIT_ENTITY } from '@/modules/mcp/audit'
 import { corsHeaders, wwwAuthenticate } from '@/modules/oauth/metadata'
 
@@ -65,11 +65,36 @@ export async function POST(req: Request) {
     )
   }
 
+  // Bound the request: one POST must not smuggle an unbounded batch past the per-token budget.
+  const raw = await req.text()
+  if (raw.length > MCP_MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { jsonrpc: '2.0', id: null, error: { code: RPC.INVALID_REQUEST, message: 'Request too large.' } },
+      { status: 413, headers: { 'Cache-Control': 'no-store', ...CORS } },
+    )
+  }
   let body: unknown
   try {
-    body = JSON.parse(await req.text())
+    body = JSON.parse(raw)
   } catch {
     return NextResponse.json(parseErrorResponse(), { status: 400, headers: CORS })
+  }
+  if (Array.isArray(body)) {
+    if (body.length > MCP_MAX_BATCH) {
+      return NextResponse.json(
+        { jsonrpc: '2.0', id: null, error: { code: RPC.INVALID_REQUEST, message: `Batches are limited to ${MCP_MAX_BATCH} messages.` } },
+        { status: 400, headers: { 'Cache-Control': 'no-store', ...CORS } },
+      )
+    }
+    // Every message in a batch counts against the token's budget (the first was charged above).
+    for (let i = 1; i < body.length; i++) {
+      if (!limiter.take(`${auth.kind}:${auth.tokenId}`)) {
+        return NextResponse.json(
+          { jsonrpc: '2.0', id: null, error: { code: -32029, message: 'Rate limit exceeded for this token. Slow down and retry in a minute.' } },
+          { status: 429, headers: { 'Retry-After': String(Math.ceil(MCP_WINDOW_MS / 1000)), 'Cache-Control': 'no-store', ...CORS } },
+        )
+      }
+    }
   }
 
   const ctx = makeContext(auth.user, auth.tokenId)

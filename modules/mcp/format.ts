@@ -78,6 +78,7 @@ export function centsFromAmount(amount: number, field: string, opts: { allowZero
   if (!Number.isFinite(amount)) throw invalid(`${field}: must be a number.`, { field })
   if (!opts.allowNegative && amount < 0) throw invalid(`${field}: must not be negative.`, { field })
   if (!opts.allowZero && amount === 0) throw invalid(`${field}: must be greater than 0.`, { field })
+  if (Math.abs(amount) > 10_000_000) throw invalid(`${field}: must be at most 10,000,000.`, { field })
   return Math.round(amount * 100)
 }
 

@@ -113,7 +113,9 @@ describe('paths', () => {
     expect(isSameOrigin('https://track2.bigseabridge.com', 'https://track2.bigseabridge.com/api/google/drive/export')).toBe(true)
     expect(isSameOrigin('https://evil.example', 'https://track2.bigseabridge.com/api/google/drive/export')).toBe(false)
     expect(isSameOrigin('null', 'https://track2.bigseabridge.com/x')).toBe(false)
-    expect(isSameOrigin(null, 'https://track2.bigseabridge.com/x')).toBe(true)
+    expect(isSameOrigin(null, 'https://track2.bigseabridge.com/x')).toBe(false)
+    expect(isSameOrigin(null, 'https://track2.bigseabridge.com/x', 'same-origin')).toBe(true)
+    expect(isSameOrigin(null, 'https://track2.bigseabridge.com/x', 'cross-site')).toBe(false)
   })
 })
 

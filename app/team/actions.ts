@@ -19,6 +19,7 @@ import {
 } from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
 import { writeAudit } from '@/lib/audit'
+import { revokeMachineAccess } from '@/lib/revokeMachineAccess'
 import { archiveError, canHoldAssignedPeople, cleanAssignIds } from '@/modules/team/teamOverview'
 import { parseEmployeeId, parseRoleTags, parseTimezone } from '@/modules/team/personBasic'
 
@@ -310,6 +311,7 @@ export async function updatePersonSecurityAction(_prev: EditPersonState, formDat
         ...(newPassword ? { passwordHash: bcrypt.hashSync(newPassword, 10) } : {}),
       },
     })
+    if (!isActive) await revokeMachineAccess(accountId, id)
   } catch (e) {
     if ((e as { code?: string }).code === 'P2002') return { error: 'That email is already used in this account.' }
     return { error: 'Could not save.' }
@@ -370,6 +372,7 @@ export async function updatePersonAction(_prev: EditPersonState, formData: FormD
         ...(newPassword ? { passwordHash: bcrypt.hashSync(newPassword, 10) } : {}),
       },
     })
+    if (!isActive) await revokeMachineAccess(accountId, id)
   } catch {
     return { error: 'Could not save the person.' }
   }
@@ -471,6 +474,7 @@ export async function setPersonArchivedAction(formData: FormData): Promise<void>
   const target = { permissionProfile: user.permissionProfile, permissionOverrides: user.permissionOverrides as PermissionOverrides | null }
   if (checkSecurityChange(actor, target, id === selfId)) return
   await prisma.user.updateMany({ where: { id, accountId }, data: { isActive: !archive } })
+  if (archive) await revokeMachineAccess(accountId, id)
   await writeAudit({
     accountId,
     actorUserId: selfId,

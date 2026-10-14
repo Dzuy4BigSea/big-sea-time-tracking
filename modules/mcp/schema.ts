@@ -23,7 +23,8 @@ export interface ObjectSchema {
 // Builders (keep tool definitions short)
 // ---------------------------------------------------------------------------
 
-export const str = (description: string, extra: { enum?: readonly string[]; maxLength?: number } = {}): Prop => ({ type: 'string', description, ...extra })
+/** String input; capped at 5,000 characters unless a tighter maxLength is given. */
+export const str = (description: string, extra: { enum?: readonly string[]; maxLength?: number } = {}): Prop => ({ type: 'string', description, maxLength: 5000, ...extra })
 export const id = (description: string): Prop => ({ type: 'string', description, id: true })
 export const ids = (description: string): Prop => ({ type: 'array', description, items: { type: 'string', id: true }, minItems: 1 })
 export const date = (description: string): Prop => ({ type: 'string', description, format: 'date' })

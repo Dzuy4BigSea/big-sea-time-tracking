@@ -14,7 +14,7 @@ export const maxDuration = 300 // all-time exports page through ~200 batches bef
 export async function POST(req: Request) {
   const me = await getCurrentUser()
   if (!me) return appRedirect(req, '/login')
-  if (!isSameOrigin(req.headers.get('origin'), req.url)) return new Response('Forbidden', { status: 403 })
+  if (!isSameOrigin(req.headers.get('origin'), req.url, req.headers.get('sec-fetch-site'))) return new Response('Forbidden', { status: 403 })
 
   const form = await req.formData().catch(() => null)
   const returnTo = safeReturnTo(form?.get('returnTo')) ?? '/'

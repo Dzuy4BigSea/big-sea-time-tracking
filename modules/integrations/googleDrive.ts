@@ -98,8 +98,9 @@ export function parseExportHref(raw: unknown): ExportTarget | null {
 }
 
 /** Same-origin check for state-changing POSTs (on top of SameSite=Lax session cookies). */
-export function isSameOrigin(originHeader: string | null, requestUrl: string): boolean {
-  if (!originHeader) return true // older browsers omit Origin on same-origin form posts; SameSite still applies
+export function isSameOrigin(originHeader: string | null, requestUrl: string, secFetchSite: string | null = null): boolean {
+  // No Origin header: only accept when the browser says the request is same-origin (Sec-Fetch-Site).
+  if (!originHeader) return secFetchSite === 'same-origin'
   try {
     return new URL(originHeader).origin === new URL(requestUrl).origin
   } catch {
