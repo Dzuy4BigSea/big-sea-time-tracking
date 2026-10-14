@@ -19,6 +19,7 @@ import {
 } from '@/modules/projects/projectAnalysis'
 import { ProjectTimeframeToolbar } from '@/components/ProjectTimeframeToolbar'
 import { ProjectNotes } from '@/components/ProjectNotes'
+import { projectNotesHtml, projectNotesText } from '@/modules/projects/notes'
 import { DropdownMenu } from '@/components/DropdownMenu'
 import {
   ProjectTaskBreakdown, type BreakdownRow, type BreakdownChild, type BreakdownSortKey,
@@ -218,7 +219,7 @@ export default async function ProjectDetailPage({
             {!project.isActive && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Archived</span>}
             {dateRange && <span><span aria-hidden>📅 </span>{dateRange}</span>}
           </div>
-          {project.notes && <ProjectNotes notes={project.notes} />}
+          {projectNotesText(project.notes) && <ProjectNotes html={projectNotesHtml(project.notes)} text={projectNotesText(project.notes)} />}
         </div>
         {canManage && (
           <div className="flex items-center gap-2">

@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, projectManagementScoped, type Capability, type PermissionProfile } from '@/modules/shared/permissions'
 import { validEntityId } from '@/lib/entities'
+import { normalizeProjectNotes } from '@/modules/projects/notes'
 
 export type NewProjectState = { error?: string }
 export type EditProjectState = { error?: string; ok?: boolean }
@@ -30,6 +31,8 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
   const budgetChoice = String(formData.get('budgetMethod') ?? 'none') // none | hours_total | fee_total
 
   if (!name) return { error: 'Project name is required.' }
+  const notesResult = normalizeProjectNotes(String(formData.get('notes') ?? ''))
+  if ('error' in notesResult) return { error: notesResult.error }
   const client = await prisma.client.findFirst({ where: { id: clientId, accountId }, select: { id: true, entityId: true } })
   if (!client) return { error: 'Pick a valid client.' }
   // Entity: explicit choice, else inherit the client's designation (specs/16).
@@ -72,6 +75,7 @@ export async function createProjectAction(_prev: NewProjectState, formData: Form
         budgetAlertPercent,
         isBillable: projectType !== 'non_billable',
         entityId,
+        notes: notesResult.notes,
       },
     })
     projectId = project.id
@@ -133,6 +137,9 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
   const budgetChoice = String(formData.get('budgetMethod') ?? 'none')
 
   if (!name) return { error: 'Project name is required.' }
+  // Forms without the Notes field (older clients) leave notes untouched.
+  const notesResult = formData.has('notes') ? normalizeProjectNotes(String(formData.get('notes') ?? '')) : null
+  if (notesResult && 'error' in notesResult) return { error: notesResult.error }
 
   const isTM = projectType === 'time_and_materials'
   const billableRateMethod = isTM ? billableRateMethodRaw : null
@@ -169,6 +176,7 @@ export async function updateProjectAction(_prev: EditProjectState, formData: For
         budgetAlertPercent,
         isBillable: projectType !== 'non_billable',
         entityId,
+        ...(notesResult ? { notes: notesResult.notes } : {}),
       },
     })
   } catch {

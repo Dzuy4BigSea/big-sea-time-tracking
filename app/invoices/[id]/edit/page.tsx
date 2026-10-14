@@ -8,6 +8,7 @@ import { ymd } from '@/lib/week'
 import { EditInvoiceForm } from '@/components/EditInvoiceForm'
 import { type FixedFeeContextView } from '@/components/FixedFeeProjectContext'
 import { projectFeeCents } from '@/modules/invoicing/fixedFee'
+import { projectNotesHtml } from '@/modules/projects/notes'
 import { INVOICE_CURRENCIES } from '@/modules/invoicing/saveInvoiceEdit'
 
 export const dynamic = 'force-dynamic'
@@ -66,7 +67,7 @@ export default async function EditInvoicePage({ params }: { params: { id: string
       ffContexts[p.id] = {
         projectId: p.id,
         projectName: p.name,
-        notes: p.notes,
+        notesHtml: projectNotesHtml(p.notes),
         feeCents: projectFeeCents(p),
         invoicedElsewhereCents: related.reduce((s, r) => s + r.amountCents, 0),
         thisInvoiceCents: mine.filter((s) => s.invoiceId === invoice.id).reduce((s, r) => s + (r._sum.amountCents ?? 0), 0),

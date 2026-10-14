@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import { createProjectAction, type NewProjectState } from '@/app/projects/actions'
 import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
+import { ProjectNotesField } from '@/components/EditProjectForm'
 
 function Submit() {
   const { pending } = useFormStatus()
@@ -61,6 +62,8 @@ export function NewProjectForm({ clients, entities = [] }: { clients: { id: stri
           </Field>
           <EntitySelect entities={entities} name="entityId" help="Defaults to the client's company" />
         </div>
+
+        <ProjectNotesField initialHtml="" />
 
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Project type">

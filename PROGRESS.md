@@ -2,11 +2,23 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-10-13._
+_Last updated: 2026-10-14._
 
 ## ▶ Resume here (next session)
 
 **Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
+
+### 📝 Rich-text project notes (BugHerd #24, 2026-10-14, branch `claude/laughing-ramanujan-exgc34`, not deployed)
+- Notes is now an editable rich-text field on **New project** and **Edit project** (bold, italic, underline,
+  bulleted/numbered lists, links), like Harvest's Notes field. Spec: [03](specs/03-clients-projects-tasks.md) AC-PROJ-012–014.
+- Stored as sanitized HTML in the existing `Project.notes` column, so **no migration**. Plain-text notes from Harvest
+  still display with their line breaks; `modules/projects/notes.ts` sanitizes on save and on display (allowlist, `sanitize-html`).
+- Editor: TipTap (`components/RichTextEditor.tsx`), lazy-loaded so the Projects list doesn't ship it up front.
+  New dependencies: `@tiptap/*` 2.27.1, `sanitize-html` 2.17.0.
+- Verified: unit tests (8 new), tsc, `next build`, and the editor driven in Chromium on its own (no DB in the cloud,
+  so the real Edit project page is not yet clicked through).
+- **Caveat until cutover:** the Harvest delta sync overwrites every project field, notes included, so notes edited in
+  Track2 revert to Harvest's text on the next import.
 
 ### 🔗 Billing chain: send → pay → Xero, triple-checked and traced (2026-10-14, draft PR, not deployed)
 Four agents audited and hardened email, Stripe, Xero and visibility; everything merged on `claude/pensive-davinci-vmc0bo`.
