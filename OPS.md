@@ -419,7 +419,19 @@ the cron route's 503 is the backstop.
 ```bash
 npm run test:billing   # invoicing, payments, Stripe, Xero, email, observability, money, appUrl unit tests (DB-free)
 npm test               # everything; includes all of the above
+npm run test:chain     # end-to-end chain on a disposable DB (needs DATABASE_URL; never production)
 ```
+`test:chain` (`test/billing-chain.integration.test.ts` + `test/email-trace.integration.test.ts`) runs the
+real code paths against Postgres with SendGrid, Stripe and Xero faked at `fetch`: send → SendGrid accepts →
+signed delivered/open events through `/api/email/events` → the client opens `/i/<token>` → a signed
+`checkout.session.completed` through the Stripe webhook route → payment recorded, receipt emailed, payment
+copied to Xero. It then replays every provider retry (same SendGrid batch, same Stripe event, sibling
+`payment_intent.succeeded`) and asserts nothing doubles: one payment, one receipt, one Xero invoice and
+payment, no duplicate trail rows. It also checks that forged SendGrid/Stripe posts are refused and write
+nothing, that a Xero outage leaves the payment recorded with an error on the trail and `syncPendingXero`
+finishes it exactly once, and that no secret ends up in the trail. It creates its own rows in `acc_globex`
+(refusing to run if that account already has SendGrid/Stripe/Xero connections) and deletes them after.
+
 `test:billing` is a vitest file filter (`invoic payment stripe xero email observability money appUrl`),
 so new test files in those areas are picked up automatically. Run it before any change to the billing
 chain. `ops/workflows/ci.yml` already runs `npm test` (which includes these) on every PR and push to

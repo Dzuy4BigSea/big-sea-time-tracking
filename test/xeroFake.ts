@@ -57,6 +57,11 @@ export class FakeXero {
     this.faults.push({ match: (r) => r.method === method && r.path.startsWith(pathPrefix), fault })
   }
 
+  /** Drop any injected faults not yet consumed (Xero "recovers"). */
+  clearFaults() {
+    this.faults = []
+  }
+
   callsTo(method: string, pathPrefix: string): FakeReq[] {
     return this.calls.filter((c) => c.method === method && c.path.startsWith(pathPrefix))
   }

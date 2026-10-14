@@ -61,7 +61,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
   const traceEvents = canManage
     ? await prisma.invoiceEvent.findMany({
         where: { accountId, invoiceId: invoice.id },
-        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         take: 200,
         select: { id: true, occurredAt: true, stage: true, source: true, level: true, message: true, externalId: true, httpStatus: true, durationMs: true, detail: true },
       })

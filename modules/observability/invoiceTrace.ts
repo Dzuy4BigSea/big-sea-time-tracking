@@ -119,5 +119,13 @@ export async function traced<T>(
 
 async function defaultStore(): Promise<TraceStore> {
   const { prisma } = await import('@/lib/prisma')
-  return { create: (data) => prisma.invoiceEvent.create({ data: data as never }) }
+  return {
+    create: async (data) => {
+      if (!data.externalEventId) return prisma.invoiceEvent.create({ data: data as never })
+      // Provider retries are expected: ON CONFLICT DO NOTHING keeps them out of the error log
+      // (a caught P2002 is still printed as prisma:error), then report them as duplicates.
+      const { count } = await prisma.invoiceEvent.createMany({ data: [data as never], skipDuplicates: true })
+      if (count === 0) throw Object.assign(new Error('duplicate provider event'), { code: 'P2002' })
+    },
+  }
 }
