@@ -11,6 +11,10 @@ import { InvoiceLineItems } from '@/components/InvoiceLineItems'
 import { InvoiceNotesText } from '@/components/InvoiceNotes'
 import { startStripeCheckoutAction } from '@/app/i/[token]/actions'
 import { effectiveOnlineMethods } from '@/modules/invoicing/onlinePayments'
+import { stripeForInvoice } from '@/lib/stripePayments'
+import { retrieveCheckoutSession } from '@/modules/integrations/stripeClient'
+import { checkoutReturnState, hidesPayButton, pendingBankPayment, RETURN_MESSAGE, type ReturnState } from '@/modules/integrations/stripeCheckout'
+import { recordInvoiceEvent } from '@/modules/observability/invoiceTrace'
 import { PrintButton } from '@/components/PrintButtons'
 
 export const dynamic = 'force-dynamic'
@@ -39,7 +43,7 @@ export default async function PublicInvoicePage({
   searchParams,
 }: {
   params: { token: string }
-  searchParams: { paid?: string }
+  searchParams: { paid?: string; canceled?: string; session_id?: string; pay_error?: string }
 }) {
   const invoice = await loadInvoice(params.token)
   // Only sent invoices are shareable. Drafts have no publicToken, so this also covers them.
@@ -54,19 +58,59 @@ export default async function PublicInvoicePage({
   const BRAND = appearance.brandColor
   const fromName = invoice.entity?.name ?? invoice.account.name
 
-  // Online payment (Stripe) — only when the invoice entity's Stripe (or shared) is connected (specs/16).
+  // Online payment (Stripe): the same connection the checkout action will use — the invoice's
+  // entity's Stripe, else the shared one (specs/16).
   const balanceDue = invoice.totalCents - invoice.paidCents
-  const effectiveEntityId = invoice.entityId ?? invoice.client.entityId ?? null
-  const stripeConn =
-    invoice.status === 'open' && balanceDue > 0
-      ? await prisma.integrationConnection.findFirst({
-          where: { accountId: invoice.accountId, provider: 'stripe', status: 'connected', OR: [{ entityId: effectiveEntityId }, { entityId: null }] },
-          select: { id: true, config: true },
-        })
-      : null
+  const returned = searchParams.paid === '1' || searchParams.canceled === '1'
+  const stripe =
+    invoice.status === 'open' && (balanceDue > 0 || returned) ? await stripeForInvoice(invoice.accountId, invoice.id).catch(() => null) : null
   // The invoice's own "Accept online payments" choice narrows the connection's methods (specs/05).
-  const canPayOnline = !!stripeConn && !!effectiveOnlineMethods((stripeConn.config as Record<string, unknown> | null) ?? {}, invoice)
-  const justPaid = searchParams.paid === '1'
+  const canPayOnline = invoice.status === 'open' && balanceDue > 0 && !!stripe && !!effectiveOnlineMethods(stripe.config, invoice)
+
+  // Back from Stripe: tell the client clearly what happened. Never an error — if the webhook
+  // hasn't landed yet, or the Stripe lookup fails, they're told we're confirming the payment.
+  let returnState: ReturnState | null = null
+  if (returned) {
+    const sessionId = typeof searchParams.session_id === 'string' ? searchParams.session_id : ''
+    const session =
+      searchParams.paid === '1' && sessionId && stripe && invoice.status === 'open' ? await retrieveCheckoutSession(stripe.secretKey, sessionId) : null
+    returnState = checkoutReturnState({ canceled: searchParams.canceled === '1', invoiceStatus: invoice.status, session, invoiceId: invoice.id })
+    const verified = session && session.invoiceId === invoice.id ? session : null
+    void recordInvoiceEvent({
+      accountId: invoice.accountId,
+      invoiceId: invoice.id,
+      stage: 'payment.client_returned',
+      source: 'client',
+      message: `Client returned from Stripe: ${returnState.replace('_', ' ')}`,
+      externalId: verified?.id ?? null,
+      // One row per session and outcome, however often the page is refreshed.
+      externalEventId: verified ? `${verified.id}#returned:${returnState}` : null,
+      detail: { outcome: returnState, sessionStatus: verified?.status ?? null, paymentStatus: verified?.paymentStatus ?? null, invoiceStatus: invoice.status },
+    })
+  }
+
+  // A bank (ACH) payment still clearing: say so and hide Pay so the client doesn't pay twice.
+  const pendingBank =
+    canPayOnline && returnState !== 'paid'
+      ? pendingBankPayment(
+          await prisma.invoiceEvent
+            .findMany({
+              where: {
+                accountId: invoice.accountId,
+                invoiceId: invoice.id,
+                source: 'stripe',
+                stage: { in: ['payment.processing', 'payment.recorded', 'payment.failed', 'payment.flagged', 'payment.duplicate_ignored', 'payment.refunded'] },
+                occurredAt: { gte: new Date(Date.now() - 11 * 86_400_000) },
+              },
+              select: { stage: true, externalId: true, occurredAt: true, detail: true },
+              orderBy: { occurredAt: 'desc' },
+              take: 50,
+            })
+            .catch(() => []),
+        )
+      : null
+  const showPayButton = canPayOnline && !hidesPayButton(returnState) && !pendingBank
+  const payError = searchParams.pay_error === 'failed' || searchParams.pay_error === 'unavailable' ? searchParams.pay_error : null
 
   const badge = displayBadge(
     {
@@ -79,7 +123,7 @@ export default async function PublicInvoicePage({
     // Late is judged on the account's calendar day (specs/27 AC-STAT-001), not the server's UTC day.
     todayIn(invoice.account.timezone),
   )
-  const due = invoice.totalCents - invoice.paidCents
+  const due = Math.max(0, balanceDue) // an overpaid invoice owes nothing (never a negative "amount due")
   const cur = invoice.currency
 
   return (
@@ -102,7 +146,7 @@ export default async function PublicInvoicePage({
           </div>
           <div className="no-print mt-2 flex items-center justify-end gap-2">
             <PrintButton className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50" />
-            {canPayOnline && (
+            {showPayButton && (
               <form action={startStripeCheckoutAction}>
                 <input type="hidden" name="token" value={params.token} />
                 <button className="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
@@ -114,9 +158,37 @@ export default async function PublicInvoicePage({
         </div>
       </div>
 
-      {justPaid && (
-        <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-          Thanks! Your payment is processing — this invoice will update to paid once your bank confirms.
+      {returnState && (
+        <div
+          role="status"
+          className={`mb-6 rounded-lg border p-4 text-sm ${
+            RETURN_MESSAGE[returnState].tone === 'success'
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : RETURN_MESSAGE[returnState].tone === 'info'
+                ? 'border-blue-200 bg-blue-50 text-blue-800'
+                : 'border-gray-200 bg-white text-gray-700'
+          }`}
+        >
+          <div className="font-semibold">{RETURN_MESSAGE[returnState].title}</div>
+          <div className="mt-1">{RETURN_MESSAGE[returnState].body}</div>
+        </div>
+      )}
+
+      {!returnState && pendingBank && (
+        <div role="status" className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+          <div className="font-semibold">Bank payment processing</div>
+          <div className="mt-1">
+            A bank transfer{pendingBank.amountCents ? ` of ${formatCents(pendingBank.amountCents, cur)}` : ''} started on {formatDate(pendingBank.since)} is
+            clearing. Bank payments take 3–5 business days; this invoice will show as paid once it does. There is no need to pay again.
+          </div>
+        </div>
+      )}
+
+      {payError && !returnState && (
+        <div role="alert" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {payError === 'failed'
+            ? 'We couldn’t start the online payment just now, and you have not been charged. Please try again in a few minutes, or reply to the invoice email and we’ll help.'
+            : 'Online payment isn’t available for this invoice. Please reply to the invoice email for other ways to pay.'}
         </div>
       )}
 
