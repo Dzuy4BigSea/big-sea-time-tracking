@@ -6,6 +6,14 @@ _Last updated: 2026-10-13._
 
 ## ▶ Resume here (next session)
 
+### MCP OAuth for claude.ai connectors (2026-10-14)
+Built: OAuth 2.1 on the MCP server so claude.ai › Settings › Connectors › *Add custom connector* works with just
+`https://track2.bigseabridge.com/api/mcp` (specs/22 §OAuth, OPS.md §9a). Discovery (RFC 9728/8414), dynamic client
+registration, consent screen at `/oauth/authorize`, PKCE S256, rotating refresh tokens with reuse detection,
+revocation, *Connected apps* on `/settings/tokens`. PATs keep working. **To ship:** `prisma migrate deploy`
+(`20261014180000_mcp_oauth`), confirm `APP_URL`, then connect from claude.ai once. Not yet exercised end to end
+against a database or real claude.ai (see the branch report).
+
 ### 🚦 Go-live hardening (2026-10-13)
 A CTO-level audit (data safety, security, performance, invoicing) found go-live blockers. **All code fixes, Harvest-style fixed fee and Google sign-in are merged and live in production (PR #5, 2026-10-13)**; production check after deploy: new build serving from `iad1`, DB 70ms warm, signed-out pages redirect to /login, security headers present. Verified before merge: 510 unit tests (UTC and America/New_York), tsc, next build, invoicing integration tests on a throwaway Postgres, and a browser click-through (login, double-click Start, Stop, member nav) on a seeded local DB. Not yet run against production data.
 
