@@ -2,6 +2,7 @@
  * Xero payload mappers (specs/14 §Xero). Pure + DB-free → unit-tested. The sync module
  * feeds these Track2 rows and posts the result to the Xero REST API.
  */
+import { computeTotals } from '@/modules/invoicing/totals'
 
 export interface XeroInvoiceInput {
   invoiceNumber: string | null
@@ -111,4 +112,43 @@ export function buildXeroLines(input: {
 /** Sum of Xero lines in cents, as Xero computes it (each line rounded to the cent). */
 export function xeroLinesTotalCents(lines: XeroInvoiceInput['lineItems']): number {
   return lines.reduce((s, l) => s + Math.round(l.quantity * Math.round(l.unitAmount * 100)), 0)
+}
+
+/** Track2 cents from a Xero major-unit amount (Xero returns numbers like 1234.5). */
+export const majorToCents = (major: unknown): number => Math.round(Number(major ?? 0) * 100)
+
+export interface Track2TaxSource {
+  taxCents: number
+  tax1Name: string | null
+  tax1Percent: number | null
+  tax2Name: string | null
+  tax2Percent: number | null
+  discountPercent: number | null
+  lineItems: { amountCents: number; taxable: boolean }[]
+}
+
+/**
+ * Split the stored tax into its named taxes when recomputing reproduces the stored total; otherwise
+ * (legacy rounding) one combined line carrying the stored tax, so the Xero total still matches.
+ */
+export function taxLinesFor(inv: Track2TaxSource): { name: string; cents: number }[] {
+  if (!inv.taxCents) return []
+  const t = computeTotals({ lineItems: inv.lineItems, discountPercent: inv.discountPercent, tax1Percent: inv.tax1Percent, tax2Percent: inv.tax2Percent })
+  const label = (name: string | null, pct: number | null) => `${name || 'Tax'}${pct ? ` (${pct}%)` : ''}`
+  if (t.taxCents === inv.taxCents) {
+    return [
+      { name: label(inv.tax1Name, inv.tax1Percent), cents: t.tax1Cents },
+      { name: label(inv.tax2Name, inv.tax2Percent), cents: t.tax2Cents },
+    ].filter((x) => x.cents)
+  }
+  return [{ name: inv.tax1Name || 'Tax', cents: inv.taxCents }]
+}
+
+/** Marker put in a Xero payment's Reference so a timed-out create can be found again (never duplicated). */
+export const paymentMarker = (paymentId: string) => `T2:${paymentId}`
+
+export function paymentReference(paymentId: string, note: string | null | undefined): string {
+  const marker = paymentMarker(paymentId)
+  const n = (note ?? '').trim()
+  return (n ? `${n.slice(0, 200)} · ${marker}` : `Track2 payment ${marker}`).slice(0, 255)
 }

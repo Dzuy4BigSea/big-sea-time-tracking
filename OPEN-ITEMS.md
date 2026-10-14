@@ -40,6 +40,30 @@ apply to new deployments.
 - [ ] **RLS on older tables**: Supabase → Advisors → Security lists tables without Row Level Security.
   Track2 connects as the table owner, so enabling it is safe and blocks Supabase's public API.
 
+## 2b. Billing chain go-live settings (Dzuy; PR for the invoice trace)
+Without these the code works, but parts of the trail stay empty. Steps in OPS.md §10–§13.
+- [ ] **Database**: run the `InvoiceEvent` script (migration `20261016120000_invoice_events`) in the
+  Supabase SQL editor **before** deploying the PR (the app writes trail rows on every send/payment).
+- [ ] **SendGrid Event Webhook** (OPS §12a): Settings → Mail Settings → Event Webhook → URL
+  `https://track2.bigseabridge.com/api/email/events`, all delivery + engagement events, **Signed Event
+  Webhook on**; copy the verification key into Vercel as **`SENDGRID_WEBHOOK_PUBLIC_KEY`** (Production), redeploy.
+  Until then delivered / bounced / opened / spam never reach the trail (the endpoint answers 503).
+- [ ] **SendGrid tracking**: Click Tracking **off** (rewritten links look like phishing and break the
+  `/i/` link), Subscription Tracking **off**; Open Tracking on.
+- [ ] **Email authentication** (OPS §12b): SendGrid → Sender Authentication → authenticate `bigsea.co`
+  and `cordelialabs.com` (add the 3 CNAMEs in DNS), and a DMARC record (`_dmarc` TXT, start with
+  `p=none; rua=mailto:…`). This is the main protection against invoices landing in spam.
+- [ ] **Stripe webhook** (OPS §11): endpoint `https://track2.bigseabridge.com/api/integrations/stripe/webhook/acc_demo`
+  with exactly `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed`, `payment_intent.payment_failed`, `charge.refunded`,
+  `charge.dispute.created`; paste its signing secret (`whsec_…`) into Settings → Integrations → Stripe.
+- [ ] **Xero** (OPS §13): app scopes `offline_access accounting.transactions accounting.contacts`; in
+  Settings → Integrations → Xero set the tenant, revenue / payment (bank) / tax account codes, and
+  **Sync from date** = the cutover day so Harvest history is never copied.
+- [ ] After the above: Settings → Activity log → **Run checks now**; every row should be green.
+- [ ] Production smoke test: send a $1 invoice to yourself, open it, pay by card, and check the
+  invoice's "Delivery & payment trail" shows Delivered · Opened · Paid · Xero synced.
+
 ## 3. Decisions (Dzuy, after the cost review)
 - [ ] **Vercel plan**: Hobby is for non-commercial use; Pro allows commercial use and hourly crons.
 - [ ] **Re-enable the parked GitHub Actions** (`ops/workflows/` → `.github/workflows/`, OPS.md §2):
@@ -83,5 +107,8 @@ apply to new deployments.
 - [ ] Database trigger enforcing INV-3 (invoiced/approved entries immutable) for scripts too.
 - [ ] Members see account-wide hours on /reports; project rates/fees on create/edit should need `set_rates`.
 - [ ] Xero tax-type mapping.
+- [ ] Stripe refunds/disputes applied automatically (today they're traced + flagged for a person;
+  needs `Payment.stripeRefundId`). Deleting a payment in Track2 doesn't delete it in Xero.
+- [ ] Run `npm run test:chain` in CI against a throwaway Postgres service once CI is re-enabled.
 - [ ] OAuth housekeeping: purge unused registered clients / expired codes (OPS.md §9a).
 - [ ] Upgrade Next.js 14 → 15 and pin next-auth (currently a v5 beta).

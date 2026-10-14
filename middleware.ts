@@ -23,6 +23,8 @@ export default auth((req) => {
   // Surface the path to server components (root layout decides whether to show the app chrome).
   const headers = new Headers(req.headers)
   headers.set('x-pathname', pathname)
+  // Server components can't see the HTTP method; /i/[token] uses it to ignore HEAD link checks.
+  headers.set('x-request-method', req.method)
   return NextResponse.next({ request: { headers } })
 })
 

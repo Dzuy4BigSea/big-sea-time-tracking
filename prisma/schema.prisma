@@ -281,6 +281,7 @@ model Account {
   auditLogs                AuditLog[]
   integrationConnections   IntegrationConnection[]
   integrationSyncLogs      IntegrationSyncLog[]
+  invoiceEvents            InvoiceEvent[]
   migrationSnapshots       MigrationSnapshot[]
   migrationIdMaps          MigrationIdMap[]
   businessEntities         BusinessEntity[]
@@ -1054,6 +1055,36 @@ model IntegrationConnection {
   @@unique([accountId, provider, entityId])
   @@index([accountId])
   @@index([entityId])
+}
+
+// End-to-end trace of an invoice's life across Track2, the email provider, the client, Stripe and Xero
+// (OPS.md "Invoice trace"). One row per step: sent, email accepted/delivered/bounced/spam, client
+// opened, checkout, Stripe webhook, payment recorded, Xero invoice/payment copy. No FK to Invoice on
+// purpose: the trace survives invoice deletion and inbound webhooks can log before matching an
+// invoice. `detail` holds redacted request/response summaries only (never secrets or tokens).
+// (source, externalEventId) de-duplicates provider webhook retries.
+model InvoiceEvent {
+  id              String   @id @default(cuid())
+  accountId       String
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invoiceId       String?
+  paymentId       String?
+  stage           String // e.g. "invoice.sent", "email.delivered", "payment.recorded", "xero.payment_synced"
+  source          String // "app" | "email" | "client" | "stripe" | "xero" | "cron"
+  level           String   @default("info") // "info" | "warn" | "error"
+  message         String
+  externalId      String? // provider object id (email message id, Stripe PaymentIntent, Xero InvoiceID…)
+  externalEventId String? // provider event id, for webhook de-duplication
+  httpStatus      Int?
+  durationMs      Int?
+  detail          Json?
+  occurredAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([source, externalEventId])
+  @@index([accountId, invoiceId, occurredAt])
+  @@index([accountId, occurredAt])
+  @@index([accountId, level, occurredAt])
 }
 
 model IntegrationSyncLog {

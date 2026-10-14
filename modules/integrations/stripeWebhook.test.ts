@@ -7,6 +7,9 @@ import {
   stripeDuplicateKeys,
   currencyMatches,
   mapStripeMethodType,
+  checkStripeSignature,
+  classifyStripeEvent,
+  stripeEventSummary,
 } from './stripeWebhook'
 
 const SECRET = 'whsec_test_secret'
@@ -89,7 +92,8 @@ describe('stripe event parsing', () => {
     // legacy rows were keyed by charge id — the duplicate check covers both
     expect(stripeDuplicateKeys(intent)).toEqual(['pi_7', 'ch_7'])
     expect(charge.method).toBe('card')
-    expect(session.method).toBe('other') // two methods offered → not derivable from the session
+    // card + ACH offered: a session already 'paid' at completion is a card (ACH settles later)
+    expect(session.method).toBe('card')
   })
 
   it('falls back to the charge / session id when there is no PaymentIntent', () => {
@@ -111,5 +115,75 @@ describe('stripe event parsing', () => {
   it('currencyMatches is case-insensitive', () => {
     expect(currencyMatches('USD', 'usd')).toBe(true)
     expect(currencyMatches('USD', 'CAD')).toBe(false)
+  })
+})
+
+describe('checkStripeSignature reasons', () => {
+  const header = signedHeader(NOW, BODY, SECRET)
+  it('valid', () => expect(checkStripeSignature(BODY, header, SECRET, NOW)).toEqual({ ok: true }))
+  it('missing header / secret', () => {
+    expect(checkStripeSignature(BODY, null, SECRET, NOW)).toEqual({ ok: false, reason: 'missing_header' })
+    expect(checkStripeSignature(BODY, '', SECRET, NOW)).toEqual({ ok: false, reason: 'missing_header' })
+    expect(checkStripeSignature(BODY, header, '', NOW)).toEqual({ ok: false, reason: 'no_secret' })
+  })
+  it('malformed header (no t, no v1, non-numeric t, non-hex v1)', () => {
+    expect(checkStripeSignature(BODY, 'v1=abcd', SECRET, NOW)).toEqual({ ok: false, reason: 'malformed_header' })
+    expect(checkStripeSignature(BODY, `t=${NOW}`, SECRET, NOW)).toEqual({ ok: false, reason: 'malformed_header' })
+    expect(checkStripeSignature(BODY, `t=12x,v1=abcd`, SECRET, NOW)).toEqual({ ok: false, reason: 'malformed_header' })
+    expect(checkStripeSignature(BODY, `t=${NOW},v1=zzzz`, SECRET, NOW)).toEqual({ ok: false, reason: 'malformed_header' })
+  })
+  it('expired (and future) timestamps are refused even with a valid HMAC', () => {
+    expect(checkStripeSignature(BODY, signedHeader(NOW - 301, BODY, SECRET), SECRET, NOW)).toEqual({ ok: false, reason: 'timestamp_out_of_tolerance' })
+    expect(checkStripeSignature(BODY, signedHeader(NOW + 301, BODY, SECRET), SECRET, NOW)).toEqual({ ok: false, reason: 'timestamp_out_of_tolerance' })
+    expect(checkStripeSignature(BODY, signedHeader(NOW - 300, BODY, SECRET), SECRET, NOW).ok).toBe(true)
+  })
+  it('tampered body / wrong secret / truncated signature', () => {
+    expect(checkStripeSignature(BODY.replace('evt_1', 'evt_2'), header, SECRET, NOW)).toEqual({ ok: false, reason: 'no_matching_signature' })
+    expect(checkStripeSignature(BODY, header, 'whsec_other', NOW)).toEqual({ ok: false, reason: 'no_matching_signature' })
+    expect(checkStripeSignature(BODY, `t=${NOW},v1=${computeStripeSignature(NOW, BODY, SECRET).slice(0, 32)}`, SECRET, NOW)).toEqual({ ok: false, reason: 'no_matching_signature' })
+  })
+  it('secret rotation: any matching v1 among several passes; v0 and unknown parts are ignored; spaces tolerated', () => {
+    const good = computeStripeSignature(NOW, BODY, SECRET)
+    expect(checkStripeSignature(BODY, `t=${NOW}, v1=${'0'.repeat(64)}, v1=${good}, v0=deadbeef, x=y`, SECRET, NOW).ok).toBe(true)
+  })
+})
+
+describe('classifyStripeEvent: event → action', () => {
+  const ev = (type: string, object: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ id: 'evt_x', type, livemode: false, created: NOW, data: { object }, ...extra })
+  const meta = { invoiceId: 'inv_1', accountId: 'acc_1' }
+
+  it.each([
+    ['checkout.session.completed', { id: 'cs_1', payment_intent: 'pi_1', payment_status: 'paid', amount_total: 100, currency: 'usd', metadata: meta }, 'record'],
+    ['checkout.session.completed', { id: 'cs_1', payment_intent: 'pi_1', payment_status: 'unpaid', amount_total: 100, currency: 'usd', metadata: meta }, 'processing'],
+    ['checkout.session.completed', { id: 'cs_1', payment_status: 'no_payment_required', amount_total: 0, currency: 'usd' }, 'ignore'],
+    ['checkout.session.async_payment_succeeded', { id: 'cs_1', payment_intent: 'pi_1', payment_status: 'paid', amount_total: 100, currency: 'usd', metadata: meta }, 'record'],
+    ['checkout.session.async_payment_failed', { id: 'cs_1', payment_intent: 'pi_1', payment_status: 'unpaid', amount_total: 100, currency: 'usd', metadata: meta }, 'failed'],
+    ['payment_intent.succeeded', { id: 'pi_1', amount_received: 100, currency: 'usd', metadata: meta }, 'record'],
+    ['payment_intent.payment_failed', { id: 'pi_1', amount: 100, currency: 'usd', last_payment_error: { code: 'card_declined', decline_code: 'insufficient_funds', message: 'Your card has insufficient funds.' } }, 'failed'],
+    ['charge.succeeded', { id: 'ch_1', payment_intent: 'pi_1', amount_captured: 100, currency: 'usd', payment_method_details: { type: 'card' } }, 'record'],
+    ['charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 50, refunded: false, currency: 'usd' }, 'refunded'],
+    ['charge.dispute.created', { id: 'dp_1', charge: 'ch_1', payment_intent: 'pi_1', amount: 100, reason: 'fraudulent', currency: 'usd' }, 'disputed'],
+    ['customer.created', { id: 'cus_1' }, 'ignore'],
+    ['payment_intent.succeeded', { id: 'pi_1', amount_received: 0, currency: 'usd' }, 'ignore'],
+    ['payment_intent.succeeded', { id: 'pi_1', amount_received: 10.5, currency: 'usd' }, 'ignore'], // INV-1: never a fractional amount
+  ])('%s → %s', (type, object, action) => {
+    expect(classifyStripeEvent(ev(type, object)).action).toBe(action)
+  })
+
+  it('keeps only small, safe facts (decline code, never the cardholder message)', () => {
+    const c = classifyStripeEvent(ev('payment_intent.payment_failed', { id: 'pi_1', amount: 100, currency: 'usd', last_payment_error: { code: 'card_declined', decline_code: 'insufficient_funds', message: 'secret-ish text' } }))
+    expect(c.facts).toMatchObject({ eventId: 'evt_x', paymentIntentId: 'pi_1', amountCents: 100, currency: 'USD', failureCode: 'insufficient_funds', livemode: false, createdSec: NOW })
+    expect(JSON.stringify(stripeEventSummary(c.facts))).not.toContain('secret-ish')
+  })
+
+  it('refund extent and dispute reason', () => {
+    expect(classifyStripeEvent(ev('charge.refunded', { id: 'ch_1', amount_refunded: 100, refunded: true })).facts.status).toBe('fully_refunded')
+    const d = classifyStripeEvent(ev('charge.dispute.created', { id: 'dp_1', charge: 'ch_1', amount: 100, reason: 'fraudulent' })).facts
+    expect(d).toMatchObject({ chargeId: 'ch_1', status: 'fraudulent', amountCents: 100 })
+  })
+
+  it('async success is a bank transfer even when card was also offered', () => {
+    const c = classifyStripeEvent(ev('checkout.session.async_payment_succeeded', { id: 'cs_1', payment_intent: 'pi_1', payment_status: 'paid', amount_total: 100, currency: 'usd', payment_method_types: ['card', 'us_bank_account'] }))
+    expect(c.payment?.method).toBe('bank_transfer')
   })
 })

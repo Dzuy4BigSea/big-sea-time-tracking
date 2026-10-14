@@ -24,6 +24,15 @@ const shell = (label: string, body: string, theme: EmailTheme = DEFAULT_EMAIL_TH
 <tr><td style="background:#f7f8f8;padding:18px 30px;border-top:1px solid #e5e7eb;font-size:12px;color:#605f56;">Sent by Track2. Questions? Just reply to this email.</td></tr>
 </table></td></tr></table></body></html>`
 
+/** Every client email ships HTML plus a plain-text alternative (multipart; better deliverability). */
+export interface RenderedEmail {
+  subject: string
+  html: string
+  text: string
+}
+
+const textShell = (blocks: string[]) => `${blocks.filter(Boolean).join('\n\n')}\n\n--\nSent by Track2. Questions? Just reply to this email.\n`
+
 /** Invoice-sent email (spec 15 E-invoice). `amountDue` etc. are pre-formatted strings. */
 export function renderInvoiceSentEmail(v: {
   fromName: string
@@ -36,7 +45,7 @@ export function renderInvoiceSentEmail(v: {
   invoiceUrl: string
   msg?: { subject?: string; intro?: string }
   theme?: EmailTheme
-}): { subject: string; html: string } {
+}): RenderedEmail {
   const t = v.theme ?? DEFAULT_EMAIL_THEME
   const cta = v.payUrl
     ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#047a44;"><a href="${v.payUrl}" style="display:block;padding:13px 28px;color:#fff;font-size:15px;font-weight:bold;text-decoration:none;">Pay ${esc(v.amountDue)}</a></td></tr></table>
@@ -53,7 +62,13 @@ export function renderInvoiceSentEmail(v: {
     </td></tr></table>
     ${cta}`
   const subject = v.msg?.subject?.trim() || `Invoice ${v.invoiceNumber} from ${v.fromName}`
-  return { subject, html: shell('Invoice', body, t) }
+  const text = textShell([
+    `Invoice ${v.invoiceNumber}`,
+    intro,
+    `Amount due: ${v.amountDue}\nIssued ${v.issueDate} · Due ${v.dueDate}`,
+    v.payUrl ? `View and pay the invoice online:\n${v.payUrl}` : `View the invoice online:\n${v.invoiceUrl}`,
+  ])
+  return { subject, html: shell('Invoice', body, t), text }
 }
 
 /** Payment-received receipt (spec 15). */
@@ -66,7 +81,7 @@ export function renderPaymentReceiptEmail(v: {
   method: string
   msg?: { subject?: string; intro?: string }
   theme?: EmailTheme
-}): { subject: string; html: string } {
+}): RenderedEmail {
   const t = v.theme ?? DEFAULT_EMAIL_THEME
   const intro = v.msg?.intro?.trim() || `Thanks, ${v.clientName} — invoice ${v.invoiceNumber} is settled. Nothing further needed.`
   const body = `
@@ -79,7 +94,13 @@ export function renderPaymentReceiptEmail(v: {
     </td></tr></table>
     <p style="margin:16px 0 0;font-size:13px;color:#605f56;">Keep this email for your records — it doubles as the receipt.</p>`
   const subject = v.msg?.subject?.trim() || `Payment received — invoice ${v.invoiceNumber}`
-  return { subject, html: shell('Receipt', body, t) }
+  const text = textShell([
+    'Payment received',
+    intro,
+    `Paid in full: ${v.amountPaid}\nInvoice ${v.invoiceNumber} · ${v.paidDate} · ${v.method}`,
+    'Keep this email for your records — it doubles as the receipt.',
+  ])
+  return { subject, html: shell('Receipt', body, t), text }
 }
 
 /** Overdue payment reminder (spec 15 E3). */
@@ -94,7 +115,7 @@ export function renderOverdueReminderEmail(v: {
   invoiceUrl: string
   msg?: { subject?: string; intro?: string }
   theme?: EmailTheme
-}): { subject: string; html: string } {
+}): RenderedEmail {
   const t = v.theme ?? DEFAULT_EMAIL_THEME
   const cta = v.payUrl
     ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#c9342c;"><a href="${v.payUrl}" style="display:block;padding:13px 28px;color:#fff;font-size:15px;font-weight:bold;text-decoration:none;">Pay ${esc(v.amountDue)}</a></td></tr></table>`
@@ -112,6 +133,12 @@ export function renderOverdueReminderEmail(v: {
     <div style="font-size:11px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase;color:#605f56;">Amount due</div>
     <div style="font-size:30px;font-weight:bold;color:#c9342c;margin-bottom:16px;">${esc(v.amountDue)}</div>
     ${cta}`
-  const subject = v.msg?.subject?.trim() || (late ? `Reminder: invoice ${v.invoiceNumber} is ${v.daysOverdue} days past due` : `Reminder: invoice ${v.invoiceNumber} is due ${v.dueDate}`)
-  return { subject, html: shell('Payment reminder', body, t) }
+  const subject = v.msg?.subject?.trim() || (late ? `Reminder: invoice ${v.invoiceNumber} is ${v.daysOverdue} day${v.daysOverdue === 1 ? '' : 's'} past due` : `Reminder: invoice ${v.invoiceNumber} is due ${v.dueDate}`)
+  const text = textShell([
+    `${late ? `${v.daysOverdue} day${v.daysOverdue === 1 ? '' : 's'} past due` : `Due ${v.dueDate}`}\nInvoice ${v.invoiceNumber}`,
+    intro,
+    `Amount due: ${v.amountDue}`,
+    v.payUrl ? `View and pay the invoice online:\n${v.payUrl}` : `View the invoice online:\n${v.invoiceUrl}`,
+  ])
+  return { subject, html: shell('Payment reminder', body, t), text }
 }
