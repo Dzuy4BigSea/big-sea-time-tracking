@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { EditProjectForm } from '@/components/EditProjectForm'
 import { ProjectTeamManager } from '@/components/ProjectTeamManager'
+import { ProjectTaskManager } from '@/components/ProjectTaskManager'
 import { ProjectBillingProvider } from '@/components/ProjectBillingContext'
 import { listEntities } from '@/lib/entities'
 import { projectNotesHtml } from '@/modules/projects/notes'
@@ -27,7 +28,8 @@ export default async function EditProjectPage({ params }: { params: { id: string
   if (!project) notFound()
 
   return (
-    <div>
+    // Bottom padding keeps the last card clear of the form's fixed Update project / Cancel bar.
+    <div className="pb-24">
       <Link href={`/projects/${project.id}`} className="text-sm text-gray-500 hover:text-brand-teal">
         ← Back to project
       </Link>
@@ -53,6 +55,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
           }}
           entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
         />
+        <ProjectTaskManager accountId={accountId} projectId={project.id} />
         <ProjectTeamManager
           accountId={accountId}
           project={{ id: project.id, projectType: project.projectType, billableRateMethod: project.billableRateMethod }}
