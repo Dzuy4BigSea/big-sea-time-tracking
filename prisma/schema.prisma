@@ -865,6 +865,10 @@ model Expense {
   @@index([accountId])
   @@index([projectId])
   @@index([invoiceLineItemId])
+  // Expenses page: one person's expenses, newest first, paged on whole weeks (specs/26 AC-EXP-112);
+  // also the Reports → Expenses timeframe aggregations.
+  @@index([accountId, userId, spentDate])
+  @@index([accountId, spentDate])
 }
 
 // ---------------------------------------------------------------------------
