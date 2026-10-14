@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { displayBadge, isPastDue, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { todayIn } from '@/lib/tz'
 import { deriveStatusBanner, type BannerTone } from '@/modules/invoicing/statusBanner'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
@@ -13,6 +14,7 @@ import {
   markDraftAction,
   deleteInvoiceAction,
   writeOffInvoiceAction,
+  reopenInvoiceAction,
   duplicateInvoiceAction,
   copyToXeroAction,
   resendInvoiceAction,
@@ -51,6 +53,8 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
   const activity = await listAudit(accountId, 'invoice', invoice.id)
   const latest = activity[0]
 
+  // The account's calendar day, so the badge and banner flip to Late on the same day (AC-STAT-001).
+  const today = todayIn(invoice.account.timezone)
   const badge = displayBadge(
     {
       status: invoice.status as StoredStatus,
@@ -59,7 +63,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       totalCents: invoice.totalCents,
       paidCents: invoice.paidCents,
     },
-    new Date(),
+    today,
   )
   const due = invoice.totalCents - invoice.paidCents
   const cur = invoice.currency
@@ -73,7 +77,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
       lastPaymentOn: invoice.payments.length ? invoice.payments[invoice.payments.length - 1].paidOn : null,
       currency: cur,
     },
-    new Date(),
+    today,
   )
 
   return (
@@ -175,7 +179,7 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
             Actions <span className="text-xs">▾</span>
           </summary>
           <div className="absolute left-0 z-10 mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
-            {invoice.status === 'open' && invoice.dueDate && invoice.dueDate < new Date() && (
+            {invoice.status === 'open' && isPastDue(invoice.dueDate, today) && (
               <MenuForm action={sendReminderAction} invoiceId={invoice.id} label="Send payment reminder" />
             )}
             {invoice.status === 'open' && <MenuForm action={markDraftAction} invoiceId={invoice.id} label="Mark as draft" />}
@@ -188,6 +192,9 @@ export default async function InvoiceDetailPage({ params, searchParams }: { para
             )}
             {invoice.status === 'open' && (
               <MenuForm action={writeOffInvoiceAction} invoiceId={invoice.id} label="Write off invoice" danger />
+            )}
+            {invoice.status === 'written_off' && (
+              <MenuForm action={reopenInvoiceAction} invoiceId={invoice.id} label="Re-open invoice" />
             )}
             {invoice.status === 'draft' && (
               <MenuForm action={deleteInvoiceAction} invoiceId={invoice.id} label="Delete draft" danger />

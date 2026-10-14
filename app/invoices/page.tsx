@@ -1,7 +1,11 @@
 import Link from 'next/link'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { displayBadge, isPastDue, type StoredStatus } from '@/modules/invoicing/invoiceState'
+import { STATUS_FILTERS, badgeDateLabel, parseStatusFilter, statusFilterWhere, tabWhere } from '@/modules/invoicing/statusFilter'
+import { LiveSearchInput, LiveSelect } from '@/components/LiveFilters'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayIn } from '@/lib/tz'
 import { formatCents, formatDate } from '@/lib/format'
 import { BADGE_STYLES, BADGE_LABEL } from '@/lib/labels'
 import { openGeneratePickerAction } from '@/app/invoices/actions'
@@ -29,7 +33,8 @@ function dueLabel(status: string, dueDate: Date | null, today: Date): { text: st
   if (d === 0) return { text: 'Due today', overdue: false }
   if (d > 0) return { text: `Due in ${d} day${d === 1 ? '' : 's'}`, overdue: false }
   const n = Math.abs(d)
-  return { text: `Overdue by ${n} day${n === 1 ? '' : 's'}`, overdue: true }
+  // isPastDue is the shared Late rule (AC-STAT-001); d < 0 here is the same calendar-day test.
+  return { text: `${n} day${n === 1 ? '' : 's'} late`, overdue: isPastDue(dueDate, today) }
 }
 
 const TABS = [
@@ -45,18 +50,20 @@ const SORTS: Record<string, string> = { issueDate: 'Issue date', number: 'Number
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: { nothing?: string; error?: string; year?: string; view?: string; q?: string; client?: string; period?: string; sort?: string; dir?: string; page?: string }
+  searchParams: { nothing?: string; error?: string; year?: string; view?: string; q?: string; client?: string; period?: string; status?: string; sort?: string; dir?: string; page?: string }
 }) {
   // Invoices are visible only with manage_invoices (Harvest: PMs/members don't see invoices).
   const { accountId } = await requireCapability('manage_invoices')
   await requireModule(accountId, 'invoices')
 
-  const today = new Date()
+  // The account's calendar day: Late starts the day after the due date there (AC-STAT-001).
+  const today = todayIn((await getAccountClock(accountId)).timezone)
   const thisYear = today.getUTCFullYear()
   const view = searchParams.view === 'all' ? 'all' : 'open'
   const q = (searchParams.q ?? '').trim()
   const clientId = searchParams.client || ''
   const period = PERIODS[searchParams.period ?? ''] ? searchParams.period! : 'all'
+  const statusFilter = parseStatusFilter(searchParams.status)
   const sort = SORTS[searchParams.sort ?? ''] ? searchParams.sort! : 'issueDate'
   const dir = searchParams.dir === 'asc' ? 'asc' : 'desc'
   const page = Math.max(1, Number(searchParams.page) || 1)
@@ -77,7 +84,8 @@ export default async function InvoicesPage({
 
   const listWhere: Prisma.InvoiceWhereInput = {
     accountId,
-    ...(view === 'open' ? { status: 'open' } : {}),
+    // Harvest: the Open tab includes drafts; the Status filter narrows either tab (AC-STAT-004/005).
+    AND: [tabWhere(view), statusFilterWhere(statusFilter, today)],
     ...(clientId ? { clientId } : {}),
     ...(periodStart ? { issueDate: { gte: periodStart } } : {}),
     ...(q ? { OR: [{ number: { contains: q, mode: 'insensitive' } }, { subject: { contains: q, mode: 'insensitive' } }, { client: { name: { contains: q, mode: 'insensitive' } } }] } : {}),
@@ -90,13 +98,21 @@ export default async function InvoicesPage({
       SELECT EXTRACT(MONTH FROM "issueDate")::int AS m, COALESCE(SUM("paidCents"),0)::bigint AS paid,
         COALESCE(SUM(GREATEST("totalCents" - "paidCents", 0)),0)::bigint AS open
       FROM "Invoice" WHERE "accountId" = ${accountId} AND "issueDate" >= ${yStart} AND "issueDate" < ${yEnd} GROUP BY 1`,
-    prisma.$queryRaw<{ c: bigint }[]>`SELECT COALESCE(SUM("totalCents" - "paidCents"),0)::bigint AS c FROM "Invoice" WHERE "accountId" = ${accountId} AND status::text = 'open'`,
+    prisma.$queryRaw<{ c: bigint }[]>`SELECT COALESCE(SUM("totalCents" - "paidCents"),0)::bigint AS c FROM "Invoice" WHERE "accountId" = ${accountId} AND status::text IN ('draft', 'open')`,
     prisma.$queryRaw<{ c: bigint }[]>`SELECT COALESCE(SUM("paidCents"),0)::bigint AS c FROM "Invoice" WHERE "accountId" = ${accountId} AND "issueDate" >= ${yStart} AND "issueDate" < ${yEnd}`,
-    prisma.invoice.count({ where: { accountId, status: 'open', ...(clientId ? { clientId } : {}) } }),
+    prisma.invoice.count({ where: { accountId, ...tabWhere('open'), ...(clientId ? { clientId } : {}) } }),
     prisma.invoice.count({ where: listWhere }),
     prisma.invoice.findMany({ where: listWhere, include: { client: { select: { name: true } } }, orderBy, take: PAGE_SIZE, skip: (page - 1) * PAGE_SIZE }),
     prisma.client.findMany({ where: { accountId, invoices: { some: {} } }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ])
+
+  // Paid-on date for paid rows (badge date, AC-STAT-006): one grouped query over this page only.
+  const paidIds = rows.filter((r) => r.status === 'paid').map((r) => r.id)
+  const lastPaid = new Map(
+    paidIds.length
+      ? (await prisma.payment.groupBy({ by: ['invoiceId'], where: { accountId, invoiceId: { in: paidIds } }, _max: { paidOn: true } })).map((g) => [g.invoiceId, g._max.paidOn])
+      : [],
+  )
 
   const months = MONTHS.map((_, i) => {
     const r = chart.find((x) => x.m === i + 1)
@@ -112,10 +128,12 @@ export default async function InvoicesPage({
     if (q) base.q = q
     if (clientId) base.client = clientId
     if (period !== 'all') base.period = period
+    if (statusFilter !== 'all') base.status = statusFilter
     if (sort !== 'issueDate') base.sort = sort
     if (dir !== 'desc') base.dir = dir
     if (page > 1) base.page = String(page)
-    return `/invoices?${new URLSearchParams({ ...base, ...over }).toString()}`
+    const merged = Object.entries({ ...base, ...over }).filter(([, v]) => v !== '')
+    return `/invoices?${new URLSearchParams(merged).toString()}`
   }
   const sortHref = (col: string) => qp({ sort: col, dir: sort === col && dir === 'asc' ? 'desc' : 'asc', page: '1' })
   const sortArrow = (col: string) => (sort === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '')
@@ -191,20 +209,14 @@ export default async function InvoicesPage({
           <Link href={qp({ view: 'open', page: '1' })} className={view === 'open' ? 'font-medium text-brand-teal' : 'text-gray-500 hover:text-gray-800'}>Open <span className="text-gray-400">({openCount})</span></Link>
           <Link href={qp({ view: 'all', page: '1' })} className={view === 'all' ? 'font-medium text-brand-teal' : 'text-gray-500 hover:text-gray-800'}>All invoices</Link>
         </div>
-        <form className="ml-auto flex flex-wrap items-center gap-2">
-          <input type="hidden" name="year" value={year} />
-          <input type="hidden" name="view" value={view} />
-          <select name="client" defaultValue={clientId} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-            <option value="">All clients</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <select name="period" defaultValue={period} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-            {Object.entries(PERIODS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <input name="q" defaultValue={q} placeholder="Search invoices…" className="w-48 rounded border border-gray-300 px-3 py-1.5 text-sm" />
-          <button className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">Apply</button>
-          {(clientId || period !== 'all' || q) && <Link href={qp({ client: '', period: 'all', q: '' })} className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>}
-        </form>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Filters apply on select (Harvest Invoices overview), no Apply step. */}
+          <LiveSelect param="status" ariaLabel="Status" resetParams={['page']} options={STATUS_FILTERS.map((f) => ({ value: f.value === 'all' ? '' : f.value, label: f.label }))} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          <LiveSelect param="client" ariaLabel="Client" resetParams={['page']} options={[{ value: '', label: 'All clients' }, ...clients.map((c) => ({ value: c.id, label: c.name }))]} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          <LiveSelect param="period" ariaLabel="Timeframe" resetParams={['page']} options={Object.entries(PERIODS).map(([v, l]) => ({ value: v === 'all' ? '' : v, label: l }))} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          <LiveSearchInput param="q" placeholder="Search invoices…" resetParams={['page']} className="w-48 rounded border border-gray-300 px-3 py-1.5 text-sm" />
+          {(clientId || period !== 'all' || q || statusFilter !== 'all') && <Link href={qp({ client: '', period: '', q: '', status: '', page: '1' })} className="text-sm text-gray-400 hover:text-gray-600">Clear filters</Link>}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -224,9 +236,13 @@ export default async function InvoicesPage({
               const badge = displayBadge({ status: inv.status as StoredStatus, sentAt: inv.sentAt, dueDate: inv.dueDate, totalCents: inv.totalCents, paidCents: inv.paidCents }, today)
               const balance = inv.totalCents - inv.paidCents
               const due = dueLabel(inv.status, inv.dueDate, today)
+              const badgeDate = badgeDateLabel(badge, inv.sentAt, lastPaid.get(inv.id) ?? null, formatDate)
               return (
                 <ClickableRow key={inv.id} href={`/invoices/${inv.id}`} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3"><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>{BADGE_LABEL[badge]}</span></td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_STYLES[badge]}`}>{BADGE_LABEL[badge]}</span>
+                    {badgeDate && <div className="mt-0.5 text-xs text-gray-400">{badgeDate}</div>}
+                  </td>
                   <td className={`px-4 py-3 text-sm ${due.overdue ? 'font-medium text-red-600' : 'text-gray-500'}`}>{due.text}</td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(inv.issueDate)}</td>
                   <td className="px-4 py-3"><Link href={`/invoices/${inv.id}`} className="text-gray-700 hover:text-brand-teal">{inv.number ?? <span className="text-gray-400">Draft</span>}</Link></td>

@@ -1,15 +1,7 @@
 import type { ReactNode } from 'react'
+import { niceCeil } from '@/modules/projects/budgetChart'
 
 export type Bar = { label: string; segments: { value: number; color: string }[]; highlight?: boolean; title?: string }
-
-/** Round up to a "nice" axis maximum (1/2/2.5/5/10 × 10ⁿ) so gridline labels read cleanly. */
-function niceCeil(n: number): number {
-  if (n <= 0) return 1
-  const pow = Math.pow(10, Math.floor(Math.log10(n)))
-  const f = n / pow
-  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10
-  return nf * pow
-}
 
 /**
  * Presentational column chart with horizontal reference lines + value labels on the Y axis, so the

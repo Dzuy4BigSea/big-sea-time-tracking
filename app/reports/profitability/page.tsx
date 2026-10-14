@@ -5,6 +5,7 @@ import { ReportsTabs } from '@/components/ReportsTabs'
 import { Prisma } from '@prisma/client'
 import { requireCapability } from '@/lib/session'
 import { ReportTimeframe } from '@/components/ReportTimeframe'
+import { ExportMenu } from '@/components/ExportMenu'
 import { SortableTh } from '@/components/SortableTh'
 import { resolveTimeframe, timeframeQuery, buildHref, type TimeframeParams } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
@@ -57,7 +58,10 @@ export default async function ProfitabilityPage({
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-semibold">Reports</h1>
+      <div className="mb-1 flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold">Reports</h1>
+        <ExportMenu csvHref={buildHref('/reports/profitability/export', tfq)} />
+      </div>
       <p className="mb-4 text-sm text-gray-500">Profitability · revenue vs internal cost · live from Supabase</p>
       <ReportsTabs active="Profitability" timeframe={tfq} />
       <ReportTimeframe basePath="/reports/profitability" tf={tf} keep={sortq} />

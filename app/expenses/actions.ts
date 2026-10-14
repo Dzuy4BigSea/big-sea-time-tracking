@@ -1,12 +1,15 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { can, type PermissionProfile } from '@/modules/shared/permissions'
 import { parseYmd } from '@/lib/week'
 import { safeHttpUrl } from '@/modules/shared/safeUrl'
-import { mayActForOnProject } from '@/lib/timesheetSubject'
+import { mayActForOnProject, resolveSubjectUserId } from '@/lib/timesheetSubject'
+import { LOGGABLE_PROJECT_WHERE } from '@/modules/time/actingFor'
+import { expenseTotalFromInput, parseMoneyCents } from '@/modules/expenses/expenses'
 
 /** Empty → null; otherwise must be an absolute http(s) URL (never javascript:/data:). */
 function receiptUrlFrom(formData: FormData): { url: string | null; error?: string } {
@@ -19,19 +22,21 @@ function receiptUrlFrom(formData: FormData): { url: string | null; error?: strin
 export type NewExpenseState = { error?: string; ok?: boolean }
 export type NewCategoryState = { error?: string; ok?: boolean }
 
-const centsFrom = (raw: FormDataEntryValue | null): number | null => {
-  const n = Number(String(raw ?? '').replace(/[$,\s]/g, ''))
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null
-}
+const centsFrom = (raw: FormDataEntryValue | null): number | null => parseMoneyCents(raw)
 
-/** Any authenticated user can record their own expense (Harvest: everyone tracks own expenses). */
+/**
+ * Track an expense (specs/26). For yourself, or for a teammate via `forUserId` when you may act for
+ * them on that project (Harvest: Admins, and Managers for their managed people/projects; AC-EXP-113).
+ * The project must be one the subject is actively assigned to (AC-EXP-114) and the category active
+ * (AC-EXP-117). Unit-priced categories take a quantity (AC-EXP-116).
+ */
 export async function createExpenseAction(_prev: NewExpenseState, formData: FormData): Promise<NewExpenseState> {
-  const { userId, accountId } = await requireUser()
+  const current = await requireUser()
+  const { accountId } = current
 
   const projectId = String(formData.get('projectId') ?? '')
   const categoryId = String(formData.get('categoryId') ?? '')
   const spentDate = parseYmd(String(formData.get('spentDate') ?? ''))
-  const totalCents = centsFrom(formData.get('amount'))
   const markupRaw = Number(String(formData.get('markup') ?? '').replace(/[%\s]/g, ''))
   const markupPercent = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : null
   const isBillable = formData.get('isBillable') === 'on'
@@ -43,25 +48,41 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
   if (!projectId) return { error: 'Pick a project.' }
   if (!categoryId) return { error: 'Pick a category.' }
   if (!spentDate) return { error: 'Pick a valid date.' }
-  if (!totalCents) return { error: 'Enter an amount like 42.50.' }
 
-  // Scope the referenced project + category to this account (tenant isolation, INV-5).
-  const [project, category] = await Promise.all([
-    prisma.project.findFirst({ where: { id: projectId, accountId }, select: { id: true } }),
-    prisma.expenseCategory.findFirst({ where: { id: categoryId, accountId }, select: { id: true } }),
+  const subjectId = await resolveSubjectUserId(current, String(formData.get('forUserId') ?? ''))
+  if (!subjectId) return { error: 'You can’t track expenses for that person.' }
+  if (subjectId !== current.userId && !(await mayActForOnProject(current, subjectId, projectId))) {
+    return { error: 'You can only track expenses for teammates on projects you manage.' }
+  }
+
+  // Scope the referenced project + category to this account (INV-5); the project must be one the
+  // subject is actively assigned to on an active project/client, the category must be active.
+  const [assignment, category] = await Promise.all([
+    prisma.projectUserAssignment.findFirst({
+      where: { userId: subjectId, projectId, isActive: true, project: { accountId, ...LOGGABLE_PROJECT_WHERE } },
+      select: { id: true },
+    }),
+    prisma.expenseCategory.findFirst({
+      where: { id: categoryId, accountId },
+      select: { id: true, isActive: true, unitName: true, unitPriceCents: true },
+    }),
   ])
-  if (!project) return { error: 'That project was not found.' }
+  if (!assignment) return { error: 'That project isn’t one you’re assigned to. Ask an Administrator to assign you.' }
   if (!category) return { error: 'That category was not found.' }
+  if (!category.isActive) return { error: 'That category is archived. Pick another one.' }
+
+  const total = expenseTotalFromInput(category, { amount: formData.get('amount'), units: formData.get('units') })
+  if ('error' in total) return { error: total.error }
 
   try {
     await prisma.expense.create({
       data: {
         accountId,
-        userId,
+        userId: subjectId,
         projectId,
         categoryId,
         spentDate,
-        totalCents,
+        totalCents: total.totalCents,
         markupPercent,
         isBillable,
         notes,
@@ -87,12 +108,12 @@ async function expenseGuard(expenseId: string) {
   const actor = await requireUser()
   const exp = await prisma.expense.findFirst({
     where: { id: expenseId, accountId: actor.accountId },
-    select: { userId: true, projectId: true, lockState: true },
+    select: { userId: true, projectId: true, categoryId: true, lockState: true },
   })
   if (!exp) return null
   if (exp.userId !== actor.userId && !(await mayActForOnProject(actor, exp.userId, exp.projectId))) return null
   if (exp.lockState === 'invoiced') return null // locked once billed
-  return { actor, ownerId: exp.userId }
+  return { actor, ownerId: exp.userId, categoryId: exp.categoryId }
 }
 
 export async function updateExpenseAction(_prev: EditExpenseState, formData: FormData): Promise<EditExpenseState> {
@@ -103,16 +124,23 @@ export async function updateExpenseAction(_prev: EditExpenseState, formData: For
   const projectId = String(formData.get('projectId') ?? '')
   const categoryId = String(formData.get('categoryId') ?? '')
   const spentDate = parseYmd(String(formData.get('spentDate') ?? ''))
-  const totalCents = centsFrom(formData.get('amount'))
   const markupRaw = Number(String(formData.get('markup') ?? '').replace(/[%\s]/g, ''))
   const markupPercent = Number.isFinite(markupRaw) && markupRaw > 0 ? markupRaw : null
   if (!spentDate) return { error: 'Pick a valid date.' }
-  if (!totalCents) return { error: 'Enter an amount like 42.50.' }
   const [project, category] = await Promise.all([
     prisma.project.findFirst({ where: { id: projectId, accountId: actor.accountId }, select: { id: true } }),
-    prisma.expenseCategory.findFirst({ where: { id: categoryId, accountId: actor.accountId }, select: { id: true } }),
+    prisma.expenseCategory.findFirst({
+      where: { id: categoryId, accountId: actor.accountId },
+      select: { id: true, isActive: true, unitName: true, unitPriceCents: true },
+    }),
   ])
   if (!project || !category) return { error: 'Project or category not found.' }
+  // Harvest: an existing expense stays editable on its (since archived) category, but can't move onto one.
+  if (!category.isActive && category.id !== guard.categoryId) return { error: 'That category is archived. Pick another one.' }
+  // Re-saving re-prices a unit-based expense at the category's current unit price (Harvest behaviour).
+  const total = expenseTotalFromInput(category, { amount: formData.get('amount'), units: formData.get('units') })
+  if ('error' in total) return { error: total.error }
+  const totalCents = total.totalCents
   // Moving someone else's expense: the actor must also be allowed on the destination project.
   if (guard.ownerId !== actor.userId && !(await mayActForOnProject(actor, guard.ownerId, projectId))) {
     return { error: 'You can only edit expenses on projects you manage.' }
@@ -142,6 +170,9 @@ export async function deleteExpenseAction(formData: FormData): Promise<void> {
   if (!guard) return
   await prisma.expense.deleteMany({ where: { id, accountId: guard.actor.accountId } })
   revalidatePath('/expenses')
+  // From the edit page, go back to the list (only ever to an /expenses URL, never an arbitrary one).
+  const back = String(formData.get('redirectTo') ?? '')
+  if (/^\/expenses(\?[\w=&.-]*)?$/.test(back)) redirect(back)
 }
 
 /** Categories are an account setting — only admins/settings-managers create them. */

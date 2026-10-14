@@ -150,6 +150,8 @@ export interface DetailedExpenseRow {
   categoryName: string
   userId: string
   userName: string
+  /** Receipt link (📎 next to the amount; specs/26 AC-EXP-107). */
+  receiptFileUrl: string | null
 }
 
 export async function detailedExpenses(f: DetailedFilters, tf: Timeframe, scope: DetailedScope, limit: number | null = DETAILED_ROW_LIMIT) {
@@ -168,7 +170,8 @@ export async function detailedExpenses(f: DetailedFilters, tf: Timeframe, scope:
     SELECT e.id, ${g.key} AS "groupKey", e."spentDate", e."totalCents", e.notes, e."isBillable",
       ${invoicedSql('e')} AS invoiced,
       c.id AS "clientId", c.name AS "clientName", p.id AS "projectId", p.name AS "projectName", p.code AS "projectCode",
-      cat.name AS "categoryName", u.id AS "userId", trim(u."firstName" || ' ' || u."lastName") AS "userName"
+      cat.name AS "categoryName", u.id AS "userId", trim(u."firstName" || ' ' || u."lastName") AS "userName",
+      e."receiptFileUrl"
     ${EXPENSE_FROM} WHERE ${w}
     ORDER BY ${g.order} ASC, ${g.key}, e."spentDate" ASC, lower(c.name), lower(p.name), e."createdAt"
     ${limit == null ? Prisma.empty : Prisma.sql`LIMIT ${limit}`}`

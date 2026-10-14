@@ -5,10 +5,11 @@ import { requireCapability } from '@/lib/session'
 import { SortableTh } from '@/components/SortableTh'
 import { buildHref } from '@/modules/shared/timeframe'
 import { parseSort, sortRows, type SortState } from '@/modules/reports/sort'
+import { getAccountClock } from '@/lib/accountClock'
+import { todayIn } from '@/lib/tz'
+import { daysPastDue } from '@/modules/invoicing/invoiceState'
 
 export const dynamic = 'force-dynamic'
-
-const dayMs = 24 * 60 * 60 * 1000
 
 type Buckets = { current: number; d1_30: number; d31_60: number; d60plus: number; total: number }
 const emptyBuckets = (): Buckets => ({ current: 0, d1_30: 0, d31_60: 0, d60plus: 0, total: 0 })
@@ -26,14 +27,16 @@ export default async function ReceivablesPage({ searchParams }: { searchParams: 
     select: { totalCents: true, paidCents: true, dueDate: true, client: { select: { name: true } } },
   })
 
-  const now = Date.now()
+  // Aging counts calendar days past due on the account's day (specs/27 AC-STAT-001): the due day
+  // itself is current, the day after is 1 day late.
+  const today = todayIn((await getAccountClock(accountId)).timezone)
   const byClient = new Map<string, Buckets>()
   const totals = emptyBuckets()
 
   for (const inv of invoices) {
     const balance = inv.totalCents - inv.paidCents
     if (balance <= 0) continue
-    const overdueDays = inv.dueDate ? Math.floor((now - inv.dueDate.getTime()) / dayMs) : 0
+    const overdueDays = daysPastDue(inv.dueDate, today)
     const bucket: keyof Buckets =
       overdueDays <= 0 ? 'current' : overdueDays <= 30 ? 'd1_30' : overdueDays <= 60 ? 'd31_60' : 'd60plus'
 

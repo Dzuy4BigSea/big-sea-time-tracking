@@ -285,6 +285,11 @@ model Account {
   migrationIdMaps          MigrationIdMap[]
   businessEntities         BusinessEntity[]
   savedReports             SavedReport[]
+  managerAssignments       ManagerAssignment[]
+  teamPins                 TeamPin[]
+  apiTokens                ApiToken[]
+  oauthCodes               OAuthAuthorizationCode[]
+  oauthGrants              OAuthGrant[]
 }
 
 // A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
@@ -380,16 +385,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ownedAccount       Account?                @relation("AccountOwner")
+  ownedAccount       Account?                 @relation("AccountOwner")
   billableRates      PersonBillableRate[]
   costRates          PersonCostRate[]
   timeEntries        TimeEntry[]
   timesheets         Timesheet[]
-  approvedTimesheets Timesheet[]             @relation("TimesheetApprover")
+  approvedTimesheets Timesheet[]              @relation("TimesheetApprover")
   projectAssignments ProjectUserAssignment[]
   expenses           Expense[]
-  auditLogs          AuditLog[]              @relation("AuditActor")
+  auditLogs          AuditLog[]               @relation("AuditActor")
   savedReports       SavedReport[]
+  googleDriveGrant   GoogleDriveGrant?
+  managedPeople      ManagerAssignment[]      @relation("ManagerAssignmentManager")
+  managers           ManagerAssignment[]      @relation("ManagerAssignmentPerson")
+  teamPins           TeamPin[]                @relation("TeamPinOwner")
+  pinnedBy           TeamPin[]                @relation("TeamPinTarget")
+  apiTokens          ApiToken[]
+  oauthCodes         OAuthAuthorizationCode[]
+  oauthGrants        OAuthGrant[]
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -864,6 +877,10 @@ model Expense {
   @@index([accountId])
   @@index([projectId])
   @@index([invoiceLineItemId])
+  // Expenses page: one person's expenses, newest first, paged on whole weeks (specs/26 AC-EXP-112);
+  // also the Reports → Expenses timeframe aggregations.
+  @@index([accountId, userId, spentDate])
+  @@index([accountId, spentDate])
 }
 
 // ---------------------------------------------------------------------------
@@ -884,6 +901,9 @@ model RecurringInvoiceProfile {
   // "Number of invoices to issue" (BugHerd #13): null = recur indefinitely; decremented per
   // generated invoice; at 0 the profile pauses and reads as Completed.
   remainingOccurrences Int?
+  // Day of month the schedule is anchored to (specs/27 AC-REC-102): month-based schedules issue on
+  // min(anchorDay, last day of month). null = legacy row, advances from nextIssueDate's own day.
+  anchorDay            Int?
   amountCents          Int                @default(0)
   paymentTerm          PaymentTerm        @default(net_30)
   notes                String?
@@ -1134,4 +1154,162 @@ model SavedReport {
 
   @@index([accountId])
   @@index([createdById])
+}
+
+// Per-user Google Drive grant for "Export → Google Drive" (OPS.md §8). Scope drive.file only (files the
+// app creates). The refresh token is AES-256-GCM encrypted with INTEGRATION_ENC_KEY (lib/crypto) and is
+// never returned to the client; a user can only ever use their own row.
+model GoogleDriveGrant {
+  id                    String   @id @default(cuid())
+  accountId             String
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  encryptedRefreshToken String
+  scope                 String
+  googleEmail           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([accountId])
+}
+
+// Harvest "Assigned people" (specs/28): an Administrator assigns people to a Manager. Phase 1 stores
+// and edits the assignments only; the access they will grant (approvals, reports, editing time) is
+// specced in specs/28 §Assigned people and not wired yet.
+model ManagerAssignment {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  managerId String
+  manager   User     @relation("ManagerAssignmentManager", fields: [managerId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ManagerAssignmentPerson", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([managerId, userId])
+  @@index([accountId])
+  @@index([userId])
+}
+
+// Harvest Team overview "Pin" (specs/28): per-viewer pinned teammates, shown first and filterable
+// with "My pins".
+model TeamPin {
+  id           String   @id @default(cuid())
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation("TeamPinOwner", fields: [userId], references: [id], onDelete: Cascade)
+  pinnedUserId String
+  pinnedUser   User     @relation("TeamPinTarget", fields: [pinnedUserId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, pinnedUserId])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Personal access tokens (specs/22 — MCP server / API auth)
+// ---------------------------------------------------------------------------
+
+/// A personal API token (`track2_pat_…`). Acts as its user: every request re-reads the user's
+/// isActive / profile / overrides, so permissions match the UI. Only the SHA-256 of the token is
+/// stored; `prefix` (first 8 chars of the secret part) is kept for display.
+model ApiToken {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String    @unique
+  prefix     String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+// ── MCP OAuth 2.1 (specs/22 §OAuth) ─────────────────────────────────────────────────────────────
+// A client registered itself through Dynamic Client Registration (RFC 7591), unauthenticated, so it
+// is global (not account-scoped) and grants nothing on its own. Everything a client can reach goes
+// through an OAuthGrant, which is bound to one user + account and re-checked on every request.
+model OAuthClient {
+  id                      String   @id @default(cuid())
+  /// Public identifier handed to the client (random, unguessable).
+  clientId                String   @unique
+  /// SHA-256 of the client secret, only for confidential clients (client_secret_post/basic).
+  clientSecretHash        String?
+  clientName              String
+  redirectUris            String[]
+  /// none | client_secret_post | client_secret_basic
+  tokenEndpointAuthMethod String   @default("none")
+  createdAt               DateTime @default(now())
+
+  codes  OAuthAuthorizationCode[]
+  grants OAuthGrant[]
+}
+
+/// One-time authorization code (10 minutes), stored hashed, bound to client, redirect URI, user,
+/// PKCE challenge (S256) and resource. `usedAt` is set atomically on exchange; `grantId` remembers
+/// what it produced so a replayed code can revoke that grant.
+model OAuthAuthorizationCode {
+  id            String      @id @default(cuid())
+  codeHash      String      @unique
+  clientId      String
+  client        OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  codeChallenge String
+  resource      String
+  scope         String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  grantId       String?
+  createdAt     DateTime    @default(now())
+
+  @@index([userId])
+  @@index([clientId])
+}
+
+/// A user's consent to one client ("connected app"): the token family. Revoking it revokes every
+/// access/refresh token issued under it.
+model OAuthGrant {
+  id         String       @id @default(cuid())
+  accountId  String
+  account    Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String
+  client     OAuthClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  resource   String
+  scope      String?
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  tokens     OAuthToken[]
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+/// Access (`track2_oat_…`, 1 hour) and refresh (`track2_ort_…`, 30 days, rotating) tokens, hashed.
+/// A refresh token presented after `rotatedAt` is a replay → the whole grant is revoked.
+model OAuthToken {
+  id        String     @id @default(cuid())
+  grantId   String
+  grant     OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  /// access | refresh
+  kind      String
+  tokenHash String     @unique
+  expiresAt DateTime
+  rotatedAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([grantId])
 }

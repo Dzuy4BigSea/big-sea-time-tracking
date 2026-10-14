@@ -9,6 +9,7 @@
  *     ▲          │ ▲                    │
  *     └ mark_as_draft (releases)  delete_payment (re-derive)
  *   draft/open ─delete▶ (removed)   open/paid ─close/write_off▶ closed/written_off
+ *   written_off ─reopen▶ open (Harvest "Re-open Invoice")
  */
 
 export type StoredStatus = 'draft' | 'open' | 'paid' | 'written_off' | 'closed'
@@ -21,6 +22,7 @@ export type InvoiceAction =
   | 'mark_as_draft'
   | 'write_off'
   | 'close'
+  | 'reopen'
   | 'delete'
 
 export class InvalidTransitionError extends Error {
@@ -35,7 +37,8 @@ const LEGAL: Record<StoredStatus, ReadonlySet<InvoiceAction>> = {
   draft: new Set(['send', 'delete']),
   open: new Set(['record_payment', 'delete_payment', 'mark_as_draft', 'write_off', 'close', 'delete']),
   paid: new Set(['delete_payment', 'close']),
-  written_off: new Set(),
+  // Harvest "Re-open Invoice" (specs/27 AC-STAT-007).
+  written_off: new Set(['reopen']),
   closed: new Set(),
 }
 
@@ -141,6 +144,11 @@ export function applyInvoiceAction(state: InvoiceState, action: InvoiceAction, c
     case 'close':
       return { status: 'closed', paidCents: state.paidCents, effects: {} }
 
+    case 'reopen':
+      // Written off → open again: number, entries (still locked) and payments are kept; a balance
+      // that is somehow fully paid re-derives to paid.
+      return { status: deriveStatusAfterPayment(state.totalCents, state.paidCents), paidCents: state.paidCents, effects: {} }
+
     case 'delete':
       if (state.paidCents > 0) throw new InvalidTransitionError(state.status, action, PAID_BLOCK_REASON)
       // Allowed from draft AND sent (observed). Releases entries back to the pool.
@@ -199,7 +207,30 @@ export function displayBadge(v: BadgeView, today: Date): DisplayBadge {
   if (v.status === 'closed') return 'closed'
   // status === 'open'
   if (v.isPending) return 'pending'
-  const due = v.totalCents - v.paidCents
-  if (v.dueDate != null && due > 0 && today.getTime() > v.dueDate.getTime()) return 'late'
+  if (isPastDue(v.dueDate, today)) return 'late'
   return 'sent'
+}
+
+/**
+ * Harvest "Late" (specs/27 AC-STAT-001/002): an open invoice whose due date is a calendar day
+ * before `today` (the account's calendar day as a UTC-midnight date). The due day itself is not
+ * late. Harvest shows Late even for a $0 balance, so the balance is not consulted.
+ */
+export function isPastDue(dueDate: Date | null, today: Date): boolean {
+  if (!dueDate) return false
+  const due = Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate())
+  const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  return due < t
+}
+
+/**
+ * Whole calendar days an invoice is past due as of `today` (the account's calendar day, UTC
+ * midnight — lib/tz todayIn). 0 on or before the due day, 1 the day after; same boundary as
+ * isPastDue. Used for A/R aging and the "N days past due" reminder copy.
+ */
+export function daysPastDue(dueDate: Date | null, today: Date): number {
+  if (!dueDate) return 0
+  const due = Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate())
+  const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  return Math.max(0, Math.round((t - due) / 86_400_000))
 }

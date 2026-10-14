@@ -4,7 +4,16 @@ import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 
 /** Client half of /login; page.tsx (server) decides whether Google is offered and maps ?error=. */
-export default function LoginForm({ googleEnabled, initialError }: { googleEnabled: boolean; initialError: string | null }) {
+export default function LoginForm({
+  googleEnabled,
+  initialError,
+  callbackUrl = '/',
+}: {
+  googleEnabled: boolean
+  initialError: string | null
+  /** Same-origin path to land on after sign-in (sanitized by page.tsx via safeCallbackPath). */
+  callbackUrl?: string
+}) {
   const [error, setError] = useState(initialError ?? '')
   const [pending, setPending] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
@@ -15,7 +24,7 @@ export default function LoginForm({ googleEnabled, initialError }: { googleEnabl
     // A full browser redirect to Google and back (the callback then lands on / with a full page load,
     // so stale prefetched redirects can't bounce the user back here).
     try {
-      await signIn('google', { redirectTo: '/' })
+      await signIn('google', { redirectTo: callbackUrl })
     } catch {
       setGooglePending(false)
       setError('Sign-in didn’t go through — the app may have been idle and is waking up. Please try again.')
@@ -41,7 +50,7 @@ export default function LoginForm({ googleEnabled, initialError }: { googleEnabl
     if (res && !res.error) {
       // Full page load, not router.push: while signed out, the app shell's links were prefetched and
       // cached as redirects to /login, so a client-side push could bounce straight back here.
-      window.location.assign('/')
+      window.location.assign(callbackUrl)
       return
     }
     // A cold serverless/DB connection surfaces as a non-credentials error — don't call it a bad password.

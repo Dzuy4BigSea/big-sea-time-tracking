@@ -68,3 +68,43 @@ export function csvStreamResponse(
 
 /** Batch size for keyset-paginated exports. */
 export const EXPORT_BATCH = 2000
+
+export type CollectedCsv = { ok: true; csv: string; rows: number; bytes: number } | { ok: false; reason: 'too_large' }
+
+/**
+ * The same CSV as csvStreamResponse (minus the BOM), gathered into one string for an upload (Google
+ * Drive export). Stops pulling batches and returns `too_large` as soon as a cap is passed, so an
+ * oversized "All time" export fails fast instead of filling memory.
+ */
+export async function collectCsv(
+  headers: string[],
+  batches: () => AsyncIterable<unknown[][]>,
+  limits: { maxCells: number; maxBytes: number },
+): Promise<CollectedCsv> {
+  const parts: string[] = [csvLine(headers)]
+  let bytes = Buffer.byteLength(parts[0], 'utf8')
+  let cells = headers.length
+  let rows = 0
+  const iter = batches()[Symbol.asyncIterator]()
+  try {
+    for (;;) {
+      const next = await iter.next()
+      if (next.done) break
+      for (const r of next.value) {
+        const line = '\r\n' + csvLine(r)
+        bytes += Buffer.byteLength(line, 'utf8')
+        cells += Math.max(r.length, headers.length)
+        rows++
+        if (bytes > limits.maxBytes || cells > limits.maxCells) {
+          await iter.return?.()
+          return { ok: false, reason: 'too_large' }
+        }
+        parts.push(line)
+      }
+    }
+  } catch (e) {
+    await iter.return?.()
+    throw e
+  }
+  return { ok: true, csv: parts.join(''), rows, bytes }
+}

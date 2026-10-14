@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
 import { displayBadge, type StoredStatus } from '@/modules/invoicing/invoiceState'
 import { formatCents, formatDate } from '@/lib/format'
+import { todayIn } from '@/lib/tz'
 import { BADGE_STYLES, BADGE_LABEL, PAYMENT_TERM_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels'
 import { getInvoiceAppearance, applyEntityBranding } from '@/lib/appearance'
 import { getInvoiceLabels } from '@/lib/invoiceLabels'
@@ -72,7 +73,8 @@ export default async function PublicInvoicePage({
       totalCents: invoice.totalCents,
       paidCents: invoice.paidCents,
     },
-    new Date(),
+    // Late is judged on the account's calendar day (specs/27 AC-STAT-001), not the server's UTC day.
+    todayIn(invoice.account.timezone),
   )
   const due = invoice.totalCents - invoice.paidCents
   const cur = invoice.currency

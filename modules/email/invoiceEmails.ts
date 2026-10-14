@@ -5,6 +5,8 @@ import { sendEmail } from '@/modules/email/send'
 import { renderPaymentReceiptEmail, renderOverdueReminderEmail, DEFAULT_EMAIL_THEME } from '@/modules/email/templates'
 import { getMessageTemplate, fillTemplate } from '@/lib/messageTemplates'
 import { resolveEmailTheme } from '@/modules/entities/resolveEntity'
+import { daysPastDue } from '@/modules/invoicing/invoiceState'
+import { todayIn } from '@/lib/tz'
 
 type InvoiceForEmail = {
   id: string
@@ -16,7 +18,7 @@ type InvoiceForEmail = {
   paidCents: number
   dueDate: Date | null
   publicToken: string | null
-  account: { name: string }
+  account: { name: string; timezone: string | null }
   entity: { name: string; emailBrandColor: string | null; emailAccentColor: string | null; brandColor: string | null; accentColor: string | null } | null
   client: { name: string; contacts: { email: string | null; isInvoiceRecipient: boolean }[] }
 }
@@ -27,7 +29,7 @@ async function load(accountId: string, invoiceId: string): Promise<InvoiceForEma
     select: {
       id: true, accountId: true, entityId: true, number: true, currency: true, totalCents: true, paidCents: true,
       dueDate: true, publicToken: true,
-      account: { select: { name: true } },
+      account: { select: { name: true, timezone: true } },
       entity: { select: { name: true, emailBrandColor: true, emailAccentColor: true, brandColor: true, accentColor: true } },
       client: { select: { name: true, contacts: { select: { email: true, isInvoiceRecipient: true } } } },
     },
@@ -69,7 +71,8 @@ export async function sendReminder(accountId: string, invoiceId: string, baseUrl
   const to = recipientOf(inv)
   if (!to) return 'Reminder not sent — no recipient contact'
   const due = inv.totalCents - inv.paidCents
-  const daysOverdue = inv.dueDate ? Math.max(0, Math.round((now.getTime() - inv.dueDate.getTime()) / 86_400_000)) : 0
+  // Calendar days past due on the account's day (specs/27 AC-STAT-001), not elapsed UTC time.
+  const daysOverdue = daysPastDue(inv.dueDate, todayIn(inv.account.timezone, now))
   const link = `${baseUrl}/i/${inv.publicToken}`
   const fromName = inv.entity?.name ?? inv.account.name
   const tpl = await getMessageTemplate(accountId, 'reminder', inv.entityId)

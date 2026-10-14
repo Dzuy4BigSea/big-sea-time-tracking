@@ -12,6 +12,8 @@
  *  - Each profile runs in its own try/catch: one bad profile is reported, the rest still generate.
  *  - A profile that fell behind generates at most ONE invoice per run and its nextIssueDate jumps
  *    to the next future date (no backlog of one-per-missed-interval).
+ *  - The draft's issue date is the scheduled day and its due date = issue + payment term (specs/27
+ *    AC-REC-103); month-based schedules keep their anchor day (AC-REC-102).
  *  - The invoice carries the client's business entity and each template line's `taxable` flag, and
  *    its totals come from computeTotals. (Profiles have no tax/discount columns yet; tax/discount
  *    can be added on the draft before sending.)
@@ -19,6 +21,7 @@
 import type { PrismaClient, PaymentTerm } from '@prisma/client'
 import { afterIssue, isDue, nextFutureIssueDate } from '@/modules/invoicing/recurring'
 import { computeTotals } from '@/modules/invoicing/totals'
+import { sendDates } from '@/modules/invoicing/invoiceLifecycle'
 import { todayIn } from '@/lib/tz'
 
 interface TemplateLine {
@@ -54,15 +57,19 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
       const lines = Array.isArray(p.templateLineItems) ? (p.templateLineItems as unknown as TemplateLine[]) : []
       if (lines.length === 0) throw new Error('profile has no template line items')
       const totals = computeTotals({ lineItems: lines.map((li) => ({ amountCents: li.amountCents, taxable: !!li.taxable })) })
-      const nextDate = nextFutureIssueDate(p.nextIssueDate!, p.frequency, p.intervalCount, asOf)
 
       const made = await db.$transaction(async (tx) => {
         // Re-check inside the txn so a retry for the same date can't double-generate (AC-REC-003).
         const fresh = await tx.recurringInvoiceProfile.findUnique({
           where: { id: p.id },
-          select: { nextIssueDate: true, status: true, remainingOccurrences: true },
+          select: { nextIssueDate: true, status: true, remainingOccurrences: true, frequency: true, intervalCount: true, anchorDay: true },
         })
         if (!fresh || !isDue(fresh.nextIssueDate, asOf, fresh.status as 'active' | 'paused', fresh.remainingOccurrences)) return false
+        // The scheduled day this invoice is for, and the next one (month-end anchor kept, AC-REC-102).
+        const scheduled = fresh.nextIssueDate!
+        const nextDate = nextFutureIssueDate(scheduled, fresh.frequency, fresh.intervalCount, asOf, fresh.anchorDay)
+        // Harvest issues the generated invoice on its scheduled day, due issue + term (AC-REC-103).
+        const { issueDate, dueDate } = sendDates({ issueDate: scheduled, dueDate: null, paymentTerm: p.paymentTerm }, asOf)
         // Claim this issue date before creating anything: advance the schedule and count down the
         // "number of invoices to issue" limit (the last one pauses the profile, BugHerd #13). The update
         // only matches the row as read, so an overlapping run (cron + manual) blocks on the row lock,
@@ -79,6 +86,8 @@ export async function generateDueRecurring(db: PrismaClient, accountId: string, 
             clientId: p.clientId,
             entityId: client.entityId,
             status: 'draft',
+            issueDate,
+            dueDate,
             currency: client.currency ?? 'USD',
             paymentTerm: p.paymentTerm as PaymentTerm,
             subject: p.subject,
