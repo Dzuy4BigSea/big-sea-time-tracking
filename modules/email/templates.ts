@@ -99,14 +99,19 @@ export function renderOverdueReminderEmail(v: {
   const cta = v.payUrl
     ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:6px;background:#c9342c;"><a href="${v.payUrl}" style="display:block;padding:13px 28px;color:#fff;font-size:15px;font-weight:bold;text-decoration:none;">Pay ${esc(v.amountDue)}</a></td></tr></table>`
     : `<a href="${v.invoiceUrl}" style="color:#004348;font-weight:bold;">View the invoice</a>`
-  const intro = v.msg?.intro?.trim() || `Hi ${v.clientName} — a friendly nudge that this was due on ${v.dueDate}. If it's already in your payment run, thank you — please ignore.`
+  // Harvest's "Send reminder" also works before the due date; only say "past due" when it is.
+  const late = v.daysOverdue > 0
+  const chip = late ? `${v.daysOverdue} day${v.daysOverdue === 1 ? '' : 's'} past due` : `Due ${esc(v.dueDate)}`
+  const intro = v.msg?.intro?.trim() || (late
+    ? `Hi ${v.clientName} — a friendly nudge that this was due on ${v.dueDate}. If it's already in your payment run, thank you — please ignore.`
+    : `Hi ${v.clientName} — a friendly reminder that this invoice is due on ${v.dueDate}.`)
   const body = `
-    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#ffecea;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:bold;color:#c9342c;">${v.daysOverdue} days past due</td></tr></table>
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#ffecea;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:bold;color:#c9342c;">${chip}</td></tr></table>
     <h1 style="margin:14px 0 6px;font-size:24px;color:#0d2022;">Invoice ${esc(v.invoiceNumber)}</h1>
     <p style="margin:0 0 18px;font-size:15px;color:#3f4a4b;line-height:24px;">${esc(intro)}</p>
     <div style="font-size:11px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase;color:#605f56;">Amount due</div>
     <div style="font-size:30px;font-weight:bold;color:#c9342c;margin-bottom:16px;">${esc(v.amountDue)}</div>
     ${cta}`
-  const subject = v.msg?.subject?.trim() || `Reminder: invoice ${v.invoiceNumber} is ${v.daysOverdue} days past due`
+  const subject = v.msg?.subject?.trim() || (late ? `Reminder: invoice ${v.invoiceNumber} is ${v.daysOverdue} days past due` : `Reminder: invoice ${v.invoiceNumber} is due ${v.dueDate}`)
   return { subject, html: shell('Payment reminder', body, t) }
 }

@@ -135,3 +135,15 @@ export function deriveStatusBanner(v: StatusBannerInput, today: Date): StatusBan
     detail: `${v.sentAt ? `Sent ${formatDate(v.sentAt)} · ` : ''}${dueText}${paidText}`,
   }
 }
+
+/**
+ * The note after "Balance: $1,500.00" in the invoice action row (Harvest): "(6 days late)" in red,
+ * "(due in 3 days)" / "(due today)" otherwise. Open invoices only; null for every other state.
+ */
+export function balanceNote(b: StatusBanner): { text: string; late: boolean } | null {
+  if (b.kind === 'late') return { text: `(${plural(b.daysOverdue, 'day')} late)`, late: true }
+  if (b.kind === 'sent' && b.daysUntilDue != null) {
+    return { text: b.daysUntilDue === 0 ? '(due today)' : `(due in ${plural(b.daysUntilDue, 'day')})`, late: false }
+  }
+  return null
+}
