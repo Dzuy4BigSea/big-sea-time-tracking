@@ -133,7 +133,8 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
                     def.key === 'stripe' ? (
                       <span>
                         In {selected.name}&apos;s Stripe dashboard, add a webhook endpoint pointing to{' '}
-                        <code className="break-all">{stripeWebhookUrl}</code> and paste its signing secret above.
+                        <code className="break-all">{stripeWebhookUrl}</code> and paste its signing secret above. Send these events:{' '}
+                        <code className="break-all">checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, payment_intent.payment_failed, charge.refunded, charge.dispute.created</code>.
                       </span>
                     ) : undefined
                   }

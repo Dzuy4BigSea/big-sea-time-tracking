@@ -424,3 +424,69 @@ npm test               # everything; includes all of the above
 so new test files in those areas are picked up automatically. Run it before any change to the billing
 chain. `ops/workflows/ci.yml` already runs `npm test` (which includes these) on every PR and push to
 `main`, but CI is parked (§2); re-enabling it is Dzuy's call.
+
+## 11. Stripe payments
+
+Clients pay from the public invoice link (`/i/<token>` → **Pay $X** → Stripe-hosted Checkout). Stripe
+tells Track2 by webhook; Track2 records the payment once, emails a receipt and copies it to Xero.
+Code: `app/i/[token]/actions.ts` (checkout), `modules/integrations/stripeWebhookHandler.ts` (webhook
+decisions), `modules/integrations/stripeWebhook.ts` (signature + event mapping). Spec: specs/14 §2.
+
+### Configure (once per company with its own Stripe account)
+1. **Webhook endpoint** (Stripe Dashboard → Developers → Webhooks → Add endpoint), live mode:
+   `https://track2.bigseabridge.com/api/integrations/stripe/webhook/acc_demo`
+   (the exact URL is shown under Settings → Integrations → Stripe for each company).
+2. **Events to send** (select exactly these):
+   - `checkout.session.completed`
+   - `checkout.session.async_payment_succeeded`
+   - `checkout.session.async_payment_failed`
+   - `payment_intent.payment_failed`
+   - `charge.refunded`
+   - `charge.dispute.created`
+
+   `payment_intent.succeeded` and `charge.succeeded` are also understood (same payment, de-duplicated by
+   PaymentIntent id) but add nothing; leave them off. Leave `charge.failed` off (it repeats
+   `payment_intent.payment_failed`).
+3. Copy the endpoint's **signing secret** (`whsec_…`) and the account's **secret key** (`sk_live_…`, or a
+   restricted key with Checkout Sessions write) into Settings → Integrations → *company* → Stripe, tick
+   Credit card / ACH, Connect. One endpoint URL serves every company: the secret that verifies the
+   signature tells Track2 which Stripe account sent the event.
+4. `APP_URL` must be `https://track2.bigseabridge.com` in Vercel: Stripe's success/cancel links are built
+   from it (never from request headers).
+
+### Test-mode check (before going live, or after any change)
+Use a test secret key + a test endpoint secret on a non-production deployment (a preview, or local
+`next start`), never on production data.
+```bash
+stripe login
+# forward test events to Track2; prints a whsec_… — paste it as the company's webhook signing secret
+stripe listen --forward-to https://<preview-or-localhost:3000>/api/integrations/stripe/webhook/<accountId> \
+  --events checkout.session.completed,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.payment_failed,charge.refunded,charge.dispute.created
+stripe trigger checkout.session.completed   # no invoice metadata → 200, traced as webhook_received, nothing recorded
+```
+Then the real path: open a sent invoice's client link, **Pay**, card `4242 4242 4242 4242` (any future
+date/CVC) → back on the invoice you see **Payment received — thank you**, and within seconds the invoice is
+paid with one Stripe payment. ACH: pick *US bank account*, test bank "Success" → **Payment processing**;
+`stripe listen` shows `checkout.session.completed` (unpaid) now and `async_payment_succeeded` a few
+minutes later, when the invoice becomes paid. Card `4000 0000 0000 0002` → declined, `payment.failed`
+traced, invoice still open. A bad signature: `curl -si -X POST <url> -d '{}'` → `400 Invalid signature`
+and a `payment.webhook_rejected` row. In the Stripe Dashboard every delivery to the endpoint should be 2xx.
+
+### What each trace stage means (`InvoiceEvent`, newest first per invoice)
+| Stage | Level | Meaning / what to do |
+|---|---|---|
+| `payment.checkout_started` | info | Client clicked Pay; Checkout Session created (externalId = `cs_…`; amount, currency, methods). A double click replays the same session (one row). |
+| `payment.checkout_failed` | error | Stripe refused to create the session (bad key, amount below Stripe's minimum, method not enabled). The client saw "couldn't start the online payment, you have not been charged". Fix the Stripe connection; detail has Stripe's error code. |
+| `payment.client_returned` | info | Client came back from Stripe: `paid`, `processing`, `confirming`, `not_completed` or `canceled`. |
+| `payment.webhook_received` | info | Every verified Stripe event (externalEventId = `evt_…`, so a Stripe retry is recognised). Detail: event type, ids, amount, currency, livemode, status, the action taken and which company's secret verified it. |
+| `payment.webhook_rejected` | warn | Bad / missing / expired signature, no connected Stripe with a signing secret, or non-JSON. Nothing stored from the body. A burst usually means a wrong `whsec_` after rotating the endpoint secret: paste the new one. |
+| `payment.processing` | info | ACH payment started; not paid until it settles (3–5 business days). The client page says so and hides Pay. |
+| `payment.recorded` | info | Payment row created (paymentId; externalId = `pi_…`). Invoice paid in full or balance reduced. |
+| `payment.duplicate_ignored` | info | Another event (or a retry, or a concurrent delivery) for a payment already recorded. Normal: Stripe sends 2–3 events per payment. |
+| `payment.flagged` | warn | Money arrived that Track2 did not apply: invoice paid / draft / written off / closed, currency mismatch, invoice not found — or it was applied but **overpaid** the invoice. Also on the invoice's activity log and in the integration sync log. **Do:** check Stripe; either refund the client in Stripe, or record the payment by hand / apply the credit to another invoice. |
+| `payment.failed` | warn | The client's payment didn't go through (card declined in Checkout, or an ACH debit that bounced). Invoice stays open. For a bounced ACH (also on the activity log), contact the client. |
+| `payment.refunded` | error | A refund was issued in Stripe. **The invoice is not changed automatically.** Do: delete the payment (full refund → the invoice reopens) or delete it and record the net amount (partial refund); tell Xero if it was already copied. |
+| `payment.disputed` | error | The client's bank opened a dispute (chargeback). Respond in the Stripe Dashboard before its deadline (evidence: the invoice PDF, timesheets, correspondence). Change the invoice only if the dispute is lost. |
+| `payment.record_error` | error | A database error while recording; Track2 answered 500 so Stripe retries (for up to 3 days). A later `payment.recorded` for the same `pi_…` means it healed. If not, check the DB, then resend the event from the Stripe Dashboard (Webhooks → event → Resend). |
+
+Quick look (SQL editor): `SELECT "occurredAt", stage, level, message, "externalId" FROM "InvoiceEvent" WHERE stage LIKE 'payment.%' AND level <> 'info' ORDER BY "occurredAt" DESC LIMIT 50;`
