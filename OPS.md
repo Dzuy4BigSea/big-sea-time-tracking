@@ -285,3 +285,24 @@ short-lived access tokens server-side and upload the file.
 - **Limits:** 120 requests/minute per token per server instance (429 + `Retry-After`). A DB that is waking up
   answers 503 + `Retry-After: 5`.
 - **Smoke test:** `curl -s -X POST …/api/mcp -H "Authorization: Bearer $T" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`
+
+### 9a. claude.ai connector (OAuth 2.1)
+- **Deploy:** `prisma migrate deploy` applies `20261014180000_mcp_oauth` (4 new tables, idempotent). No new env
+  vars, but **`APP_URL` must be `https://track2.bigseabridge.com`**: it is the OAuth issuer, the token audience
+  (`<APP_URL>/api/mcp`) and the only Origin the consent form accepts. Consent from a preview domain is refused (403).
+- **Add it (each person):** claude.ai › **Settings › Connectors › Add custom connector** → name `Track2`, URL
+  `https://track2.bigseabridge.com/api/mcp`, leave the advanced OAuth fields empty → **Add**, then **Connect**.
+  A Track2 window opens: sign in if needed, review "Claude wants to access Track2 as {you}…", click **Allow**.
+  (Team/Enterprise: an Owner adds the connector once under organization settings; each person still clicks Connect.)
+- **What it can do:** exactly what that person can do in Track2 (same permissions as a PAT). Access tokens last 1 hour;
+  claude.ai refreshes them (refresh tokens rotate, 30 days idle limit). Re-connecting creates a new grant.
+- **Revoke (one person):** Track2 › your name › *API tokens* › **Connected apps** › Revoke. Deactivating the person also
+  cuts access on the next call.
+- **Emergency revoke-all OAuth:** `UPDATE "OAuthGrant" SET "revokedAt" = now() WHERE "revokedAt" IS NULL;
+  UPDATE "OAuthToken" SET "revokedAt" = now() WHERE "revokedAt" IS NULL;`
+- **Discovery check:** `curl -s https://track2.bigseabridge.com/.well-known/oauth-protected-resource` and
+  `…/.well-known/oauth-authorization-server`; `curl -si -X POST …/api/mcp` must show
+  `www-authenticate: Bearer realm="Track2", resource_metadata="…/.well-known/oauth-protected-resource"`.
+- **Audit:** consent → `entityType = 'oauth_client'`; tool writes and disconnects → `'oauth_grant'` (entityId = grant id).
+- **Housekeeping (optional, monthly):** `DELETE FROM "OAuthAuthorizationCode" WHERE "createdAt" < now() - interval '1 day';`
+  and `DELETE FROM "OAuthClient" c WHERE "createdAt" < now() - interval '7 days' AND NOT EXISTS (SELECT 1 FROM "OAuthGrant" g WHERE g."clientId" = c.id);`

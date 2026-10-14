@@ -6,6 +6,8 @@
 import type { ToolError } from './errors'
 
 export const MCP_AUDIT_ENTITY = 'api_token'
+/** Calls made with an OAuth access token (claude.ai connector): entityId = the OAuthGrant id. */
+export const MCP_OAUTH_AUDIT_ENTITY = 'oauth_grant'
 
 export function auditActionFor(tool: string): 'create' | 'update' | 'delete' {
   if (/^(delete|remove|unassign)_/.test(tool)) return 'delete'

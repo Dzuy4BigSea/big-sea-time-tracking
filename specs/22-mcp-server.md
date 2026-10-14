@@ -5,6 +5,8 @@
 Harvest MCP the team already uses (names, parameters, descriptions' guidance, response shapes). Drafts-only
 invoicing; no send / payment / delete tools yet. Needs `prisma migrate deploy`
 (`20261014120000_api_tokens`) before use.
+**OAuth 2.1 built (2026-10-14):** claude.ai custom connectors connect with just the URL (see §OAuth). Needs
+`prisma migrate deploy` (`20261014180000_mcp_oauth`).
 
 ## Why
 The team already uses Claude with a **Harvest MCP** to pull reports, log time, create projects, list
@@ -54,10 +56,68 @@ URL: `https://track2.bigseabridge.com/api/mcp` · header `Authorization: Bearer 
    { "track2": { "command": "npx", "args": ["-y", "mcp-remote", "https://track2.bigseabridge.com/api/mcp",
      "--header", "Authorization:${AUTH_HEADER}"], "env": { "AUTH_HEADER": "Bearer track2_pat_…" } } }
    ```
-4. **claude.ai › Settings › Connectors › Add custom connector:** enter the URL. The connector UI authenticates
-   with **OAuth** and has no field for a static Bearer header, so it can't use a PAT today. Until Track2 offers
-   OAuth (see Deferred), use Claude Code / Claude Desktop. (Org admins can't work around this by putting the
-   token in the URL — tokens in URLs end up in logs; not supported.)
+4. **claude.ai › Settings › Connectors › Add custom connector:** enter `https://track2.bigseabridge.com/api/mcp`
+   (no token, leave the OAuth client id/secret fields empty) → **Add** → **Connect**. claude.ai opens a Track2
+   window: sign in if asked, then **Allow** on the consent screen. See §OAuth. (Tokens in URLs are not supported.)
+
+## OAuth (claude.ai custom connectors)
+Implements the MCP Authorization spec (2025-03-26 / 2025-06-18). Track2 is both the resource server
+(`/api/mcp`) and the authorization server (issuer = the app origin from `APP_URL`, lib/appUrl.ts).
+
+**Endpoints**
+| What | Where |
+|---|---|
+| Protected Resource Metadata (RFC 9728) | `GET /.well-known/oauth-protected-resource` (also `…/api/mcp`): `resource` = `<APP_URL>/api/mcp`, `authorization_servers` = [`<APP_URL>`], `bearer_methods_supported` = [`header`] |
+| Authorization Server Metadata (RFC 8414) | `GET /.well-known/oauth-authorization-server`: code only, `authorization_code` + `refresh_token`, PKCE `S256` only, client auth `none` / `client_secret_post` / `client_secret_basic` |
+| Dynamic Client Registration (RFC 7591) | `POST /api/oauth/register` (open, 20/hour/IP per instance) |
+| Authorization + consent | `GET /oauth/authorize` (page) → `POST /oauth/authorize/decision` |
+| Token | `POST /api/oauth/token` (form-encoded; 60/min/IP per instance) |
+| Revocation (RFC 7009) | `POST /api/oauth/revoke` |
+
+`/api/mcp` answers 401 with `WWW-Authenticate: Bearer realm="Track2", resource_metadata="<APP_URL>/.well-known/oauth-protected-resource"`
+(+ `error="invalid_token"` when a token was sent). It accepts **both** `track2_pat_…` (PATs) and `track2_oat_…`
+(OAuth access tokens). Discovery, token, register, revoke and `/api/mcp` send CORS `Access-Control-Allow-Origin: *`
+without credentials (no cookies are involved).
+
+**Flow (what users see)**
+1. claude.ai registers itself (client name "Claude", redirect `https://claude.ai/api/mcp/auth_callback`).
+2. It opens `/oauth/authorize?...`. Signed out → `/login?callbackUrl=<that URL>`; after password or Google sign-in
+   the login page returns there (same-origin paths only, `modules/shared/safeRedirect.ts`).
+3. Consent screen (bare, no app chrome): "**{client name} wants to access Track2 as {your name}**: read and log
+   time, work with projects, clients, expenses and draft invoices, with your permissions", plus the signed-in
+   email and the host it will return to. **Allow** / **Deny**.
+4. Allow → one-time code → back to claude.ai → token exchange → Claude lists Track2's tools. Deny →
+   `error=access_denied`.
+
+**Rules (modules/oauth/, unit-tested)**
+- Redirect URIs: `https://` only, or `http://` on `localhost` / `127.0.0.1` / `[::1]`; no fragment/userinfo/custom
+  schemes; max 10. At authorize time, exact string match (loopback may change only its port, RFC 8252).
+  Unknown client or unregistered redirect URI → error page, never a redirect (no open redirect). Other errors go
+  back with `error=` and the `state` echoed.
+- PKCE mandatory, `S256` only; `resource` (RFC 8707) must be `<APP_URL>/api/mcp` (absent → defaults to it).
+- Authorization code: `track2_oac_…`, 10 minutes, stored as SHA-256, bound to client, redirect URI, user/account,
+  code challenge and resource. Consumed atomically before any other check (a failed exchange burns it); a replayed
+  code revokes the grant it produced.
+- Access token `track2_oat_…` (1 hour), refresh token `track2_ort_…` (30 days, rotating), both SHA-256 only.
+  Presenting an already-rotated refresh token revokes the whole grant (reuse detection). Revocation of either
+  token revokes the grant.
+- Consent POST: same-origin only (`Origin` must equal `APP_URL`, else `Sec-Fetch-Site: same-origin`) and the
+  session is re-read; every parameter is re-validated. Clickjacking: global `frame-ancestors 'none'`.
+- Secrets are compared in constant time; codes/tokens/verifiers are never logged (errors log only the error name).
+
+**Data** (`20261014180000_mcp_oauth`, additive + idempotent): `OAuthClient` (global; self-registered clients grant
+nothing alone), `OAuthAuthorizationCode`, `OAuthGrant` (one user's consent to one client = a "connected app"; the
+token family; account-scoped), `OAuthToken` (`kind` access/refresh, `expiresAt`, `rotatedAt`, `revokedAt`).
+Separate tables rather than widening `ApiToken`: PATs have no expiry/rotation/client, and the grant is the unit
+users revoke.
+
+**Same user, same permissions:** an access token resolves through `currentUserForToken()` exactly like a PAT
+(fresh `isActive` / account / profile / overrides on every request; deactivation cuts access at once). Rate limit
+key is the grant; write calls are audited with `entityType: oauth_grant`, `entityId` = the grant id. Consent writes
+an `oauth_client` audit row; disconnecting writes an `oauth_grant` row.
+
+**Revoking:** Track2 › your name › *API tokens* (`/settings/tokens`) › **Connected apps** › Revoke (grant + all its
+tokens, immediate). Removing the connector in claude.ai calls the revocation endpoint if the client does so.
 
 ## Tool mapping (Harvest MCP → Track2)
 Same tool names and parameter names throughout. Common differences: **ids are strings** (numeric ids are
@@ -121,13 +181,17 @@ validation_failed | conflict | rate_limited | internal_error`. Pagination: `limi
 ## Tests
 `modules/apiTokens/token.test.ts` (mint/hash/verify/Bearer parsing), `modules/mcp/schema.test.ts` (input
 validation), `cursor.test.ts`, `scope.test.ts` (Member/PM/Accounting/Admin mapping + overrides),
-`format.test.ts` (hours/clock/money/terms, search, audit), `jsonrpc.test.ts` (initialize, tools/list,
+`format.test.ts` (hours/clock/money/terms, search, audit), OAuth: `modules/oauth/{crypto,redirectUri,metadata,requests,service}.test.ts`
+(PKCE, redirect URIs, registration/authorize validation, consent origin, client auth, code/token lifecycle incl.
+reuse + refresh-rotation reuse detection, against an in-memory store), `modules/shared/safeRedirect.test.ts`,
+`app/api/mcp/route.test.ts` (401 + `WWW-Authenticate`, OAuth token accepted, deactivated user refused), `jsonrpc.test.ts` (initialize, tools/list,
 tools/call happy/forbidden/validation, batches, rate limit), `lib/mcp/registry.test.ts` (real registry with mocked
 Prisma: advertised tool names, member/PM/invoice permission checks), `modules/time/editEntry.test.ts`.
 
 ## Deferred / decisions
-- **OAuth 2.1** (authorization-code + PKCE, dynamic client registration, `/.well-known/oauth-protected-resource`)
-  so claude.ai custom connectors work without a header; PATs stay for scripts.
+- OAuth: no scopes (a grant acts with the user's full permissions, like a PAT); no cleanup job yet for unused
+  registered clients / expired codes (rows are tiny; a periodic `DELETE` of codes older than a day and clients with
+  no grants older than a week is enough); rate limits are per instance.
 - `send_invoice`, `record_payment`, `delete_invoice` (see table); `get_client`, `get_project`,
   `get_profitability`, `get_receivables`, `get_uninvoiced`, `create_person`.
 - Shared rate limiting (per-instance today) and a versioned REST surface (`/api/v1/…`) over the same tool layer.

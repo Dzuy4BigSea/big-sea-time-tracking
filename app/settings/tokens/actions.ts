@@ -42,3 +42,22 @@ export async function revokeApiTokenAction(formData: FormData): Promise<void> {
   }
   revalidatePath('/settings/tokens')
 }
+
+/**
+ * Disconnect an OAuth-connected app (e.g. a claude.ai connector, specs/22 §OAuth): revokes the grant
+ * and every access/refresh token under it. Only the signed-in user's own grants.
+ */
+export async function revokeOAuthGrantAction(formData: FormData): Promise<void> {
+  const { userId, accountId } = await requireUser()
+  const id = String(formData.get('id') ?? '')
+  if (!id) return
+  const now = new Date()
+  const grant = await prisma.oAuthGrant.findFirst({ where: { id, userId, accountId, revokedAt: null }, select: { id: true, client: { select: { clientName: true } } } })
+  if (!grant) return
+  await prisma.$transaction([
+    prisma.oAuthGrant.updateMany({ where: { id: grant.id, revokedAt: null }, data: { revokedAt: now } }),
+    prisma.oAuthToken.updateMany({ where: { grantId: grant.id, revokedAt: null }, data: { revokedAt: now } }),
+  ])
+  await writeAudit({ accountId, actorUserId: userId, entityType: 'oauth_grant', entityId: grant.id, action: 'state_change', summary: `Connected app “${grant.client.clientName}” disconnected` })
+  revalidatePath('/settings/tokens')
+}

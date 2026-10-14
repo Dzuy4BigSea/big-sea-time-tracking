@@ -6,7 +6,10 @@ import { authConfig } from './auth.config'
 export const { auth } = NextAuth(authConfig)
 
 // Routes reachable without a session. `/i/` is the public (client-facing) invoice view.
-const PUBLIC_PREFIXES = ['/login', '/i/']
+// `/.well-known/` serves the OAuth discovery documents for MCP clients (specs/22 §OAuth).
+// `/oauth/` (the connector consent screen) checks the session itself and sends signed-out people to
+// /login?callbackUrl=… so they come back to the consent screen; its POST answers on its own too.
+const PUBLIC_PREFIXES = ['/login', '/i/', '/.well-known/', '/oauth/']
 
 export default auth((req) => {
   const { pathname } = req.nextUrl
