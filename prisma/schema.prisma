@@ -285,6 +285,8 @@ model Account {
   migrationIdMaps          MigrationIdMap[]
   businessEntities         BusinessEntity[]
   savedReports             SavedReport[]
+  managerAssignments       ManagerAssignment[]
+  teamPins                 TeamPin[]
 }
 
 // A brand/company inside one Account (specs/16). Big Sea's workspace has two: "Big Sea" (default) and
@@ -390,6 +392,10 @@ model User {
   expenses           Expense[]
   auditLogs          AuditLog[]              @relation("AuditActor")
   savedReports       SavedReport[]
+  managedPeople      ManagerAssignment[]     @relation("ManagerAssignmentManager")
+  managers           ManagerAssignment[]     @relation("ManagerAssignmentPerson")
+  teamPins           TeamPin[]               @relation("TeamPinOwner")
+  pinnedBy           TeamPin[]               @relation("TeamPinTarget")
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -1134,4 +1140,38 @@ model SavedReport {
 
   @@index([accountId])
   @@index([createdById])
+}
+
+// Harvest "Assigned people" (specs/28): an Administrator assigns people to a Manager. Phase 1 stores
+// and edits the assignments only; the access they will grant (approvals, reports, editing time) is
+// specced in specs/28 §Assigned people and not wired yet.
+model ManagerAssignment {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  managerId String
+  manager   User     @relation("ManagerAssignmentManager", fields: [managerId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ManagerAssignmentPerson", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([managerId, userId])
+  @@index([accountId])
+  @@index([userId])
+}
+
+// Harvest Team overview "Pin" (specs/28): per-viewer pinned teammates, shown first and filterable
+// with "My pins".
+model TeamPin {
+  id           String   @id @default(cuid())
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation("TeamPinOwner", fields: [userId], references: [id], onDelete: Cascade)
+  pinnedUserId String
+  pinnedUser   User     @relation("TeamPinTarget", fields: [pinnedUserId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, pinnedUserId])
+  @@index([accountId])
 }

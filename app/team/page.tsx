@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireUser } from '@/lib/session'
 import { getAccountClock } from '@/lib/accountClock'
@@ -12,6 +13,8 @@ import { DropdownMenu } from '@/components/DropdownMenu'
 import { listEntities } from '@/lib/entities'
 import { startOfWeek, addDays, ymd, parseYmd } from '@/lib/week'
 import { groupTeammates } from '@/lib/teammates'
+import { canHoldAssignedPeople, parseTeamFilter, pinnedFirst, teamFilterOptions, type TeamFilter } from '@/modules/team/teamOverview'
+import { togglePinAction, setPersonArchivedAction } from '@/app/team/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,19 +32,32 @@ const fmtRange = (a: Date, b: Date) => {
   return `${new Intl.DateTimeFormat('en-US', { day: '2-digit', timeZone: 'UTC' }).format(a)} – ${f(b)}`
 }
 
-const ROLE_OPTIONS = [
-  { value: '', label: 'Everyone' },
-  ...Object.entries(PROFILE_LABEL).map(([value, label]) => ({ value, label })),
-  { value: 'type:employee', label: 'Employees' },
-  { value: 'type:contractor', label: 'Contractors' },
-]
+/** Prisma `where` for one Everyone-dropdown choice (specs/28 AC-TEAM-003). */
+function filterWhere(f: TeamFilter, ctx: { pinned: string[]; assigned: string[] }): Prisma.UserWhereInput {
+  switch (f.kind) {
+    case 'everyone':
+      return {}
+    case 'pins':
+      return { id: { in: ctx.pinned } }
+    case 'assigned':
+      return { id: { in: ctx.assigned } }
+    case 'profile':
+      return { permissionProfile: f.profile }
+    case 'type':
+      return { type: f.type }
+    case 'role':
+      return { roleTags: { has: f.role } }
+  }
+}
+
+const menuItem = 'block w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50'
 
 export default async function TeamPage({
   searchParams,
 }: {
   searchParams: { tab?: string; q?: string; role?: string; archived?: string; week?: string }
 }) {
-  const { accountId, permissionProfile, permissionOverrides } = await requireUser()
+  const { userId: selfId, accountId, permissionProfile, permissionOverrides } = await requireUser()
   await requireModule(accountId, 'team')
   const canManage = can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'manage_people')
 
@@ -49,8 +65,6 @@ export default async function TeamPage({
   const showArchived = searchParams.archived === '1'
   const q = (searchParams.q ?? '').trim()
   const role = searchParams.role ?? ''
-  const roleFilter =
-    role.startsWith('type:') ? { type: role.slice(5) as 'employee' | 'contractor' } : role ? { permissionProfile: role as PermissionProfile } : {}
 
   const { weekStartsOn, timezone } = await getAccountClock(accountId)
   const today = todayIn(timezone) // the account's calendar day, not the server's UTC day
@@ -59,27 +73,48 @@ export default async function TeamPage({
   const weekEndDisplay = addDays(weekStart, 6)
   const isThisWeek = ymd(weekStart) === ymd(startOfWeek(today, weekStartsOn))
 
-  const [users, activeCount, archivedCount, entities, weekAgg] = await Promise.all([
+  // The viewer's pins and (for a Manager) assigned people drive the Everyone dropdown and its default.
+  const [pins, myAssignments, roleRows] = await Promise.all([
+    prisma.teamPin.findMany({ where: { accountId, userId: selfId }, select: { pinnedUserId: true } }),
+    canHoldAssignedPeople(permissionProfile)
+      ? prisma.managerAssignment.findMany({ where: { accountId, managerId: selfId }, select: { userId: true } })
+      : Promise.resolve([] as { userId: string }[]),
+    prisma.$queryRaw<{ role: string }[]>`SELECT DISTINCT unnest("roleTags") AS role FROM "User" WHERE "accountId" = ${accountId}`,
+  ])
+  const pinnedIds = pins.map((p) => p.pinnedUserId)
+  const pinnedSet = new Set(pinnedIds)
+  const assignedIds = myAssignments.map((a) => a.userId)
+  const hasAssignedPeople = assignedIds.length > 0
+  const filter = parseTeamFilter(role, { hasAssignedPeople })
+  const filterOptions = teamFilterOptions({ hasAssignedPeople, roles: roleRows.map((r) => r.role), profileLabels: PROFILE_LABEL })
+  const filterActive = role !== '' && !(role === 'everyone' && hasAssignedPeople)
+
+  const [users, activeCount, archivedCount, entities, weekAgg, running] = await Promise.all([
     prisma.user.findMany({
       where: {
         accountId,
         archivedAt: null,
-        ...(showArchived ? {} : { isActive: true }),
-        ...roleFilter,
+        isActive: !showArchived,
+        ...(showArchived ? {} : filterWhere(filter, { pinned: pinnedIds, assigned: assignedIds })),
         ...(q ? { OR: [{ firstName: { contains: q, mode: 'insensitive' } }, { lastName: { contains: q, mode: 'insensitive' } }, { email: { contains: q, mode: 'insensitive' } }] } : {}),
       },
       select: { id: true, firstName: true, lastName: true, permissionProfile: true, type: true, capacityHoursPerWeek: true, isActive: true, homeEntity: { select: { code: true, name: true } } },
-      orderBy: [{ firstName: 'asc' }],
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
     }),
     prisma.user.count({ where: { accountId, archivedAt: null, isActive: true } }),
     prisma.user.count({ where: { accountId, archivedAt: null, isActive: false } }),
     listEntities(accountId),
-    prisma.timeEntry.groupBy({
-      by: ['userId', 'isBillable'],
-      where: { accountId, spentDate: { gte: weekStart, lt: weekEnd } },
-      _sum: { minutes: true },
-    }),
+    showArchived
+      ? Promise.resolve([])
+      : prisma.timeEntry.groupBy({
+          by: ['userId', 'isBillable'],
+          where: { accountId, spentDate: { gte: weekStart, lt: weekEnd } },
+          _sum: { minutes: true },
+        }),
+    // Harvest's orange dot: who has a timer running right now (at most one per user, partial unique index).
+    prisma.timeEntry.findMany({ where: { accountId, isRunning: true }, select: { userId: true } }),
   ])
+  const runningSet = new Set(running.map((r) => r.userId))
 
   // userId → { billable, nonBillable } minutes for the selected week.
   const weekBy = new Map<string, { b: number; n: number }>()
@@ -90,24 +125,28 @@ export default async function TeamPage({
     weekBy.set(r.userId, cur)
   }
 
-  const rows = users.map((u) => {
-    const wk = weekBy.get(u.id) ?? { b: 0, n: 0 }
-    const total = wk.b + wk.n
-    const capMin = u.capacityHoursPerWeek ? Number(u.capacityHoursPerWeek) * 60 : 0
-    const util = capMin > 0 ? Math.round((total / capMin) * 100) : 0
-    return { id: u.id, name: `${u.firstName} ${u.lastName}`, type: u.type, u, billMin: wk.b, nonBillMin: wk.n, total, capMin, util }
-  })
+  const rows = pinnedFirst(
+    users.map((u) => {
+      const wk = weekBy.get(u.id) ?? { b: 0, n: 0 }
+      const total = wk.b + wk.n
+      const capMin = u.capacityHoursPerWeek ? Number(u.capacityHoursPerWeek) * 60 : 0
+      const util = capMin > 0 ? Math.round((total / capMin) * 100) : 0
+      return { id: u.id, name: `${u.firstName} ${u.lastName}`, type: u.type, u, billMin: wk.b, nonBillMin: wk.n, total, capMin, util }
+    }),
+    pinnedSet,
+  )
   // Harvest splits the list into Employees then Contractors when both kinds of teammate are present.
-  // Order within each group is the query's order, so sorting and filters still apply per group.
+  // Order within each group is the query's order (pinned people first), so filters still apply per group.
   const groups = groupTeammates(rows)
   const sectioned = groups.length > 1
-  const colCount = canManage ? 6 : 5
+  const colCount = 6
   const sum = rows.reduce((a, r) => ({ total: a.total + r.total, bill: a.bill + r.billMin, nonbill: a.nonbill + r.nonBillMin, cap: a.cap + r.capMin }), { total: 0, bill: 0, nonbill: 0, cap: 0 })
   const teamUtilBill = sum.cap > 0 ? (sum.bill / sum.cap) * 100 : 0
   const teamUtilNon = sum.cap > 0 ? (sum.nonbill / sum.cap) * 100 : 0
 
   const qp = (over: Record<string, string>) => {
     const p = new URLSearchParams({ ...(tab !== 'members' ? { tab } : {}), ...(q ? { q } : {}), ...(role ? { role } : {}), ...(showArchived ? { archived: '1' } : {}), ...(searchParams.week ? { week: searchParams.week } : {}), ...over })
+    for (const [k, v] of [...p.entries()]) if (!v) p.delete(k)
     const s = p.toString()
     return s ? `/team?${s}` : '/team'
   }
@@ -117,7 +156,7 @@ export default async function TeamPage({
     <div>
       <h1 className="mb-1 text-2xl font-semibold">Team</h1>
       <p className="mb-4 text-sm text-gray-500">
-        {activeCount} active {activeCount === 1 ? 'person' : 'people'}{archivedCount > 0 && ` · ${archivedCount} inactive`}
+        {activeCount} active {activeCount === 1 ? 'person' : 'people'}{archivedCount > 0 && ` · ${archivedCount} archived`}
       </p>
 
       {/* Members / Assignments tabs */}
@@ -128,15 +167,24 @@ export default async function TeamPage({
 
       {tab === 'assignments' ? (
         <AssignmentsTab accountId={accountId} />
+      ) : showArchived ? (
+        <ArchivedPeople
+          people={users.map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim(), profile: PROFILE_LABEL[u.permissionProfile] ?? u.permissionProfile }))}
+          canManage={canManage}
+          backHref={qp({ archived: '' })}
+        />
       ) : (
         <>
           {canManage && <NewPersonForm entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))} />}
 
-          {/* Week selector */}
-          <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm">
-            <Link href={weekQp(addDays(weekStart, -7))} className="rounded px-1.5 text-gray-500 hover:bg-gray-100">←</Link>
-            <span className="text-gray-700">{isThisWeek ? 'This week' : 'Week of'} {fmtRange(weekStart, weekEndDisplay)}</span>
-            <Link href={weekQp(addDays(weekStart, 7))} className="rounded px-1.5 text-gray-500 hover:bg-gray-100">→</Link>
+          {/* Week selector (Harvest: arrows, then "Return to this week" once you leave it) */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm">
+              <Link href={weekQp(addDays(weekStart, -7))} aria-label="Previous week" className="rounded px-1.5 text-gray-500 hover:bg-gray-100">←</Link>
+              <span className="text-gray-700">{isThisWeek ? 'This week' : 'Week of'} {fmtRange(weekStart, weekEndDisplay)}</span>
+              <Link href={weekQp(addDays(weekStart, 7))} aria-label="Next week" className="rounded px-1.5 text-gray-500 hover:bg-gray-100">→</Link>
+            </div>
+            {!isThisWeek && <Link href={qp({ week: '' })} className="text-sm text-blue-600 underline hover:no-underline">Return to this week</Link>}
           </div>
 
           {/* Summary band */}
@@ -163,14 +211,16 @@ export default async function TeamPage({
             </div>
           </div>
 
-          {/* Filters (apply live; no Apply button) */}
+          {/* Filters (apply live; no Apply button). The first dropdown is Harvest's "Everyone" filter. */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <LiveSearchInput param="q" placeholder="Filter by name" className="w-56 rounded border border-gray-300 px-3 py-1.5 text-sm" />
-            <LiveSelect param="role" options={ROLE_OPTIONS} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-            {(q || role) && <Link href={qp({ q: '', role: '' })} className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>}
-            <Link href={showArchived ? qp({ archived: '' }) : qp({ archived: '1' })} className="ml-auto text-sm text-brand-teal hover:underline">
-              {showArchived ? 'Hide inactive people' : `View archived people${archivedCount > 0 ? ` (${archivedCount})` : ''} →`}
-            </Link>
+            <LiveSelect param="role" options={filterOptions} className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+            {(q || filterActive) && <Link href={qp({ q: '', role: '' })} className="text-sm text-gray-400 hover:text-gray-600">Clear</Link>}
+            {archivedCount > 0 && (
+              <Link href={qp({ archived: '1' })} className="ml-auto rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
+                View archived people ({archivedCount})
+              </Link>
+            )}
           </div>
 
           <div className="overflow-visible rounded-lg border border-gray-200 bg-white">
@@ -182,7 +232,7 @@ export default async function TeamPage({
                   <th className="px-4 py-3 text-right font-medium">Utilization</th>
                   <th className="px-4 py-3 text-right font-medium">Capacity</th>
                   <th className="px-4 py-3 text-right font-medium">Billable</th>
-                  {canManage && <th className="px-4 py-3" />}
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -198,13 +248,27 @@ export default async function TeamPage({
                   const over = util > 100
                   const billW = capMin > 0 ? Math.min(100, (billMin / capMin) * 100) : 0
                   const nonW = capMin > 0 ? Math.min(Math.max(0, 100 - billW), (nonBillMin / capMin) * 100) : 0
+                  const isRunning = runningSet.has(u.id)
+                  const isPinned = pinnedSet.has(u.id)
+                  const fullName = `${u.firstName} ${u.lastName}`
                   return (
                     <tr key={u.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <span className="font-medium text-gray-900">{u.firstName} {u.lastName}</span>
+                        <span
+                          className={`mr-2 inline-block h-2 w-2 rounded-full align-middle ${isRunning ? 'bg-brand-orange' : 'bg-gray-300'}`}
+                          title={isRunning ? 'Timer running' : 'No timer running'}
+                          aria-label={isRunning ? 'Timer running' : undefined}
+                        />
+                        {canManage ? (
+                          <Link href={`/team/${u.id}`} className="font-medium text-gray-900 hover:text-brand-teal">{fullName}</Link>
+                        ) : (
+                          <span className="font-medium text-gray-900">{fullName}</span>
+                        )}
+                        {isPinned && <span className="ml-1.5 text-xs text-gray-400" title="Pinned">📌</span>}
                         {u.homeEntity && <span className="ml-2"><EntityChip code={u.homeEntity.code} name={u.homeEntity.name} /></span>}
-                        <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{PROFILE_LABEL[u.permissionProfile] ?? u.permissionProfile}</span>
-                        {!u.isActive && <span className="ml-2 text-xs text-gray-400">(inactive)</span>}
+                        {u.permissionProfile !== 'member' && (
+                          <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{PROFILE_LABEL[u.permissionProfile] ?? u.permissionProfile}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -220,29 +284,83 @@ export default async function TeamPage({
                       <td className={`px-4 py-3 text-right tabular-nums ${over ? 'font-medium text-red-600' : 'text-gray-600'}`}>{capMin > 0 ? `${util}%` : '—'}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-gray-500">{capMin > 0 ? hrs(capMin) : '—'}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-gray-700">{hrs(billMin)}</td>
-                      {canManage && (
-                        <td className="px-4 py-3 text-right">
-                          <DropdownMenu label="Actions ▾">
-                            <Link href={`/team/${u.id}`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Manage</Link>
-                            <Link href={`/team/${u.id}?tab=rates`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Rates</Link>
-                            <Link href={`/team/${u.id}?tab=permissions`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">Permissions</Link>
-                            <Link href={`/reports?group=teammate`} className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">View in reports</Link>
-                          </DropdownMenu>
-                        </td>
-                      )}
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu label="Actions ▾">
+                          {canManage && <Link href={`/team/${u.id}`} className={menuItem}>Edit</Link>}
+                          <form action={togglePinAction}>
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button className={menuItem}>{isPinned ? 'Unpin' : 'Pin'}</button>
+                          </form>
+                          {canManage && <Link href={`/team/${u.id}?tab=rates`} className={menuItem}>Rates</Link>}
+                          {canManage && <Link href={`/team/${u.id}?tab=permissions`} className={menuItem}>Permissions</Link>}
+                          <Link href={`/reports?group=teammate`} className={menuItem}>View in reports</Link>
+                          {canManage && u.id !== selfId && (
+                            <form action={setPersonArchivedAction} className="border-t border-gray-100">
+                              <input type="hidden" name="userId" value={u.id} />
+                              <input type="hidden" name="archive" value="1" />
+                              <button className={`${menuItem} text-red-600`}>Archive</button>
+                            </form>
+                          )}
+                        </DropdownMenu>
+                      </td>
                     </tr>
                   )
                   }),
                 ])}
                 {rows.length === 0 && (
-                  <tr><td colSpan={colCount} className="px-4 py-8 text-center text-gray-400">No people match.</td></tr>
+                  <tr>
+                    <td colSpan={colCount} className="px-4 py-8 text-center text-gray-400">
+                      {filter.kind === 'pins' ? 'You haven’t pinned anyone yet. Use Actions → Pin on a teammate.' : 'No people match.'}
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-xs text-gray-400">Hours, utilization &amp; billable are for the selected week. Utilization = hours ÷ weekly capacity.</p>
+          <p className="mt-2 text-xs text-gray-400">
+            Hours, utilization &amp; billable are for the selected week. Utilization = hours ÷ weekly capacity. An orange dot means a timer is running.
+          </p>
         </>
       )}
+    </div>
+  )
+}
+
+/* ---------- View archived people (Harvest: list with Restore) ---------- */
+function ArchivedPeople({ people, canManage, backHref }: { people: { id: string; name: string; profile: string }[]; canManage: boolean; backHref: string }) {
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">Archived people ({people.length})</h2>
+        <Link href={backHref} className="text-sm text-brand-teal hover:underline">← Back to active people</Link>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <tbody>
+            {people.map((p) => (
+              <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <td className="px-4 py-3">
+                  {canManage ? <Link href={`/team/${p.id}`} className="font-medium text-gray-800 hover:text-brand-teal">{p.name}</Link> : <span className="font-medium text-gray-800">{p.name}</span>}
+                  <span className="ml-2 text-xs text-gray-400">{p.profile}</span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {canManage && (
+                    <form action={setPersonArchivedAction}>
+                      <input type="hidden" name="userId" value={p.id} />
+                      <input type="hidden" name="archive" value="0" />
+                      <button className="rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">Restore</button>
+                    </form>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {people.length === 0 && (
+              <tr><td className="px-4 py-8 text-center text-gray-400">No archived people.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-gray-400">Archived people can’t sign in; their time and expenses stay in reports and invoices. Restoring doesn’t re-add them to projects.</p>
     </div>
   )
 }
