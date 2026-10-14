@@ -12,7 +12,7 @@ export interface RelatedInvoiceView {
 export interface FixedFeeContextView {
   projectId: string
   projectName: string
-  notes: string | null
+  notesHtml: string // sanitized on the server (modules/projects/notes.ts); '' when none
   feeCents: number | null
   invoicedElsewhereCents: number // other invoices
   thisInvoiceCents: number
@@ -33,7 +33,11 @@ export function FixedFeeProjectContext({ ctx, currency, canManageInvoices }: { c
       <div className="mt-2 w-72 space-y-3 rounded border border-gray-200 bg-gray-50 p-3 text-gray-700">
         <div>
           <div className="font-semibold uppercase tracking-wide text-gray-400">Project notes</div>
-          <p className="mt-1 whitespace-pre-wrap">{ctx.notes?.trim() ? ctx.notes : <span className="text-gray-400">No notes for {ctx.projectName}.</span>}</p>
+          {ctx.notesHtml ? (
+            <div className="rich-text mt-1" dangerouslySetInnerHTML={{ __html: ctx.notesHtml }} />
+          ) : (
+            <p className="mt-1 text-gray-400">No notes for {ctx.projectName}.</p>
+          )}
         </div>
         <div>
           <div className="font-semibold uppercase tracking-wide text-gray-400">Project fee</div>

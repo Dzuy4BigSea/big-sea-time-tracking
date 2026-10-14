@@ -14,6 +14,7 @@ This is where billing behavior is configured. The single most important algorith
 - **Task assignments**: an admin/manager/PM picks which global tasks apply, and may override billable flag and rate per project.
 - **User assignments**: who may log time. A user not assigned to a project cannot log time to it (unless account setting `allowAllUsersAllProjects=true`).
 - Archiving a project locks it to new time entries but keeps existing entries editable until invoiced/approved.
+- **Notes** (Harvest's Notes field; BugHerd #24): editable on New project and Edit project by anyone who may edit the project, as **rich text** (bold, italic, underline, bulleted/numbered lists, links). Stored as sanitized HTML in `Project.notes`; notes imported from Harvest are plain text and still display with their line breaks. Shown on the project page header and in an invoice's "Show project context" for Fixed Fee lines. Rules in `modules/projects/notes.ts`.
 
 ## Tasks
 
@@ -82,3 +83,6 @@ If a billable method resolves to a missing rate, the entry still saves but is fl
 - **AC-PROJ-009** — *Given* an archived project, *when* a user tries to start a new timer on it, *then* it is rejected; existing un-invoiced entries remain editable.
 - **AC-PROJ-010** — *Given* a `fixed_fee` project, *when* time is logged, *then* entries record hours with `billableRateCents=0`, and `projectFeesCents` is what appears on the invoice (not hours × rate). (See [05](05-invoicing.md).)
 - **AC-PROJ-011** — *Given* a new project is created, *when* it is saved, *then* every Task with `autoAddToNewProjects=true` (Common task) is auto-assigned to it; Other tasks are not.
+- **AC-PROJ-012** — *Given* a user who may edit a project, *when* they format its Notes (bold, italic, underline, lists, links) on New or Edit project and save, *then* the formatting is kept and shown on the project page; clearing the editor clears the notes.
+- **AC-PROJ-013** — *Given* a project whose notes are plain text from Harvest, *when* it is viewed or opened for editing, *then* line breaks and paragraphs are kept and any `<`, `>` or `&` in the text shows literally.
+- **AC-PROJ-014** — *Given* notes containing scripts, event handlers, styles, iframes or `javascript:` links, *when* they are saved or shown, *then* that markup is removed (allowlist sanitizing on save and on display) and links open in a new tab with `rel="noopener noreferrer nofollow"`.

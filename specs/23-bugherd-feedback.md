@@ -149,7 +149,7 @@ worked from the card text and pinned elements.
 | 15 | DOING | "What's over here?" was the expenses table cutting off after the Billable column. Fix: all columns fit at laptop width. |
 | 20 | RE'VD W/COMMENT | Harvest's Assigned people (admin assigns people to managers, who then approve, report on and see them) → **phase 2**, per Chasity. Replied that the current list only displays and grants no access. |
 | 21 | RE'VD & DONE | Confirmed by Chasity. |
-| 24 | BACKLOG | Rich-text project notes → **phase 2** (nice to have). |
+| 24 | FIXED (2026-10-14) | Rich-text project notes: editable Notes on New/Edit project (specs/03 AC-PROJ-012–014). |
 | 25 | BACKLOG | Budget line on the project chart with a spent/remaining hover (Harvest's Project progress view). Build now. |
 | 26 | BACKLOG | Team list split into Employees and Contractors, as Harvest does. Build now. |
 

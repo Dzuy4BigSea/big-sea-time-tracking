@@ -103,7 +103,8 @@ Without these the code works, but parts of the trail stay empty. Steps in OPS.md
 **Features**
 - [ ] Assigned people access (BugHerd #20, spec 28 §3.3): managers approve, report on and edit their
   people. Data model and admin UI already exist; the permission changes don't.
-- [ ] Rich-text project notes (#24), invoice message templates (#22), recurring project hours (#23).
+- [x] Rich-text project notes (#24): editable on New/Edit project (2026-10-14, branch `claude/laughing-ramanujan-exgc34`).
+- [ ] Invoice message templates (#22), recurring project hours (#23).
 - [ ] Recurring invoices that send automatically (spec 27).
 - [ ] Receipt file uploads (needs file storage), expense quantities column, manager scope on the
   Detailed expense report (spec 26).

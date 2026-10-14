@@ -7,6 +7,7 @@ import { EditProjectForm } from '@/components/EditProjectForm'
 import { ProjectTeamManager } from '@/components/ProjectTeamManager'
 import { ProjectBillingProvider } from '@/components/ProjectBillingContext'
 import { listEntities } from '@/lib/entities'
+import { projectNotesHtml } from '@/modules/projects/notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +49,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
             budgetResetsMonthly: project.budgetResetsMonthly,
             budgetAlertPercent: project.budgetAlertPercent,
             entityId: project.entityId,
+            notesHtml: projectNotesHtml(project.notes),
           }}
           entities={entities.map((e) => ({ id: e.id, name: e.name, code: e.code }))}
         />

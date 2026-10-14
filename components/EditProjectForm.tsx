@@ -7,6 +7,14 @@ import { updateProjectAction, type EditProjectState } from '@/app/projects/actio
 import { EntitySelect, type EntityOption } from '@/components/EntitySelect'
 import { useProjectBilling } from '@/components/ProjectBillingContext'
 import { useLeavePageGuard } from '@/components/useLeavePageGuard'
+import dynamic from 'next/dynamic'
+
+// The editor (TipTap) loads in its own chunk so the Projects list doesn't ship it up front. Until it
+// loads there's no `notes` input, and updateProjectAction then leaves the notes untouched.
+const RichTextEditor = dynamic(() => import('@/components/RichTextEditor').then((m) => m.RichTextEditor), {
+  ssr: false,
+  loading: () => <div className="h-[12.5rem] rounded border border-gray-300 bg-gray-50" aria-hidden />,
+})
 
 const input = 'rounded border border-gray-300 px-2 py-1.5 text-sm'
 
@@ -46,6 +54,8 @@ export interface EditableProject {
   budgetResetsMonthly: boolean
   budgetAlertPercent: number | null
   entityId: string | null
+  /** Sanitized notes HTML (modules/projects/notes.ts → projectNotesHtml); '' when none. */
+  notesHtml: string
 }
 
 export function EditProjectForm({ project, entities = [] }: { project: EditableProject; entities?: EntityOption[] }) {
@@ -87,6 +97,8 @@ export function EditProjectForm({ project, entities = [] }: { project: EditableP
         </Field>
         <EntitySelect entities={entities} name="entityId" defaultValue={project.entityId} label="Company" />
       </div>
+
+      <ProjectNotesField initialHtml={project.notesHtml} onChange={() => setDirty(true)} />
 
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Project type">
@@ -161,5 +173,19 @@ export function EditProjectForm({ project, entities = [] }: { project: EditableP
         {state.ok && <span className="text-sm text-brand-green">Saved ✓</span>}
       </div>
     </form>
+  )
+}
+
+/** Notes (Harvest's "Notes" on Edit project), rich text. Shared with the New project form. */
+export function ProjectNotesField({ initialHtml, onChange }: { initialHtml: string; onChange?: () => void }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs uppercase tracking-wide text-gray-400">Notes</span>
+      <RichTextEditor name="notes" initialHtml={initialHtml} onChange={onChange} label="Project notes" />
+      <span className="text-xs text-gray-500">
+        Optional. Notes are great for anything you need to reference later, like invoice schedules, which you can see when
+        creating an invoice for Fixed Fee projects.
+      </span>
+    </div>
   )
 }
