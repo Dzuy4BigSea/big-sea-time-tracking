@@ -16,7 +16,10 @@ import { PrismaClient } from '@prisma/client'
 import { createDecipheriv, createHash } from 'node:crypto'
 
 const ENC_KEY = process.env.INTEGRATION_ENC_KEY
-if (!ENC_KEY || ENC_KEY.length < 16) { console.error('Set INTEGRATION_ENC_KEY.'); process.exit(1) }
+// HARVEST_TOKEN (a Harvest personal access token) can stand in for the stored, encrypted one, e.g. when
+// INTEGRATION_ENC_KEY is a Vercel "Sensitive" variable that can't be copied out.
+const HARVEST_TOKEN = process.env.HARVEST_TOKEN?.trim() || null
+if (!HARVEST_TOKEN && (!ENC_KEY || ENC_KEY.length < 16)) { console.error('Set INTEGRATION_ENC_KEY (or HARVEST_TOKEN).'); process.exit(1) }
 const HARVEST_API = 'https://api.harvestapp.com/v2'
 const CALL_DELAY_MS = 160 // ~6/s, under Harvest's 100 requests / 15s
 const LIST_LIMIT = 25
@@ -42,7 +45,7 @@ const conn = await p.integrationConnection.findFirst({
 })
 if (!conn) { console.error('No connected Harvest integration.'); await p.$disconnect(); process.exit(1) }
 const accountId = conn.accountId
-const token = decrypt(conn.secretsEnc.accessToken)
+const token = HARVEST_TOKEN ?? decrypt(conn.secretsEnc.accessToken)
 const acct = String(conn.config.harvestAccountId)
 
 async function hget(path) {
