@@ -222,3 +222,15 @@ export function isPastDue(dueDate: Date | null, today: Date): boolean {
   const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
   return due < t
 }
+
+/**
+ * Whole calendar days an invoice is past due as of `today` (the account's calendar day, UTC
+ * midnight — lib/tz todayIn). 0 on or before the due day, 1 the day after; same boundary as
+ * isPastDue. Used for A/R aging and the "N days past due" reminder copy.
+ */
+export function daysPastDue(dueDate: Date | null, today: Date): number {
+  if (!dueDate) return 0
+  const due = Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate())
+  const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  return Math.max(0, Math.round((t - due) / 86_400_000))
+}
