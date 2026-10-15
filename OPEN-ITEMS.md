@@ -57,8 +57,10 @@ Without these the code works, but parts of the trail stay empty. Steps in OPS.md
   with exactly `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
   `checkout.session.async_payment_failed`, `payment_intent.payment_failed`, `charge.refunded`,
   `charge.dispute.created`; paste its signing secret (`whsec_…`) into Settings → Integrations → Stripe.
-- [ ] **Xero** (OPS §13): app scopes `offline_access accounting.transactions accounting.contacts`; in
-  Settings → Integrations → Xero set the tenant, revenue / payment (bank) / tax account codes, and
+- [ ] **Xero** (OPS §13): one Xero web app; register redirect URI
+  `https://track2.bigseabridge.com/api/integrations/xero/callback`; set Vercel `XERO_CLIENT_ID` /
+  `XERO_CLIENT_SECRET`. Then per company (Big Sea, Cordelia Labs): Settings → Integrations → Xero →
+  **Connect to Xero**, pick that company's organisation, set revenue / payment (bank) / tax account codes and
   **Sync from date** = the cutover day so Harvest history is never copied.
 - [ ] After the above: Settings → Activity log → **Run checks now**; every row should be green.
 - [ ] Production smoke test: send a $1 invoice to yourself, open it, pay by card, and check the

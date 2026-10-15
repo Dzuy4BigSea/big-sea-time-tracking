@@ -588,24 +588,35 @@ Harvest already copied every Harvest invoice and payment to Xero. Track2 must no
   Xero also refuses duplicate invoice numbers.
 
 ### Setup (once per company: Big Sea, then Cordelia Labs)
-1. **Xero app**: create it at developer.xero.com → *My Apps* → **New app**. Choose one of these:
-   - **Web app (standard OAuth 2.0)**: free. Redirect URI `http://localhost:8080/callback` (used only to get
-     the first tokens, see step 2). Scopes: `offline_access accounting.transactions accounting.contacts`.
-     If the app only offers Xero's newer granular scopes, choose read and write for invoices, payments and
-     contacts. Without `offline_access` there is no refresh token, so the sync stops after 30 minutes.
+1. **Xero app**: create it at developer.xero.com → *My Apps* → **New app**. One app serves every company
+   (each company is one of the app's connections; an uncertified app allows 5). Choose one of these:
+   - **Web app (standard OAuth 2.0)**: free. Redirect URIs, one per site (exact match, no wildcards):
+     `https://track2.bigseabridge.com/api/integrations/xero/callback`, and for other environments e.g.
+     `https://track2-dev.bigseabridge.com/api/integrations/xero/callback`,
+     `http://localhost:3000/api/integrations/xero/callback`. The URI Track2 sends is `<APP_URL>/api/integrations/xero/callback`
+     (override with `XERO_REDIRECT_URI`); the integrations page shows it. `http://localhost:8080/callback`
+     is only needed for the `xoauth` CLI fallback. Generate the client secret and put the id and secret in
+     Vercel env `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` (per environment; a dev site should use its own
+     Xero app on the Demo Company so test invoices never reach the real books).
+     Scopes are requested at sign-in, not set on the app: default
+     `offline_access accounting.invoices accounting.payments accounting.contacts accounting.settings.read`
+     (Xero's granular scopes). An app still on the broad scopes can set
+     `XERO_SCOPES="offline_access accounting.transactions accounting.contacts accounting.settings.read"`.
+     Without `offline_access` there is no refresh token, so the sync would stop after 30 minutes.
    - **Custom connection**: a paid Xero add-on, one organisation per connection. The token comes from
      the client id and secret alone. Same `accounting.*` scopes. Leave the token fields in Track2 blank.
-2. **First tokens (web app only)**: run Xero's `xoauth` CLI (github.com/XeroAPI/xoauth) with the app's
-   client id and secret and the scopes above, sign in, and pick the organisation. It prints `access_token`,
-   `refresh_token` and the tenant id (or call `GET https://api.xero.com/connections` with the access token:
-   `tenantId`). Authorize **each organisation separately**, so each company has its own refresh token.
-   Two connections sharing one refresh token would invalidate each other on rotation.
+2. **Connect (web app)**: Settings → Integrations → (company) → Xero → **Connect to Xero**. Sign in to
+   Xero and pick **that company's organisation only**, then repeat on the other company's tab. Each company
+   gets its own refresh token (two connections sharing one would invalidate each other on rotation).
+   Track2 stores the tokens, tenant id and organisation name; the account codes below are kept.
+   **Reconnect to Xero** on the same tab fixes "Reconnect needed". Fallback without the button: run Xero's
+   `xoauth` CLI (github.com/XeroAPI/xoauth), then paste `access_token`, `refresh_token` and the tenant id.
 3. **Track2 → Settings → Integrations → (company) → Xero**:
    | Field | Value |
    |---|---|
-   | Access token / Refresh token | from step 2 (blank for a custom connection) |
+   | Access token / Refresh token | filled by **Connect to Xero** (or pasted from `xoauth`; blank for a custom connection) |
    | OAuth client secret / client ID | from the Xero app (or Vercel env `XERO_CLIENT_SECRET` / `XERO_CLIENT_ID`) |
-   | Xero tenant ID | the organisation's `tenantId` |
+   | Xero tenant ID | filled by **Connect to Xero** (else the organisation's `tenantId`) |
    | Default revenue account code | e.g. `400.2` (Fee Income). Required: Xero refuses approved invoices without one |
    | Sales tax account code | the liability account for sales tax (e.g. `820`). Blank = revenue account |
    | Payment account code | the account payments land in, e.g. the **Stripe** clearing account. It must be a bank account or have *Enable payments to this account* ticked. Blank = do not copy payments |
