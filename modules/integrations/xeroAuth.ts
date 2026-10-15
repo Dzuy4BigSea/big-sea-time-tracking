@@ -191,13 +191,16 @@ export class XeroTokenManager implements XeroTokenSource {
   }
 }
 
-/** List the tenants (organisations) a token can reach — used by setup and the tenant check. */
-export async function listXeroTenants(http: XeroHttpDeps, accessToken: string): Promise<Array<{ tenantId: string; tenantName: string; tenantType: string }>> {
+/** List the tenants (organisations) a token can reach — used by "Connect to Xero" and the tenant check. */
+export async function listXeroTenants(
+  http: XeroHttpDeps,
+  accessToken: string,
+): Promise<Array<{ tenantId: string; tenantName: string; tenantType: string; authEventId: string | null }>> {
   const res = await xeroHttp(http, {
     method: 'GET',
     url: XERO_CONNECTIONS_URL,
     headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
     retryTransient: true,
   })
-  return (Array.isArray(res.json) ? res.json : []).map((t: any) => ({ tenantId: String(t.tenantId), tenantName: String(t.tenantName ?? ''), tenantType: String(t.tenantType ?? '') }))
+  return (Array.isArray(res.json) ? res.json : []).map((t: any) => ({ tenantId: String(t.tenantId), tenantName: String(t.tenantName ?? ''), tenantType: String(t.tenantType ?? ''), authEventId: t.authEventId ? String(t.authEventId) : null }))
 }

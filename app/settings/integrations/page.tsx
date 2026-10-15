@@ -12,6 +12,8 @@ import { BrandConsoleForm } from '@/components/BrandConsoleForm'
 import { importAsanaAction } from '@/app/settings/integrations/actions'
 import { addEntityAction, setDefaultEntityAction, setEntityActiveAction } from '@/app/settings/entities/actions'
 import { formatDate } from '@/lib/format'
+import { findXeroRow, xeroAppFor, xeroOAuthConfig } from '@/lib/xeroConnect'
+import { isXeroConnectError, XERO_CONNECT_ERRORS } from '@/modules/integrations/xeroOAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +26,7 @@ const toViewProps = (v: DetailedConnectionView | undefined): ConnectionViewProps
     ? { status: v.status, connected: v.connected, externalOrgName: v.externalOrgName, lastSyncedAt: v.lastSyncedAt ? v.lastSyncedAt.toISOString() : null, config: v.config, secretsSet: v.secretsSet }
     : EMPTY_VIEW
 
-export default async function IntegrationsSettingsPage({ searchParams }: { searchParams: { company?: string } }) {
+export default async function IntegrationsSettingsPage({ searchParams }: { searchParams: { company?: string; xero?: string; xeroError?: string } }) {
   const { accountId, permissionProfile, permissionOverrides } = await requireUser()
   if (!can({ permissionProfile: permissionProfile as PermissionProfile, permissionOverrides }, 'edit_account_settings')) {
     redirect('/')
@@ -44,6 +46,15 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
   const selected = entities.find((e) => e.id === searchParams.company) ?? entities.find((e) => e.isDefault) ?? entities[0]
   const sharedProviders = PROVIDERS.filter((d) => !ENTITY_SCOPED.has(d.key))
   const entityProviders = PROVIDERS.filter((d) => ENTITY_SCOPED.has(d.key))
+  // "Connect to Xero" (OAuth): needs AUTH_SECRET + INTEGRATION_ENC_KEY and a Xero app (env or this company's client fields).
+  const xeroOAuth = xeroOAuthConfig()
+  const xeroReady = !!xeroOAuth && !!selected && !!xeroAppFor(await findXeroRow(accountId, selected.id))
+  const xeroView = selected ? byKey.get(`xero:${selected.id}`) : undefined
+  const xeroResult = searchParams.xero === 'connected'
+    ? { ok: true, text: `Connected to Xero${xeroView?.externalOrgName ? ` · ${xeroView.externalOrgName}` : ''}.${xeroView?.connected ? '' : ' Set the default revenue account code below and Save to start syncing.'}` }
+    : isXeroConnectError(searchParams.xeroError)
+      ? { ok: false, text: XERO_CONNECT_ERRORS[searchParams.xeroError] }
+      : null
 
   return (
     <div>
@@ -121,6 +132,11 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
           {/* Per-company payments & accounting */}
           <section>
             <h2 className="mb-2 text-sm font-semibold text-gray-800">Payments &amp; accounting for {selected.name}</h2>
+            {xeroResult && (
+              <div className={`mb-3 rounded-lg border p-3 text-sm ${xeroResult.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {xeroResult.text}
+              </div>
+            )}
             <div className="space-y-2">
               {entityProviders.map((def) => (
                 <IntegrationForm
@@ -136,6 +152,30 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
                         <code className="break-all">{stripeWebhookUrl}</code> and paste its signing secret above. Send these events:{' '}
                         <code className="break-all">checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, payment_intent.payment_failed, charge.refunded, charge.dispute.created</code>.
                       </span>
+                    ) : def.key === 'xero' ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-3">
+                          {xeroReady ? (
+                            <a
+                              href={`/api/integrations/xero/connect?entityId=${selected.id}`}
+                              className="rounded bg-brand-teal px-4 py-1.5 text-sm font-medium text-white hover:opacity-90"
+                            >
+                              {xeroView?.secretsSet.includes('refreshToken') ? 'Reconnect to Xero' : 'Connect to Xero'}
+                            </a>
+                          ) : (
+                            <span className="text-amber-700">
+                              To connect with a Xero sign-in, set <code>XERO_CLIENT_ID</code> and <code>XERO_CLIENT_SECRET</code> in Vercel
+                              {xeroOAuth ? ' (or the client fields below)' : ', plus AUTH_SECRET and INTEGRATION_ENC_KEY'}.
+                            </span>
+                          )}
+                          <span>Sign in and pick <strong>{selected.name}</strong>&apos;s organisation only. Each company connects separately.</span>
+                        </div>
+                        {xeroOAuth && (
+                          <div>
+                            Redirect URI to register on the Xero app: <code className="break-all">{xeroOAuth.redirectUri}</code>
+                          </div>
+                        )}
+                      </div>
                     ) : undefined
                   }
                 />

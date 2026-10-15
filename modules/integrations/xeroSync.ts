@@ -7,6 +7,7 @@ import { getDefaultEntity } from '@/lib/entities'
 import { recordInvoiceEvent } from '@/modules/observability/invoiceTrace'
 import { XeroError, type XeroHttpDeps } from './xeroClient'
 import type { XeroTokenStore } from './xeroAuth'
+import { resolveXeroApp } from './xeroOAuth'
 import {
   XeroSession,
   pickXeroConnection,
@@ -53,12 +54,13 @@ export function toConnectionInfo(row: IntegrationConnection): XeroConnectionInfo
   const tenantId = String(cfg.tenantId ?? row.externalOrgId ?? '').trim()
   if (!tenantId) return null
   const str = (v: unknown) => (v == null ? '' : String(v).trim())
+  const app = resolveXeroApp(cfg, secrets) // same resolution as "Connect to Xero", or refresh fails
   return {
     id: row.id,
     entityId: row.entityId,
     tenantId,
-    clientId: str(cfg.clientId) || process.env.XERO_CLIENT_ID || null,
-    clientSecret: secrets.clientSecret || process.env.XERO_CLIENT_SECRET || null,
+    clientId: app?.clientId ?? null,
+    clientSecret: app?.clientSecret ?? null,
     tokens: { accessToken: secrets.accessToken || null, refreshToken: secrets.refreshToken || null, expiresAt: row.expiresAt, status: row.status },
     defaultRevenueAccountCode: str(cfg.defaultRevenueAccountCode),
     paymentAccountCode: str(cfg.paymentAccountCode) || null,

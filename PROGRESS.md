@@ -8,6 +8,15 @@ _Last updated: 2026-10-14._
 
 **Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
 
+### 🔗 Connect to Xero button (2026-10-15, branch `claude/xero-oauth-redirect-uri-7fbcd4`, not deployed)
+- Settings → Integrations → (company) → Xero now has **Connect to Xero** / **Reconnect to Xero**: an in-app OAuth2
+  code flow (`app/api/integrations/xero/{connect,callback}`, rules in `modules/integrations/xeroOAuth.ts`, glue in
+  `lib/xeroConnect.ts`). Spec: [14](specs/14-integrations.md) AC-XERO-014; setup in OPS.md "Xero sync".
+- One Xero app for both companies; each company signs in on its own tab and gets its own refresh token.
+- Needs Vercel `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` and redirect URI
+  `https://track2.bigseabridge.com/api/integrations/xero/callback` on the Xero app. Optional `XERO_SCOPES`, `XERO_REDIRECT_URI`.
+- Verified: unit tests, tsc, `next build`. Not yet clicked through against a real Xero org.
+
 ### 📝 Rich-text project notes (BugHerd #24, 2026-10-14, branch `claude/laughing-ramanujan-exgc34`, not deployed)
 - Notes is now an editable rich-text field on **New project** and **Edit project** (bold, italic, underline,
   bulleted/numbered lists, links), like Harvest's Notes field. Spec: [03](specs/03-clients-projects-tasks.md) AC-PROJ-012–014.

@@ -158,7 +158,7 @@ One-directional **Track2 → Xero** copy of invoices and payments (Xero is the s
 - `Invoice.xeroInvoiceId String? @unique`, `Payment.xeroPaymentId String? @unique`, `Client.xeroContactId String?`.
 
 ### Flows
-1. **Connect**: Xero OAuth2 → store `tenantId` (`externalOrgId`) + org name. Load the chart of accounts + payments-enabled accounts to populate the settings dropdowns.
+1. **Connect**: per company, Settings → Integrations → (company) → Xero → **Connect to Xero** runs the OAuth2 code flow (`/api/integrations/xero/connect` → Xero consent → `/api/integrations/xero/callback`) and stores the tokens + `tenantId` (`externalOrgId`) + org name. One Xero app serves every company; each company signs in separately so it has its own refresh token. Pasting tokens by hand stays as a fallback. (Loading the chart of accounts into dropdowns: not built.)
 2. **Invoice → Xero** (auto on **send**, or manual **Actions → Copy to Xero**):
    - Ensure the client exists as a Xero **Contact** (create if missing → store `Client.xeroContactId`).
    - Create a Xero **ACCREC invoice**: line items map to the **revenue account** (per item-code/contact mapping, else `defaultRevenueAccountCode`); set reference = Track2 invoice number; optionally set the **tracking category** from the client when `populateTrackingByClient`.
@@ -178,6 +178,7 @@ One-directional **Track2 → Xero** copy of invoices and payments (Xero is the s
 - **AC-XERO-010** — *Given* payments without `xeroPaymentId`, *when* synced, *then* each is created once (Reference carries `T2:<paymentId>`, found again after a lost response), partial payments in date order; an overpayment copies only Xero's amount due and flags the excess.
 - **AC-XERO-011** — *Given* the access token expires within 2 minutes or Xero answers 401, *when* syncing, *then* it is refreshed once under a per-connection lock and the rotated refresh token is saved atomically; `invalid_grant` (or a tenant no longer connected) sets the connection to `error` ("Reconnect needed") and stops calling Xero.
 - **AC-XERO-012** — *Given* 429, *then* Retry-After is honoured (≤ 3 retries); 5xx/timeouts are retried only when safe; 4xx never; each call times out after 15 s.
+- **AC-XERO-014** — *Given* an admin clicks **Connect to Xero** on a company, *when* they sign in and pick one organisation, *then* the callback checks the signed state (same user, same browser nonce, ≤ 10 min old) and a refresh token, picks the organisation from this sign-in (`authEventId`), saves the tokens and tenant on THAT company's connection under the token lock, keeps its account codes and clears "Reconnect needed"; it is **Connected** once the default revenue account code is set. A cancelled sign-in, bad state, missing `offline_access`, or several organisations at once saves nothing and shows the reason.
 - **AC-XERO-013** — `syncPendingXero(accountId, { dryRun })` lists/syncs sent invoices and payments missing a Xero id since the cutover and returns a summary (see OPS.md §13).
 
 ---
