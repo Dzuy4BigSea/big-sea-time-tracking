@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { ProjectTasksTable, type TaskRow, type Teammate } from '@/components/ProjectTasksTable'
 import { initialsOf } from '@/modules/projects/teamCard'
+import { addableTaskOptions } from '@/modules/projects/taskPicker'
 
 /**
  * Harvest-style Tasks card for the Edit project page: the project's tasks, who can track time to
@@ -20,7 +21,8 @@ export async function ProjectTaskManager({ accountId, projectId }: { accountId: 
       select: { user: { select: { id: true, firstName: true, lastName: true } } },
       orderBy: [{ user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }],
     }),
-    prisma.task.findMany({ where: { accountId, archivedAt: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    // Every active task (the /tasks "Active tasks" list); sorted in addableTaskOptions.
+    prisma.task.findMany({ where: { accountId, archivedAt: null }, select: { id: true, name: true, archivedAt: true } }),
   ])
   const assigned = new Set(assignments.map((a) => a.taskId))
   const rows: TaskRow[] = assignments.map((a) => ({
@@ -41,7 +43,7 @@ export async function ProjectTaskManager({ accountId, projectId }: { accountId: 
         projectId={projectId}
         rows={rows}
         teammates={teammates}
-        addable={tasks.filter((t) => !assigned.has(t.id)).map((t) => ({ value: t.id, label: t.name }))}
+        addable={addableTaskOptions(tasks, assigned)}
       />
     </section>
   )

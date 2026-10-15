@@ -79,52 +79,56 @@ export function ProjectTasksTable({
   const th = 'px-3 py-2 text-xs font-medium text-gray-500'
   const link = 'text-blue-600 underline hover:no-underline disabled:opacity-50'
   return (
-    <div className={`overflow-x-auto rounded-lg border border-gray-200 bg-white ${busy ? 'opacity-70' : ''}`} aria-busy={busy}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-200 bg-gray-50/60">
-            <th className="px-3 py-2 text-left align-bottom" colSpan={2}>
-              <h2 className="text-lg font-semibold text-gray-900">Tasks</h2>
-            </th>
-            <th className={`${th} text-right align-bottom`}>
-              <div>Assigned teammates</div>
-            </th>
-            {showRate && <th className={`${th} text-left align-bottom`}>Billable rate</th>}
-            {showBillable && (
-              <th className={`${th} w-28 text-right align-bottom`}>
-                <div>Billable</div>
-                <div className="font-normal">
-                  Select{' '}
-                  <button type="button" disabled={busy} onClick={() => setAllBillable(true)} className={link}>
-                    All
-                  </button>
-                  {' / '}
-                  <button type="button" disabled={busy} onClick={() => setAllBillable(false)} className={link}>
-                    None
-                  </button>
-                </div>
+    // Only the table scrolls sideways: an overflow container around the "Add a task..." picker would
+    // clip its dropdown list at the card's bottom edge.
+    <div className={`rounded-lg border border-gray-200 bg-white ${busy ? 'opacity-70' : ''}`} aria-busy={busy}>
+      <div className="overflow-x-auto rounded-t-lg">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50/60">
+              <th className="px-3 py-2 text-left align-bottom" colSpan={2}>
+                <h2 className="text-lg font-semibold text-gray-900">Tasks</h2>
               </th>
-            )}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          <tr>
-            <td colSpan={5} className="bg-brand-navy-50 px-3 py-2.5 text-sm text-brand-navy">
-              Project teammates are assigned to every task by default.
-            </td>
-          </tr>
-          {rows.map((r) => (
-            <Row key={r.taskId} projectId={projectId} r={r} teammates={teammates} showBillable={showBillable} showRate={showRate} busy={busy} />
-          ))}
-          {rows.length === 0 && (
+              <th className={`${th} text-right align-bottom`}>
+                <div>Assigned teammates</div>
+              </th>
+              {showRate && <th className={`${th} text-left align-bottom`}>Billable rate</th>}
+              {showBillable && (
+                <th className={`${th} w-28 text-right align-bottom`}>
+                  <div>Billable</div>
+                  <div className="font-normal">
+                    Select{' '}
+                    <button type="button" disabled={busy} onClick={() => setAllBillable(true)} className={link}>
+                      All
+                    </button>
+                    {' / '}
+                    <button type="button" disabled={busy} onClick={() => setAllBillable(false)} className={link}>
+                      None
+                    </button>
+                  </div>
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
             <tr>
-              <td colSpan={5} className="px-3 py-3 text-gray-400">
-                No tasks on this project yet.
+              <td colSpan={5} className="bg-brand-navy-50 px-3 py-2.5 text-sm text-brand-navy">
+                Project teammates are assigned to every task by default.
               </td>
             </tr>
-          )}
-        </tbody>
-      </table>
+            {rows.map((r) => (
+              <Row key={r.taskId} projectId={projectId} r={r} teammates={teammates} showBillable={showBillable} showRate={showRate} busy={busy} />
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-3 text-gray-400">
+                  No tasks on this project yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
       <div className="border-t border-gray-100 px-3 py-3">
         <Combobox
           key={pickerKey}
@@ -134,7 +138,7 @@ export function ProjectTasksTable({
           disabled={busy || addable.length === 0}
           options={addable}
           onValueChange={add}
-          className="w-80"
+          className="w-full max-w-lg"
         />
       </div>
     </div>

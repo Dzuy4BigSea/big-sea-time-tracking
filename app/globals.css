@@ -100,3 +100,23 @@ table td.text-right {
   color: var(--brand-primary);
   text-decoration: underline;
 }
+
+/* Dropdown lists (components/Combobox.tsx): a scrollbar that stays visible inside the list, like
+   Harvest's, instead of macOS's overlay bar that only shows while scrolling. */
+/* Firefox only: in Chrome these standard properties would switch off the ::-webkit-scrollbar styles. */
+@supports (-moz-appearance: none) {
+  .combo-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #9ca3af #f3f4f6;
+  }
+}
+.combo-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.combo-scroll::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+.combo-scroll::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 4px;
+}
