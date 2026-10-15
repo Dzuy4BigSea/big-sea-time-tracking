@@ -2,11 +2,21 @@
 
 Running status of the Track2 build (time-tracking + invoicing app, modeled on Harvest). Updated as we go. Pairs with the specs in [`specs/`](specs/) and the build order in [README](README.md).
 
-_Last updated: 2026-10-14._
+_Last updated: 2026-10-15._
 
 ## ▶ Resume here (next session)
 
 **Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
+
+### 🧩 Project tasks managed only on Edit project (2026-10-15, branch `claude/laughing-ramanujan-exgc34`, not deployed)
+- The project detail page no longer has "Manage tasks on this project"; adding/removing tasks, billable flags and task
+  rates live only on **Edit project** → Tasks card (Harvest). Spec: [03](specs/03-clients-projects-tasks.md) AC-PROJ-015.
+- "Add a task..." lists every active task (as on /tasks) not already on the project, alphabetically
+  (`modules/projects/taskPicker.ts`: case-insensitive, numbered tasks in number order).
+- Fixed: the Tasks card's `overflow-x-auto` clipped the picker's dropdown at the card's bottom edge, so the list
+  never showed. Dropdown lists (`Combobox`) now keep a visible scrollbar inside the list (`.combo-scroll`).
+- Verified: unit tests (4 new), tsc, `next build`, and the real Tasks card driven in Chromium with stubbed actions
+  (54 tasks: sorted, not clipped, scrolls with a visible bar, pick adds the task). Not clicked through on a real DB.
 
 ### 🔗 Connect to Xero button (2026-10-15, branch `claude/xero-oauth-redirect-uri-7fbcd4`, not deployed)
 - Settings → Integrations → (company) → Xero now has **Connect to Xero** / **Reconnect to Xero**: an in-app OAuth2
@@ -17,7 +27,7 @@ _Last updated: 2026-10-14._
   `https://track2.bigseabridge.com/api/integrations/xero/callback` on the Xero app. Optional `XERO_SCOPES`, `XERO_REDIRECT_URI`.
 - Verified: unit tests, tsc, `next build`. Not yet clicked through against a real Xero org.
 
-### 📝 Rich-text project notes (BugHerd #24, 2026-10-14, branch `claude/laughing-ramanujan-exgc34`, not deployed)
+### 📝 Rich-text project notes (BugHerd #24, 2026-10-14, merged in PR #13)
 - Notes is now an editable rich-text field on **New project** and **Edit project** (bold, italic, underline,
   bulleted/numbered lists, links), like Harvest's Notes field. Spec: [03](specs/03-clients-projects-tasks.md) AC-PROJ-012–014.
 - Stored as sanitized HTML in the existing `Project.notes` column, so **no migration**. Plain-text notes from Harvest

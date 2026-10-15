@@ -148,7 +148,7 @@ export function Combobox({
           role="listbox"
           // Keep focus in the input while clicking an option.
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute left-0 z-30 mt-1 max-h-72 w-max min-w-full max-w-[28rem] overflow-auto rounded border border-gray-200 bg-white py-1 text-sm shadow-lg"
+          className="combo-scroll absolute left-0 z-30 mt-1 max-h-72 w-max min-w-full max-w-[28rem] overflow-y-auto rounded border border-gray-200 bg-white py-1 text-sm shadow-lg"
         >
           {flat.length === 0 && <li className="px-3 py-2 text-gray-400">{emptyText}</li>}
           {sections.map((s) => (
