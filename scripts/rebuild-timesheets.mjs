@@ -37,6 +37,7 @@
  */
 import { PrismaClient } from '@prisma/client'
 import { assertNotLocked, refuse, requireAccountId } from './lib/guards.mjs'
+import { externalRef } from './lib/externalRef.mjs'
 
 const APPLY = process.argv.includes('--apply')
 const FORCE = process.argv.includes('--force')
@@ -151,6 +152,7 @@ const mapRow = (te) => {
     isBillable: te.billable ?? true,
     billableRateCents: cents(te.billable_rate),
     lockState: te.invoice?.id ? 'invoiced' : te.is_locked ? 'approved' : 'open',
+    ...externalRef(te.external_reference),
     // Harvest's whole-second updated_at: marks the row as "as imported" (protect.ts isImportStamped).
     ...(stampOf(te.updated_at) ? { updatedAt: stampOf(te.updated_at) } : {}),
   }

@@ -8,7 +8,22 @@ _Last updated: 2026-10-15._
 
 **Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
 
-### 🧩 Project tasks managed only on Edit project (2026-10-15, branch `claude/laughing-ramanujan-exgc34`, not deployed)
+### ⏱️ Track time from Asana tasks: Track2 Asana app (2026-10-19, branch `claude/todo-list-review-d6b1fe`, not deployed)
+- Replaces Harvest's Asana integration with an official **Asana app** (App Components): a **Track time** form on
+  every Asana task (start a timer / log hours / stop my timer, project + task, notes = the Asana task name) and a
+  **Track2 card** on the task showing hours tracked. No browser extension; works in Asana web, desktop and mobile.
+  Spec: [29](specs/29-asana-app.md). Setup: OPS.md §14.
+- Time entries now keep the Asana link (`TimeEntry.externalService/externalId/externalGroupId/externalPermalink`,
+  migration `20261019120000_time_entry_external_ref`). Form defaults use it: the last project/task used on that
+  Asana task, else on that Asana project.
+- `scripts/backfill-external-refs.mjs` restores Harvest's links on migrated entries from the stored snapshots;
+  the importer and `rebuild-timesheets.mjs` now carry them.
+- Code: endpoints `app/api/integrations/asana/app/*` (signed by Asana with the app secret), glue `lib/asanaApp.ts`,
+  rules `modules/integrations/asanaApp/*` + `externalRef.ts`; page `/asana/t/[gid]` lists a task's time.
+- Verified: unit tests (signature, form, widget, OAuth state, Harvest link mapping), tsc, `next build`. **Not yet
+  run against Asana or the real DB**: needs the Asana app created, the migration run and the env vars (OPS §14).
+
+### 🧩 Project tasks managed only on Edit project (2026-10-15, merged in PR #16, deployed)
 - The project detail page no longer has "Manage tasks on this project"; adding/removing tasks, billable flags and task
   rates live only on **Edit project** → Tasks card (Harvest). Spec: [03](specs/03-clients-projects-tasks.md) AC-PROJ-015.
 - "Add a task..." lists every active task (as on /tasks) not already on the project, alphabetically
@@ -18,7 +33,7 @@ _Last updated: 2026-10-15._
 - Verified: unit tests (4 new), tsc, `next build`, and the real Tasks card driven in Chromium with stubbed actions
   (54 tasks: sorted, not clipped, scrolls with a visible bar, pick adds the task). Not clicked through on a real DB.
 
-### 🔗 Connect to Xero button (2026-10-15, branch `claude/xero-oauth-redirect-uri-7fbcd4`, not deployed)
+### 🔗 Connect to Xero button (2026-10-15, merged in PR #15, deployed with the Xero env vars)
 - Settings → Integrations → (company) → Xero now has **Connect to Xero** / **Reconnect to Xero**: an in-app OAuth2
   code flow (`app/api/integrations/xero/{connect,callback}`, rules in `modules/integrations/xeroOAuth.ts`, glue in
   `lib/xeroConnect.ts`). Spec: [14](specs/14-integrations.md) AC-XERO-014; setup in OPS.md "Xero sync".
