@@ -2,11 +2,15 @@
  * The "Track time" modal form Asana renders on a task (specs/29 §1, AC-ASANAAPP-004–008).
  * Pure + DB-free → unit-tested: the route glue loads the state, these functions turn it into Asana's
  * form JSON and turn a submission into a command.
+ *
+ * It follows Harvest's Asana popup: choose project + task, add notes, then leave the duration blank to
+ * start a timer or enter it to save an entry. When the person's timer is running on this Asana task the
+ * form only offers to stop it (Harvest: click the clock again → Stop timer). The time tracked to the task
+ * is shown at the bottom, as in Harvest.
  */
 import { parseDurationToMinutes } from '@/modules/shared/duration'
 
-export type What = 'start' | 'log' | 'stop'
-export type FieldId = 'what' | 'project' | 'task' | 'notes' | 'hours' | 'date'
+export type FieldId = 'project' | 'task' | 'notes' | 'hours' | 'date'
 
 export interface Option {
   id: string
@@ -14,13 +18,13 @@ export interface Option {
 }
 
 export interface FormValues {
-  what: What
   projectId: string | null
   /** Typeahead display text for the chosen project (Asana echoes the whole item back). */
   projectTitle: string | null
   projectSubtitle: string | null
   taskId: string | null
   notes: string
+  /** Blank = start a timer. */
   hours: string
   /** YYYY-MM-DD */
   date: string
@@ -36,6 +40,8 @@ export interface FormState {
   tasks: Option[]
   /** The person's running timer, if any. */
   running: { label: string; onThisTask: boolean } | null
+  /** e.g. "14:00 tracked to this task" (null when nothing is tracked yet). */
+  totalLine?: string | null
   errors?: Partial<Record<FieldId, string>>
   /** Shown at the top (e.g. a refused submit with no single field to blame). */
   formError?: string | null
@@ -46,19 +52,16 @@ export interface FormState {
 // single-line value ≤ 200, multi-line ≤ 3000.
 const MAX_OPTIONS = 50
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
-
-function whatOptions(running: FormState['running']) {
-  const opts: { id: What; label: string; sub_label?: string }[] = [
-    { id: 'start', label: 'Start a timer' },
-    { id: 'log', label: 'Log hours' },
-  ]
-  if (running) opts.push({ id: 'stop', label: 'Stop my timer', sub_label: clip(running.label, 80) })
-  return opts
-}
+const note = (id: string, text: string) => ({ id, type: 'static_text', name: clip(text, 300) })
 
 export interface FormMetadata {
   template: 'form_metadata_v0'
   metadata: { title: string; fields: Record<string, unknown>[]; on_change_callback?: string; on_submit_callback?: string }
+}
+
+/** True when the form is the stop-only one (the person's timer is running on this Asana task). */
+export function isStopForm(state: Pick<FormState, 'running'>): boolean {
+  return !!state.running?.onThisTask
 }
 
 /** Asana's form_metadata_v0 for the current state. */
@@ -70,67 +73,54 @@ export function buildForm(state: FormState): FormMetadata {
       metadata: {
         title: 'Track time in Track2',
         fields: [
-          { id: 'intro', type: 'static_text', name: 'Your Asana account isn’t linked to a Track2 person yet.' },
-          { id: 'how', type: 'static_text', name: clip(`Open ${state.linkUrl} while signed in to Track2, then try again.`, 300) },
+          note('intro', 'Your Asana account isn’t linked to a Track2 person yet.'),
+          note('how', `Open ${state.linkUrl} while signed in to Track2, then try again.`),
         ],
         // No on_submit_callback: Asana disables the submit button.
       },
     }
   }
 
-  const what = v.what === 'stop' && !state.running ? 'start' : v.what
   const fields: Record<string, unknown>[] = []
-  if (state.formError) fields.push({ id: 'form_error', type: 'static_text', name: clip(state.formError, 300) })
-  fields.push({
-    id: 'what',
-    type: 'radio_button',
-    name: 'What',
-    is_required: true,
-    is_watched: true,
-    options: whatOptions(state.running),
-    value: what,
-    ...(errors.what ? { error: errors.what } : {}),
-  })
+  if (state.formError) fields.push(note('form_error', state.formError))
 
-  if (what !== 'stop') {
-    fields.push({
-      id: 'project',
-      type: 'typeahead',
-      name: 'Project',
-      is_required: true,
-      is_watched: true,
-      typeahead_url: state.urls.projects,
-      placeholder: 'Search your projects',
-      ...(v.projectId ? { value: { title: v.projectTitle ?? 'Project', value: v.projectId, ...(v.projectSubtitle ? { subtitle: v.projectSubtitle } : {}) } } : {}),
-      ...(errors.project ? { error: errors.project } : {}),
-    })
-    if (v.projectId) {
-      const options = state.tasks.slice(0, MAX_OPTIONS).map((t) => ({ id: t.id, label: clip(t.label, 80) }))
-      const taskValue = options.some((o) => o.id === v.taskId) ? v.taskId : null
-      fields.push(
-        options.length
-          ? { id: 'task', type: 'dropdown', name: 'Task', is_required: true, is_watched: true, options, ...(taskValue ? { value: taskValue } : {}), ...(errors.task ? { error: errors.task } : {}) }
-          : { id: 'task_none', type: 'static_text', name: 'This project has no tasks you can track time to.' },
-      )
-    }
-    fields.push({
-      id: 'notes',
-      type: 'multi_line_text',
-      name: 'Notes',
-      placeholder: 'Notes (optional)',
-      value: clip(v.notes, 3000),
-      ...(errors.notes ? { error: errors.notes } : {}),
-    })
-    if (what === 'log') {
-      fields.push(
-        { id: 'hours', type: 'single_line_text', name: 'Hours', is_required: true, width: 'half', placeholder: '1.5 or 1:30', value: clip(v.hours, 200), ...(errors.hours ? { error: errors.hours } : {}) },
-        { id: 'date', type: 'date', name: 'Date', is_required: true, value: v.date, ...(errors.date ? { error: errors.date } : {}) },
-      )
-    }
+  if (isStopForm(state)) {
+    fields.push(note('running', `Your timer is running: ${state.running!.label}`), note('stop_hint', 'Submit to stop the timer.'))
+    if (state.totalLine) fields.push(note('total', state.totalLine))
+    return { template: 'form_metadata_v0', metadata: { title: 'Stop timer', fields, on_submit_callback: state.urls.submit } }
   }
 
+  fields.push({
+    id: 'project',
+    type: 'typeahead',
+    name: 'Project',
+    is_required: true,
+    is_watched: true,
+    typeahead_url: state.urls.projects,
+    placeholder: 'Search your projects',
+    ...(v.projectId ? { value: { title: v.projectTitle ?? 'Project', value: v.projectId, ...(v.projectSubtitle ? { subtitle: v.projectSubtitle } : {}) } } : {}),
+    ...(errors.project ? { error: errors.project } : {}),
+  })
+  if (v.projectId) {
+    const options = state.tasks.slice(0, MAX_OPTIONS).map((t) => ({ id: t.id, label: clip(t.label, 80) }))
+    const taskValue = options.some((o) => o.id === v.taskId) ? v.taskId : null
+    fields.push(
+      options.length
+        ? { id: 'task', type: 'dropdown', name: 'Task', is_required: true, options, ...(taskValue ? { value: taskValue } : {}), ...(errors.task ? { error: errors.task } : {}) }
+        : note('task_none', 'This project has no tasks you can track time to.'),
+    )
+  }
+  fields.push(
+    { id: 'notes', type: 'multi_line_text', name: 'Notes', placeholder: 'Notes (optional)', value: clip(v.notes, 3000), ...(errors.notes ? { error: errors.notes } : {}) },
+    { id: 'hours', type: 'single_line_text', name: 'Duration', width: 'half', placeholder: 'Blank starts a timer', value: clip(v.hours, 200), ...(errors.hours ? { error: errors.hours } : {}) },
+    { id: 'date', type: 'date', name: 'Date', is_required: true, width: 'half', value: v.date, ...(errors.date ? { error: errors.date } : {}) },
+    note('submit_hint', 'Leave Duration blank and submit to start a timer, or enter time (1:30 or 1.5) to save an entry.'),
+  )
+  if (state.running) fields.push(note('running', `Starting a timer stops your running one: ${state.running.label}`))
+  if (state.totalLine) fields.push(note('total', state.totalLine))
+
   // Leaving out on_submit_callback disables Submit until the form can succeed.
-  const ready = what === 'stop' || (!!v.projectId && state.tasks.some((t) => t.id === v.taskId))
+  const ready = !!v.projectId && state.tasks.some((t) => t.id === v.taskId)
   return {
     template: 'form_metadata_v0',
     metadata: {
@@ -144,13 +134,9 @@ export function buildForm(state: FormState): FormMetadata {
 
 const text = (v: unknown): string => (v == null ? '' : typeof v === 'string' ? v : String(v))
 
-/** Normalize Asana's `values` (radio/dropdown → id, typeahead → item object, date → ISO). */
+/** Normalize Asana's `values` (dropdown → id, typeahead → item object, date → ISO). */
 export function readValues(raw: Record<string, unknown>, defaults: FormValues): FormValues {
   const out = { ...defaults }
-  if ('what' in raw) {
-    const w = text(raw.what)
-    out.what = w === 'log' || w === 'stop' ? w : 'start'
-  }
   if ('project' in raw) {
     const p = raw.project
     if (p && typeof p === 'object') {
@@ -171,6 +157,11 @@ export function readValues(raw: Record<string, unknown>, defaults: FormValues): 
   return out
 }
 
+/** Did the submitted form have the track-time fields? (The stop-only form has none.) */
+export function hasTrackFields(raw: Record<string, unknown>): boolean {
+  return 'project' in raw || 'task' in raw || 'hours' in raw
+}
+
 /** On a project change the old task no longer applies: pick the first (recently used) task instead. */
 export function afterChange(values: FormValues, changedField: string | null, tasks: Option[]): FormValues {
   if (changedField === 'project' || !tasks.some((t) => t.id === values.taskId)) {
@@ -180,9 +171,8 @@ export function afterChange(values: FormValues, changedField: string | null, tas
 }
 
 export type Command =
-  | { kind: 'start'; projectId: string; taskId: string; notes: string }
+  | { kind: 'start'; projectId: string; taskId: string; notes: string; date: string }
   | { kind: 'log'; projectId: string; taskId: string; notes: string; minutes: number; date: string }
-  | { kind: 'stop' }
 
 const MAX_LOG_MINUTES = 24 * 60
 
@@ -192,29 +182,30 @@ function validYmd(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }
 
-/** Validate a submission (AC-ASANAAPP-005–007). Field errors are shown on the re-rendered form. */
+/**
+ * Validate a track-time submission (AC-ASANAAPP-005/006): blank Duration starts a timer, a duration
+ * saves an entry. Field errors are shown on the re-rendered form.
+ */
 export function toCommand(
   v: FormValues,
-  ctx: { tasks: Option[]; hasRunningTimer: boolean },
+  ctx: { tasks: Option[] },
 ): { ok: true; command: Command } | { ok: false; errors: Partial<Record<FieldId, string>> } {
-  if (v.what === 'stop') {
-    return ctx.hasRunningTimer ? { ok: true, command: { kind: 'stop' } } : { ok: false, errors: { what: 'No timer is running.' } }
-  }
   const errors: Partial<Record<FieldId, string>> = {}
   if (!v.projectId) errors.project = 'Choose a project.'
   else if (!v.taskId || !ctx.tasks.some((t) => t.id === v.taskId)) errors.task = 'Choose a task.'
+  if (!validYmd(v.date)) errors.date = 'Choose a date.'
   const notes = v.notes.trim().slice(0, 3000)
+  const raw = v.hours.trim()
   let minutes = 0
-  if (v.what === 'log') {
-    const m = parseDurationToMinutes(v.hours)
-    if (m == null || m <= 0) errors.hours = 'Enter hours like 1.5 or 1:30.'
+  if (raw) {
+    const m = parseDurationToMinutes(raw)
+    if (m == null || m <= 0) errors.hours = 'Enter time like 1:30 or 1.5, or leave it blank to start a timer.'
     else if (m > MAX_LOG_MINUTES) errors.hours = 'That’s more than 24 hours.'
     else minutes = m
-    if (!validYmd(v.date)) errors.date = 'Choose a date.'
   }
   if (Object.keys(errors).length) return { ok: false, errors }
-  const base = { projectId: v.projectId as string, taskId: v.taskId as string, notes }
-  return v.what === 'log' ? { ok: true, command: { kind: 'log', ...base, minutes, date: v.date } } : { ok: true, command: { kind: 'start', ...base } }
+  const base = { projectId: v.projectId as string, taskId: v.taskId as string, notes, date: v.date }
+  return raw ? { ok: true, command: { kind: 'log', ...base, minutes } } : { ok: true, command: { kind: 'start', ...base } }
 }
 
 /** Tasks for the dropdown: the person's recently used first, then alphabetical (case-insensitive). */

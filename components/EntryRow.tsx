@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 import { updateTimeEntryAction, deleteTimeEntryAction, type EditTimeState } from '@/app/timesheet/actions'
+import { ExternalTaskLink } from '@/components/ExternalTaskLink'
 
 export interface EntryRowData {
   id: string
@@ -19,6 +20,9 @@ export interface EntryRowData {
   userId: string
   /** False when the viewer may see but not change this entry (a PM on a project they don't manage). */
   canEdit?: boolean
+  /** The Asana task (or other work item) this time was tracked from (specs/29). */
+  externalService?: string | null
+  externalUrl?: string | null
 }
 
 const input = 'rounded border border-gray-300 px-2 py-1 text-sm'
@@ -111,6 +115,11 @@ export function EntryRow({ entry, layout = 'list' }: { entry: EntryRowData; layo
           <div className="font-semibold text-gray-900">{entry.projectLabel}</div>
           <div className="text-gray-700">{entry.taskName}</div>
           {entry.notes && <div className="mt-0.5 whitespace-pre-line text-xs text-gray-500">{entry.notes}</div>}
+          {entry.externalUrl && (
+            <div className="mt-0.5">
+              <ExternalTaskLink service={entry.externalService} url={entry.externalUrl} />
+            </div>
+          )}
         </div>
         {!entry.isBillable && <span className="mt-1 shrink-0 text-xs text-gray-400">non-billable</span>}
         <span className="w-16 shrink-0 text-right text-base font-semibold tabular-nums text-gray-900">
@@ -128,6 +137,11 @@ export function EntryRow({ entry, layout = 'list' }: { entry: EntryRowData; layo
         <span className="font-medium text-gray-900">{entry.projectLabel}</span>
         <span className="text-gray-500"> · {entry.taskName}</span>
         {entry.notes && <span className="text-gray-400"> — {entry.notes}</span>}
+        {entry.externalUrl && (
+          <span className="ml-2">
+            <ExternalTaskLink service={entry.externalService} url={entry.externalUrl} />
+          </span>
+        )}
       </span>
       {!entry.isBillable && <span className="shrink-0 text-xs text-gray-400">non-billable</span>}
       <span className="w-14 shrink-0 text-right tabular-nums">

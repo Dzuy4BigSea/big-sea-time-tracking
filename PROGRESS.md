@@ -9,9 +9,11 @@ _Last updated: 2026-10-15._
 **Everything still open is tracked in [OPEN-ITEMS.md](OPEN-ITEMS.md)** (Vercel settings, decisions, cutover, Chasity, phase 2).
 
 ### ⏱️ Track time from Asana tasks: Track2 Asana app (2026-10-19, branch `claude/todo-list-review-d6b1fe`, not deployed)
-- Replaces Harvest's Asana integration with an official **Asana app** (App Components): a **Track time** form on
-  every Asana task (start a timer / log hours / stop my timer, project + task, notes = the Asana task name) and a
-  **Track2 card** on the task showing hours tracked. No browser extension; works in Asana web, desktop and mobile.
+- Replaces Harvest's Asana integration with an official **Asana app** (App Components), following Harvest's flow:
+  a **Track time** form on every Asana task (project + task, notes = the Asana task name, Duration blank = start a
+  timer / filled = save an entry, total tracked to the task at the bottom; stop-only form while your timer runs on
+  that task) and a **Track2 card** on the task showing hours tracked. Entries show "↗ Asana task" on the timesheet
+  and detailed report. No browser extension; works in Asana web, desktop and mobile.
   Spec: [29](specs/29-asana-app.md). Setup: OPS.md §14.
 - Time entries now keep the Asana link (`TimeEntry.externalService/externalId/externalGroupId/externalPermalink`,
   migration `20261019120000_time_entry_external_ref`). Form defaults use it: the last project/task used on that

@@ -8,7 +8,7 @@ import { currentUserForToken, type CurrentUser } from '@/lib/session'
 import { actorOf, loggableProjectsFor, managedProjectIdsFor } from '@/lib/timesheetSubject'
 import { todayYmdIn } from '@/lib/tz'
 import { getAsanaTask, getAsanaUserEmail, type AsanaTaskInfo } from '@/modules/integrations/asanaClient'
-import { ASANA, asanaTaskUrl, type ExternalRef } from '@/modules/integrations/externalRef'
+import { ASANA, asanaTaskUrl, safePermalink, type ExternalRef } from '@/modules/integrations/externalRef'
 import { checkGet, checkPost, corsHeaders, SIGNATURE_HEADER, type AsanaCall } from '@/modules/integrations/asanaApp/request'
 import { asanaAppConfig, ASANA_APP_BASE_PATH, type AsanaAppConfig } from '@/modules/integrations/asanaApp/oauth'
 import { orderTasks, type FormState, type FormValues, type Option } from '@/modules/integrations/asanaApp/form'
@@ -123,7 +123,7 @@ export async function asanaTaskFor(ctx: AsanaAppContext): Promise<AsanaTaskInfo 
 /** The link stored on entries tracked from this Asana task. */
 export function externalRefFor(task: AsanaTaskInfo): ExternalRef {
   const group = task.projectGids[0] ?? null
-  return { externalService: ASANA, externalId: task.gid, externalGroupId: group, externalPermalink: task.permalink ?? asanaTaskUrl(task.gid, group) }
+  return { externalService: ASANA, externalId: task.gid, externalGroupId: group, externalPermalink: safePermalink(task.permalink) ?? asanaTaskUrl(task.gid, group) }
 }
 
 const projectTitle = (p: { name: string; code: string | null }) => (p.code ? `[${p.code}] ${p.name}` : p.name)
@@ -203,7 +203,7 @@ export async function runningTimerFor(me: CurrentUser, taskGid: string | null, n
 }
 
 /** The form's starting values for this person and Asana task. */
-export async function initialValues(me: CurrentUser, task: AsanaTaskInfo | null, running: { onThisTask: boolean } | null, now: Date): Promise<FormValues> {
+export async function initialValues(me: CurrentUser, task: AsanaTaskInfo | null, now: Date): Promise<FormValues> {
   const [clock, def] = await Promise.all([getAccountClock(me.accountId), defaultProjectTask(me, task)])
   let projectTitleText: string | null = null
   let projectSubtitle: string | null = null
@@ -215,7 +215,6 @@ export async function initialValues(me: CurrentUser, task: AsanaTaskInfo | null,
     }
   }
   return {
-    what: running?.onThisTask ? 'stop' : 'start',
     projectId: def?.projectId ?? null,
     projectTitle: projectTitleText,
     projectSubtitle,
@@ -229,16 +228,28 @@ export async function initialValues(me: CurrentUser, task: AsanaTaskInfo | null,
 /** Values for fields Asana didn't send (hidden ones): nothing chosen, date = the account's today. */
 export async function baseValues(me: CurrentUser, now: Date): Promise<FormValues> {
   const clock = await getAccountClock(me.accountId)
-  return { what: 'start', projectId: null, projectTitle: null, projectSubtitle: null, taskId: null, notes: '', hours: '', date: todayYmdIn(clock.timezone, now) }
+  return { projectId: null, projectTitle: null, projectSubtitle: null, taskId: null, notes: '', hours: '', date: todayYmdIn(clock.timezone, now) }
 }
 
 /** Everything buildForm needs, for an already-resolved person and values. */
 export async function formState(ctx: AsanaAppContext, me: CurrentUser | null, values: FormValues | null, extra: Partial<FormState> = {}): Promise<FormState> {
   const urls = appUrls(ctx.appUrl)
-  const blank: FormValues = { what: 'start', projectId: null, projectTitle: null, projectSubtitle: null, taskId: null, notes: '', hours: '', date: '' }
+  const blank: FormValues = { projectId: null, projectTitle: null, projectSubtitle: null, taskId: null, notes: '', hours: '', date: '' }
   if (!me) return { linked: false, linkUrl: urls.link, values: values ?? blank, tasks: [], running: null, urls, ...extra }
-  const [running, tasks] = await Promise.all([runningTimerFor(me, ctx.call.task, ctx.now), taskOptions(me, values?.projectId ?? null)])
-  return { linked: true, linkUrl: urls.link, values: values ?? blank, tasks, running, urls, ...extra }
+  const [running, tasks, totalLine] = await Promise.all([
+    runningTimerFor(me, ctx.call.task, ctx.now),
+    extra.tasks ? Promise.resolve(extra.tasks) : taskOptions(me, values?.projectId ?? null),
+    ctx.call.task ? taskTotalLine(me, ctx.call.task, ctx.now) : Promise.resolve(null),
+  ])
+  return { linked: true, linkUrl: urls.link, values: values ?? blank, tasks, running, totalLine, urls, ...extra }
+}
+
+/** "14:00 tracked to this task" for the form's footer, as Harvest's popup shows (null when none). */
+export async function taskTotalLine(me: CurrentUser, taskGid: string, now: Date): Promise<string | null> {
+  const n = await widgetNumbers(me, taskGid, now)
+  if (!n.entryCount) return null
+  const total = `${formatMinutes(n.visibleMinutes, n.display)}${n.display === 'decimal' ? ' h' : ''}`
+  return n.everyone ? `${total} tracked to this task in Track2` : `${total} tracked by you to this task in Track2`
 }
 
 /**

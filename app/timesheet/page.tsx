@@ -113,6 +113,8 @@ export default async function TimesheetPage({
     minutesLabel: formatMinutes(e.minutes),
     userId,
     canEdit: managed === null || managed.has(e.projectId),
+    externalService: e.externalService,
+    externalUrl: e.externalPermalink,
   })
 
   const isDay = nav.view === 'day'

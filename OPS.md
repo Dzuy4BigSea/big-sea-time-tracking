@@ -708,8 +708,9 @@ in Xero by hand. A Xero invoice that is VOIDED or DELETED is not re-created, and
 
 ## 14. Asana app: track time from Asana tasks (specs/29)
 
-Replaces Harvest's Asana integration. People click **Track time** on an Asana task to start a timer, log
-hours or stop their timer in Track2; a **Track2** card on the task shows the hours tracked against it.
+Replaces Harvest's Asana integration with the same flow: **Track time** on an Asana task → project, task,
+notes, Duration (blank starts a timer, a duration saves an entry); with a timer running on that task the form
+stops it. A **Track2** card on the task shows the hours tracked against it.
 Works in Asana on the web, desktop and mobile; nobody installs a browser extension.
 
 ### Setup (once)
@@ -750,6 +751,7 @@ hours or lock state; safe to re-run. The importer and `rebuild-timesheets.mjs` c
 ### Known limits
 - Asana's card has no buttons: stopping a timer is done from **Track time** (or in Track2). The card's
   numbers are as of when the task was opened.
+- Unlike Harvest, totals don't appear in Asana's List/Board views (Asana apps only show in the task pane).
 - Each submit returns the same Track2 link for the task; if Asana adds a second card instead of reusing
   the first, delete the extra attachment (to check on the first real use).
 - The Task dropdown shows up to 50 tasks (Asana's limit), the person's recently used first.
