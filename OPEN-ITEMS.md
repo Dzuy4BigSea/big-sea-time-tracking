@@ -73,6 +73,16 @@ Without these the code works, but parts of the trail stay empty. Steps in OPS.md
 - [ ] GitHub secrets: add `HARVEST_TOKEN`, delete the bad `INTEGRATION_ENC_KEY`; then `parity-check` and `sync-assignments`.
 - [ ] Revoke the `HARVEST_TOKEN` personal access token after cutover.
 
+## 2d. Asana app go-live (Dzuy; OPS.md §14, spec 29)
+- [ ] Run migration `20261019120000_time_entry_external_ref` in the Supabase SQL editor before deploying.
+- [ ] Create the Track2 app in Asana (OAuth redirect URL, Authentication URL, form + widget URLs, widget match
+  pattern, distribution = Big Sea workspace only).
+- [ ] Vercel (Production): `ASANA_APP_CLIENT_ID`, `ASANA_APP_CLIENT_SECRET`; redeploy.
+- [ ] Add the app to the active Asana projects (Customize → + Add app → Track2) or the project templates.
+- [ ] Backfill Harvest's Asana links: `scripts/backfill-external-refs.mjs` dry run, then `--apply`.
+- [ ] First real use: start + stop a timer and log hours from an Asana task; check the card, and whether a second
+  submit adds a duplicate card.
+
 ## 3. Decisions (Dzuy, after the cost review)
 - [ ] **Vercel plan**: Hobby is for non-commercial use; Pro allows commercial use and hourly crons.
 - [ ] **Re-enable the parked GitHub Actions** (`ops/workflows/` → `.github/workflows/`, OPS.md §2):
@@ -106,6 +116,7 @@ Without these the code works, but parts of the trail stay empty. Steps in OPS.md
 - [ ] Assigned people access (BugHerd #20, spec 28 §3.3): managers approve, report on and edit their
   people. Data model and admin UI already exist; the permission changes don't.
 - [x] Rich-text project notes (#24): editable on New/Edit project (2026-10-14, branch `claude/laughing-ramanujan-exgc34`).
+- [x] Track time from Asana tasks (Asana app, spec 29): built 2026-10-19, go-live steps in 2d.
 - [ ] Invoice message templates (#22), recurring project hours (#23).
 - [ ] Recurring invoices that send automatically (spec 27).
 - [ ] Receipt file uploads (needs file storage), expense quantities column, manager scope on the

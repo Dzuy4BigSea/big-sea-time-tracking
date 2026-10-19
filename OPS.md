@@ -705,3 +705,53 @@ number first.
 
 **Not handled automatically:** deleting a payment in Track2 does not delete it in Xero. Void or delete it
 in Xero by hand. A Xero invoice that is VOIDED or DELETED is not re-created, and the trace says so.
+
+## 14. Asana app: track time from Asana tasks (specs/29)
+
+Replaces Harvest's Asana integration with the same flow: **Track time** on an Asana task → project, task,
+notes, Duration (blank starts a timer, a duration saves an entry); with a timer running on that task the form
+stops it. A **Track2** card on the task shows the hours tracked against it.
+Works in Asana on the web, desktop and mobile; nobody installs a browser extension.
+
+### Setup (once)
+1. **Database**: run `prisma/migrations/20261019120000_time_entry_external_ref/migration.sql` in the
+   Supabase SQL editor **before** deploying (adds four nullable columns + two indexes; instant).
+2. **Asana connection** must exist: Settings → Integrations → Asana with a token and the Workspace GID
+   (already used for the people/project import). The app finds the Track2 account by that workspace GID,
+   and uses the token to read task names and to match people by email.
+3. **Create the app**: https://app.asana.com/0/my-apps → Create new app ("Track2").
+   - **OAuth** tab: add redirect URL `https://track2.bigseabridge.com/api/integrations/asana/app/auth/callback`.
+     Copy the client ID and client secret.
+   - **App Components** tab:
+     - Authentication URL: `https://track2.bigseabridge.com/api/integrations/asana/app/auth`
+     - Modal form: form metadata URL `https://track2.bigseabridge.com/api/integrations/asana/app/form`,
+       action text "Track time".
+     - Widget: metadata URL `https://track2.bigseabridge.com/api/integrations/asana/app/widget`, match URL
+       pattern `^https://track2\.bigseabridge\.com/asana/t/\d+$`.
+   - **Manage distribution**: Specific workspace → add the Big Sea workspace. No Asana review is needed.
+4. **Vercel** (Production only): `ASANA_APP_CLIENT_ID`, `ASANA_APP_CLIENT_SECRET`; redeploy. Until both
+   are set every app endpoint answers 503.
+5. **Add it to projects**: in Asana, a project → Customize → + Add app → Track2 → Connect (signs you in to
+   Track2 and Asana once). Repeat per project, or add it to the project templates.
+
+### Who is who
+Asana sends its user ID with every call. Track2 matches it to a person by `User.asanaUserGid` (set by the
+people import), else by the Asana user's email (then saved). Anyone still unmatched sees "link your Track2
+account" in the form; opening `https://track2.bigseabridge.com/api/integrations/asana/app/auth` while signed
+in to Track2 links them.
+
+### Backfill the Harvest links (once, after the migration above)
+```bash
+ACCOUNT_ID=acc_demo node --env-file=.env scripts/backfill-external-refs.mjs           # dry run: counts
+ACCOUNT_ID=acc_demo node --env-file=.env scripts/backfill-external-refs.mjs --apply   # write
+```
+Reads the stored Harvest snapshots; fills only entries with no link yet; doesn't change `updatedAt`,
+hours or lock state; safe to re-run. The importer and `rebuild-timesheets.mjs` carry links from now on.
+
+### Known limits
+- Asana's card has no buttons: stopping a timer is done from **Track time** (or in Track2). The card's
+  numbers are as of when the task was opened.
+- Unlike Harvest, totals don't appear in Asana's List/Board views (Asana apps only show in the task pane).
+- Each submit returns the same Track2 link for the task; if Asana adds a second card instead of reusing
+  the first, delete the extra attachment (to check on the first real use).
+- The Task dropdown shows up to 50 tasks (Asana's limit), the person's recently used first.

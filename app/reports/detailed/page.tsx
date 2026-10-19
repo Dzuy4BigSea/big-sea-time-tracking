@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ExternalTaskLink } from '@/components/ExternalTaskLink'
 import { requireUser } from '@/lib/session'
 import { accountWeekStartsOn } from '@/lib/accountPrefs'
 import { formatCents } from '@/lib/format'
@@ -170,6 +171,11 @@ function TimeRow({ r, showDate }: { r: DetailedTimeRow; showDate: boolean }) {
       <td className="px-4 py-2.5 text-gray-900">
         <Link href={`/projects/${r.projectId}`} className="hover:text-brand-teal">{r.projectCode ? `[${r.projectCode}] ${r.projectName}` : r.projectName}</Link>
         {r.notes && <div className="mt-1 whitespace-pre-line text-xs text-gray-500">{r.notes}</div>}
+        {r.externalPermalink && (
+          <div className="mt-0.5">
+            <ExternalTaskLink service={r.externalService} url={r.externalPermalink} />
+          </div>
+        )}
       </td>
       <td className="px-4 py-2.5 text-gray-800">{r.taskName}</td>
       <td className="px-4 py-2.5 text-gray-600">{(r.roles ?? []).join(', ')}</td>

@@ -25,6 +25,7 @@ import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import { fromHarvestReference } from '@/modules/integrations/externalRef'
 import {
   decideExpenseUpdate, decideTimeEntryUpdate, harvestUpdatedAt, invoiceChangedInTrack2,
   isMigrationLocked, MIGRATION_LOCKED_MESSAGE,
@@ -335,6 +336,8 @@ const STAGES: Stage[] = [
         isBillable: te.billable ?? true,
         billableRateCents: centsOrNull(te.billable_rate),
         lockState,
+        // Harvest's link to the Asana task the time was tracked from (specs/29).
+        ...externalRefData(te.external_reference),
       }
       // Stamp updatedAt with Harvest's whole-second updated_at so a later Track2 edit (ms precision)
       // is detectable and an older snapshot can never roll the row back (protect.ts).
@@ -621,6 +624,17 @@ async function ensureAssignments(ctx: Ctx, projectId: string, taskId: string, us
       create: { accountId: ctx.accountId, projectId, userId },
       update: {},
     })
+  }
+}
+
+/** TimeEntry external-link columns from a Harvest external_reference (all null when there is none). */
+function externalRefData(ref: unknown) {
+  const r = fromHarvestReference(ref)
+  return {
+    externalService: r?.externalService ?? null,
+    externalId: r?.externalId ?? null,
+    externalGroupId: r?.externalGroupId ?? null,
+    externalPermalink: r?.externalPermalink ?? null,
   }
 }
 

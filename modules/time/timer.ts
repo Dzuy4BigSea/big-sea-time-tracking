@@ -20,6 +20,7 @@ import {
 import { resolveEntryRate } from '@/modules/time/logTime'
 import { timeEntryAuditData, timeEntrySnapshot } from '@/modules/time/timeAudit'
 import { todayIn } from '@/lib/tz'
+import type { ExternalRef } from '@/modules/integrations/externalRef'
 
 export interface StartTimerResult {
   entry: TimeEntry
@@ -44,6 +45,8 @@ export async function startTimer(
     notes?: string | null
     /** Who clicked Start (defaults to the timer's owner); differs when acting for a teammate. */
     actorUserId?: string
+    /** The work item the timer is tracked against, e.g. an Asana task (specs/29). */
+    external?: ExternalRef | null
   },
 ): Promise<StartTimerResult> {
   // The entry is dated to the chosen day (defaults to the account's today); the timer runs live from now.
@@ -97,6 +100,7 @@ export async function startTimer(
           billableRateCents,
           isRunning: true,
           timerStartedAt: input.now,
+          ...(input.external ?? {}),
         },
       })
       await tx.auditLog.create({
