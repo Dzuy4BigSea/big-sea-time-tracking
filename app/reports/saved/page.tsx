@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
-import { requireUser } from '@/lib/session'
+import { requireUser, userCan } from '@/lib/session'
 import { ReportsTabs } from '@/components/ReportsTabs'
 import { DropdownMenu } from '@/components/DropdownMenu'
 import { SavedReportActions } from '@/components/SavedReportActions'
@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic'
 /** Saved reports tab (Harvest): All / My reports / Shared with me / Archived, newest first. specs/25. */
 export default async function SavedReportsPage({ searchParams }: { searchParams: { show?: string } }) {
   const me = await requireUser()
+  const isAdmin = userCan(me, 'edit_account_settings')
   const filter: SavedFilter = SAVED_FILTERS.find((x) => x.key === searchParams.show)?.key ?? 'all'
 
   // Everything this person may see: their own plus anything shared in the account.
@@ -91,7 +92,7 @@ export default async function SavedReportsPage({ searchParams }: { searchParams:
                   <td className="px-4 py-3 text-right">
                     <SavedReportActions
                       report={{ id: r.id, name: r.name, shared: r.shared, archived: r.archivedAt != null }}
-                      canEdit={canEdit(r, me.userId, me.permissionProfile)}
+                      canEdit={canEdit(r, me.userId, isAdmin)}
                     />
                   </td>
                 </tr>

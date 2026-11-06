@@ -8,7 +8,7 @@ import * as React from 'react'
 import { prisma } from '@/lib/prisma'
 import type { CurrentUser } from '@/lib/session'
 import type { Actor, PermissionProfile } from '@/modules/shared/permissions'
-import { isCapabilityScoped } from '@/modules/shared/permissions'
+import { can, isCapabilityScoped } from '@/modules/shared/permissions'
 import { canActFor, canActForOthers, LOGGABLE_PROJECT_WHERE } from '@/modules/time/actingFor'
 
 /**
@@ -81,10 +81,11 @@ const managedProjectIdList = perRequest(async (accountId: string, userId: string
 
 /**
  * mayActFor narrowed to one project: a project manager may act for someone only on projects they
- * manage, not on every project that person is on.
+ * manage, not on every project that person is on. Changing one's own time or expenses needs
+ * `track_own_time` (every profile has it; an admin can revoke it per person).
  */
 export async function mayActForOnProject(current: CurrentUser, targetUserId: string, projectId: string): Promise<boolean> {
-  if (targetUserId === current.userId) return true
+  if (targetUserId === current.userId) return can(actorOf(current), 'track_own_time')
   if (!(await mayActFor(current, targetUserId))) return false
   const managed = await managedProjectIdsFor(current)
   return managed === null || managed.has(projectId)

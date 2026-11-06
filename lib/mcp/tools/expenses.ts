@@ -233,13 +233,13 @@ const updateExpense: Tool = {
       select: { id: true, userId: true, projectId: true, totalCents: true, lockState: true, invoiceLineItemId: true, category: { select: { id: true, name: true, unitPriceCents: true } } },
     })
     // Same guard as the Expenses page: owner, or someone who may edit their time on this project.
-    if (!e || (e.userId !== ctx.user.userId && !(await mayActForOnProject(ctx.user, e.userId, e.projectId)))) throw notFound('Expense')
+    if (!e || !(await mayActForOnProject(ctx.user, e.userId, e.projectId))) throw notFound('Expense')
     if (e.lockState === 'invoiced' || e.invoiceLineItemId) throw invalid('This expense is on an invoice and can’t be changed.')
     const data: Prisma.ExpenseUncheckedUpdateManyInput = {}
     if (args.project_id !== undefined && String(args.project_id) !== e.projectId) {
       const project = await prisma.project.findFirst({ where: { id: String(args.project_id), accountId }, select: { id: true } })
       if (!project) throw notFound('Project')
-      if (e.userId !== ctx.user.userId && !(await mayActForOnProject(ctx.user, e.userId, project.id))) throw forbidden('You can only move expenses to projects you manage.')
+      if (!(await mayActForOnProject(ctx.user, e.userId, project.id))) throw forbidden('You can only move expenses to projects you manage.')
       data.projectId = project.id
     }
     let category = e.category

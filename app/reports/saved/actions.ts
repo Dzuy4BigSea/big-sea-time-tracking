@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { requireUser } from '@/lib/session'
+import { requireUser, userCan } from '@/lib/session'
 import { canEdit, canView, cleanParams, isSavedReportKind, savedReportHref } from '@/modules/reports/savedReports'
 
 export type SaveReportState = { error?: string }
@@ -22,7 +22,7 @@ const nameOf = (fd: FormData) => String(fd.get('name') ?? '').trim().slice(0, 20
 async function editable(id: string) {
   const me = await requireUser()
   const r = await prisma.savedReport.findFirst({ where: { id, accountId: me.accountId } })
-  return r && canEdit(r, me.userId, me.permissionProfile) ? { r, me } : null
+  return r && canEdit(r, me.userId, userCan(me, 'edit_account_settings')) ? { r, me } : null
 }
 
 /** "Save report" / "Save as new report": create from the current report's kind + params, then open it. */

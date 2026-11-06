@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import type { CurrentUser } from '@/lib/session'
+import { userCan, type CurrentUser } from '@/lib/session'
 import { canEdit, canView, cleanParams, sameParams, type SavedReportKind } from './savedReports'
 
 /**
@@ -15,7 +15,7 @@ export async function savedReportContext(me: CurrentUser, savedId: string | unde
     id: r.id,
     name: r.name,
     shared: r.shared,
-    canEdit: canEdit(r, me.userId, me.permissionProfile),
+    canEdit: canEdit(r, me.userId, userCan(me, 'edit_account_settings')),
     changed: !sameParams((r.params ?? {}) as Record<string, unknown>, current),
   }
 }

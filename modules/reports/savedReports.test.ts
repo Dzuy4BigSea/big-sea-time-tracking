@@ -25,9 +25,9 @@ describe('permissions', () => {
     expect(canView(r({}), me)).toBe(true)
     expect(canView(r({ createdById: other }), me)).toBe(false)
     expect(canView(r({ createdById: other, shared: true }), me)).toBe(true)
-    expect(canEdit(r({ createdById: other }), me, 'member')).toBe(false)
-    expect(canEdit(r({ createdById: other }), me, 'administrator')).toBe(true)
-    expect(canEdit(r({}), me, 'member')).toBe(true)
+    expect(canEdit(r({ createdById: other }), me, false)).toBe(false)
+    expect(canEdit(r({ createdById: other }), me, true)).toBe(true)
+    expect(canEdit(r({}), me, false)).toBe(true)
   })
 })
 

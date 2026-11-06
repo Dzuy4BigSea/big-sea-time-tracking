@@ -57,9 +57,9 @@ interface ReportLike {
 /** Who can open a saved report: its creator, or anyone in the account once it's shared. */
 export const canView = (r: ReportLike, userId: string) => r.createdById === userId || r.shared
 
-/** Who can rename / re-share / update / archive / delete it: the creator or an administrator. */
-export const canEdit = (r: Pick<ReportLike, 'createdById'>, userId: string, permissionProfile: string) =>
-  r.createdById === userId || permissionProfile === 'administrator'
+/** Who can rename / re-share / update / archive / delete it: the creator or an account admin. */
+export const canEdit = (r: Pick<ReportLike, 'createdById'>, userId: string, isAccountAdmin: boolean) =>
+  r.createdById === userId || isAccountAdmin
 
 /** Does a (viewable) report belong in the chosen list filter? */
 export function inFilter(r: ReportLike, userId: string, filter: SavedFilter): boolean {

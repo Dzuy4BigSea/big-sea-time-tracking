@@ -51,8 +51,8 @@ export async function createExpenseAction(_prev: NewExpenseState, formData: Form
 
   const subjectId = await resolveSubjectUserId(current, String(formData.get('forUserId') ?? ''))
   if (!subjectId) return { error: 'You can’t track expenses for that person.' }
-  if (subjectId !== current.userId && !(await mayActForOnProject(current, subjectId, projectId))) {
-    return { error: 'You can only track expenses for teammates on projects you manage.' }
+  if (!(await mayActForOnProject(current, subjectId, projectId))) {
+    return { error: subjectId === current.userId ? 'You don’t have permission to track expenses.' : 'You can only track expenses for teammates on projects you manage.' }
   }
 
   // Scope the referenced project + category to this account (INV-5); the project must be one the
@@ -111,7 +111,7 @@ async function expenseGuard(expenseId: string) {
     select: { userId: true, projectId: true, categoryId: true, lockState: true },
   })
   if (!exp) return null
-  if (exp.userId !== actor.userId && !(await mayActForOnProject(actor, exp.userId, exp.projectId))) return null
+  if (!(await mayActForOnProject(actor, exp.userId, exp.projectId))) return null
   if (exp.lockState === 'invoiced') return null // locked once billed
   return { actor, ownerId: exp.userId, categoryId: exp.categoryId }
 }
@@ -142,7 +142,7 @@ export async function updateExpenseAction(_prev: EditExpenseState, formData: For
   if ('error' in total) return { error: total.error }
   const totalCents = total.totalCents
   // Moving someone else's expense: the actor must also be allowed on the destination project.
-  if (guard.ownerId !== actor.userId && !(await mayActForOnProject(actor, guard.ownerId, projectId))) {
+  if (!(await mayActForOnProject(actor, guard.ownerId, projectId))) {
     return { error: 'You can only edit expenses on projects you manage.' }
   }
   const receipt = receiptUrlFrom(formData)

@@ -266,6 +266,7 @@ export async function addPersonRateAction(_prev: EditPersonState, formData: Form
   const startRaw = String(formData.get('startDate') ?? '').trim()
   const startDate = startRaw ? new Date(`${startRaw}T00:00:00.000Z`) : null
   if (cents == null) return { error: 'Enter a valid rate.' }
+  if (kind === 'cost' && !can(actor, 'view_cost_rates')) return { error: 'You do not have permission to set cost rates.' }
   const user = await prisma.user.findFirst({ where: { id, accountId }, select: { id: true } })
   if (!user) return { error: 'Person not found.' }
   if (kind === 'cost') {
