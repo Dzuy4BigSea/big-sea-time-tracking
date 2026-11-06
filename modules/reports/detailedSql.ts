@@ -96,6 +96,9 @@ export interface DetailedTimeRow {
   userId: string
   userName: string
   roles: string[]
+  /** The Asana task (or other work item) the entry was tracked from (specs/29). */
+  externalService: string | null
+  externalPermalink: string | null
 }
 
 export async function detailedTime(f: DetailedFilters, tf: Timeframe, scope: DetailedScope, limit: number | null = DETAILED_ROW_LIMIT) {
@@ -111,7 +114,7 @@ export async function detailedTime(f: DetailedFilters, tf: Timeframe, scope: Det
     ${TIME_FROM} WHERE ${w} GROUP BY ${g.key} ORDER BY MIN(${g.order}) ASC, ${g.key}`
   const rows = await prisma.$queryRaw<DetailedTimeRow[]>`
     SELECT te.id, ${g.key} AS "groupKey", te."spentDate", te.minutes, te.notes, te."isBillable",
-      ${invoicedSql('te')} AS invoiced, te."billableRateCents",
+      ${invoicedSql('te')} AS invoiced, te."billableRateCents", te."externalService", te."externalPermalink",
       c.id AS "clientId", c.name AS "clientName", p.id AS "projectId", p.name AS "projectName", p.code AS "projectCode",
       tk.name AS "taskName", u.id AS "userId", trim(u."firstName" || ' ' || u."lastName") AS "userName", u."roleTags" AS roles
     ${TIME_FROM} WHERE ${w}

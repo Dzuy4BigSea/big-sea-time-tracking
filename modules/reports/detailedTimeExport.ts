@@ -78,7 +78,7 @@ export async function detailedTimeBatch(
     : Prisma.empty
   const rows = await prisma.$queryRaw<Row[]>`
     SELECT te.id, ${g.key} AS "groupKey", te."spentDate", te.minutes, te.notes, te."isBillable",
-      ${invoicedSql} AS invoiced, te."billableRateCents",
+      ${invoicedSql} AS invoiced, te."billableRateCents", te."externalService", te."externalPermalink",
       c.id AS "clientId", c.name AS "clientName", p.id AS "projectId", p.name AS "projectName", p.code AS "projectCode",
       tk.name AS "taskName", u.id AS "userId", trim(u."firstName" || ' ' || u."lastName") AS "userName", u."roleTags" AS roles,
       ${k1} AS "_k1", to_char(te."spentDate", 'YYYY-MM-DD') AS "_d", lower(c.name) AS "_c", lower(p.name) AS "_p",

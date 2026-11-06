@@ -9,6 +9,7 @@ import type { PrismaClient } from '@prisma/client'
 import { resolveRate } from '@/modules/projects/resolveRate'
 import { loggableProjectError } from '@/modules/time/actingFor'
 import { timeEntryAuditData, timeEntrySnapshot } from '@/modules/time/timeAudit'
+import type { ExternalRef } from '@/modules/integrations/externalRef'
 
 export interface LogTimeInput {
   userId: string
@@ -19,6 +20,8 @@ export interface LogTimeInput {
   notes?: string
   /** Who logged it (defaults to userId); differs when acting for a teammate. Audited with the create. */
   actorUserId?: string
+  /** The work item it was tracked against, e.g. an Asana task (specs/29). */
+  external?: ExternalRef | null
 }
 
 export interface ResolvedEntryRate {
@@ -95,6 +98,7 @@ export async function logTime(prisma: PrismaClient, input: LogTimeInput) {
         notes: input.notes,
         isBillable,
         billableRateCents,
+        ...(input.external ?? {}),
       },
     })
     await tx.auditLog.create({

@@ -620,10 +620,20 @@ model TimeEntry {
   // rather than in MigrationIdMap — 388k leaf rows — so delta syncs can upsert in place.
   harvestId String?
 
+  // Link to the work item this time was tracked against (specs/29): an Asana task today, the same
+  // shape as Harvest's external_reference so migrated links carry over. service is normalized
+  // ("asana"); externalId = task gid, externalGroupId = project gid.
+  externalService   String?
+  externalId        String?
+  externalGroupId   String?
+  externalPermalink String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([accountId, harvestId])
+  @@index([accountId, externalService, externalId])
+  @@index([accountId, externalService, externalGroupId])
   @@index([accountId])
   @@index([userId, spentDate])
   @@index([projectId])

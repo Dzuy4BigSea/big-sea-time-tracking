@@ -89,6 +89,7 @@ Two independent capabilities:
 ### Scope for Track2 (phase 1)
 - **Import from Asana** (server-side OAuth, no extension needed): connect an Asana workspace, list its projects + members, and let an admin **select which to import**. Imported Asana projects create Track2 `Project` rows (mapped `asanaProjectGid`); imported members create/att `User` invites (mapped `asanaUserGid`). Re-running import is **idempotent** (matches on gid; updates name, skips existing).
 - **Browser extension** and per-task timer deep-linking are **documented but deferred** (a browser-extension build is a separate track). The timer's start-payload contract is specified so the extension can be added later without server changes.
+- **Superseded 2026-10-19 by [spec 29](29-asana-app.md):** in-task time tracking is an Asana app (App Components), not a browser extension; AC-ASANA-003 is met by AC-ASANAAPP-005.
 
 ### Data model
 - `Project.asanaProjectGid String? @unique` (per account), `User.asanaUserGid String?`.
